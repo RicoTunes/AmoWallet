@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AMOWALLET Admin Control Panel</title>
+    <style>
+        :root {
+            --bg-dark: #0a0a0f;
+            --bg-card: #12121a;
+            --bg-card-hover: #1a1a25;
+            --border-color: #2a2a3a;
+            --text-primary: #ffffff;
+            --text-secondary: #8888aa;
+            --accent-blue: #3b82f6;
+            --accent-green: #22c55e;
+            --accent-red: #ef4444;
+            --accent-yellow: #f59e0b;
+            --accent-purple: #8b5cf6;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        
+        /* Login Screen */
+        .login-screen {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%);
+        }
+        
+        .login-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 40px;
+            width: 100%;
+            max-width: 420px;
+        }
+        
+        .login-box h1 { font-size: 24px; margin-bottom: 8px; text-align: center; }
+        .login-box .subtitle { color: var(--text-secondary); text-align: center; margin-bottom: 32px; }
+        
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px; }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 12px 16px;
+            background: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 16px;
+        }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: var(--accent-blue); color: white; width: 100%; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-danger { background: var(--accent-red); color: white; }
+        .btn-success { background: var(--accent-green); color: white; }
+        .btn-warning { background: var(--accent-yellow); color: black; }
+        .btn-secondary { background: var(--bg-card-hover); color: var(--text-primary); border: 1px solid var(--border-color); }
+        
+        /* Dashboard */
+        .dashboard { display: none; }
+        
+        .header {
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header-left { display: flex; align-items: center; gap: 16px; }
+        .header h1 { font-size: 20px; }
+        
+        .env-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .env-badge.development { background: var(--accent-yellow); color: black; }
+        .env-badge.production { background: var(--accent-red); color: white; }
+        
+        .header-right { display: flex; align-items: center; gap: 16px; }
+        .admin-info { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); }
+        
+        .role-badge { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .role-badge.SUPER_ADMIN { background: var(--accent-purple); color: white; }
+        .role-badge.ADMIN { background: var(--accent-blue); color: white; }
+        .role-badge.OBSERVER { background: var(--text-secondary); color: black; }
+        
+        .main-content { padding: 24px; max-width: 1400px; margin: 0 auto; }
+        
+        /* Mode Banner */
+        .mode-banner {
+            padding: 16px 24px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .mode-banner.ACTIVE { background: linear-gradient(135deg, #166534 0%, #14532d 100%); border: 1px solid #22c55e; }
+        .mode-banner.READ_ONLY { background: linear-gradient(135deg, #854d0e 0%, #713f12 100%); border: 1px solid #f59e0b; }
+        .mode-banner.PAUSED { background: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%); border: 1px solid #ef4444; }
+        
+        .mode-info h2 { font-size: 18px; margin-bottom: 4px; }
+        .mode-info p { color: rgba(255,255,255,0.8); font-size: 14px; }
+        
+        /* Grid */
+        .grid { display: grid; gap: 24px; }
+        .grid-2 { grid-template-columns: repeat(2, 1fr); }
+        .grid-3 { grid-template-columns: repeat(3, 1fr); }
+        .grid-4 { grid-template-columns: repeat(4, 1fr); }
+        @media (max-width: 1200px) { .grid-4, .grid-3 { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 768px) { .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; } }
+        
+        /* Cards */
+        .card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .card-title { font-size: 16px; font-weight: 600; }
+        
+        /* Kill Switch */
+        .kill-switch-container { text-align: center; padding: 32px; }
+        .kill-switch-btn {
+            width: 200px;
+            height: 200px;
+            border-radius: 50%;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            border: 4px solid;
+            transition: all 0.3s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+        }
+        .kill-switch-btn.active {
+            background: linear-gradient(180deg, #22c55e 0%, #16a34a 100%);
+            border-color: #4ade80;
+            box-shadow: 0 0 40px rgba(34, 197, 94, 0.3);
+        }
+        .kill-switch-btn.paused {
+            background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%);
+            border-color: #f87171;
+            box-shadow: 0 0 40px rgba(239, 68, 68, 0.3);
+        }
+        .kill-switch-btn .icon { font-size: 48px; margin-bottom: 8px; }
+        
+        /* Toggle Switch */
+        .toggle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .toggle-row:last-child { border-bottom: none; }
+        .toggle-info { flex: 1; }
+        .toggle-name { font-weight: 500; margin-bottom: 2px; }
+        .toggle-desc { font-size: 12px; color: var(--text-secondary); }
+        
+        .toggle-switch { position: relative; width: 52px; height: 28px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #4a4a5a;
+            transition: 0.3s;
+            border-radius: 28px;
+        }
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 22px; width: 22px;
+            left: 3px; bottom: 3px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+        .toggle-switch input:checked + .toggle-slider { background-color: var(--accent-green); }
+        .toggle-switch input:checked + .toggle-slider:before { transform: translateX(24px); }
+        
+        /* Chain Grid */
+        .chain-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .chain-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px;
+            background: var(--bg-dark);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+        .chain-item.disabled { opacity: 0.5; border-color: var(--accent-red); }
+        .chain-name { font-weight: 500; text-transform: capitalize; }
+        
+        /* Audit Table */
+        .audit-table { width: 100%; border-collapse: collapse; }
+        .audit-table th, .audit-table td { text-align: left; padding: 12px; border-bottom: 1px solid var(--border-color); }
+        .audit-table th { color: var(--text-secondary); font-size: 12px; text-transform: uppercase; font-weight: 600; }
+        .audit-table td { font-size: 14px; }
+        .audit-action { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+        .audit-action.SET_GLOBAL_MODE { background: var(--accent-purple); }
+        .audit-action.TOGGLE_FEATURE { background: var(--accent-blue); }
+        .audit-action.TOGGLE_CHAIN { background: var(--accent-yellow); color: black; }
+        
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 16px; padding: 32px; max-width: 500px; width: 90%; }
+        .modal h2 { margin-bottom: 16px; }
+        .modal-warning { background: rgba(239, 68, 68, 0.1); border: 1px solid var(--accent-red); border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+        .countdown { font-size: 48px; font-weight: 700; text-align: center; color: var(--accent-red); margin: 20px 0; }
+        .modal-actions { display: flex; gap: 12px; margin-top: 24px; }
+        .modal-actions .btn { flex: 1; }
+        
+        /* Tabs */
+        .tabs { display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; }
+        .tab { padding: 8px 16px; background: transparent; border: none; color: var(--text-secondary); cursor: pointer; font-size: 14px; font-weight: 500; border-radius: 6px; transition: all 0.2s; }
+        .tab.active { background: var(--accent-blue); color: white; }
+        .tab:hover:not(.active) { background: var(--bg-card-hover); }
+        
+        /* Metrics */
+        .metric-card { text-align: center; padding: 24px; }
+        .metric-value { font-size: 36px; font-weight: 700; margin-bottom: 8px; }
+        .metric-label { color: var(--text-secondary); font-size: 14px; }
+        .metric-value.success { color: var(--accent-green); }
+        .metric-value.warning { color: var(--accent-yellow); }
+        .metric-value.danger { color: var(--accent-red); }
+        
+        /* Toast */
+        .toast-container { position: fixed; top: 24px; right: 24px; z-index: 2000; }
+        .toast {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px 24px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: slideIn 0.3s ease;
+        }
+        .toast.success { border-left: 4px solid var(--accent-green); }
+        .toast.error { border-left: 4px solid var(--accent-red); }
+        .toast.warning { border-left: 4px solid var(--accent-yellow); }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    </style>
+</head>
+<body>
+    <div class="toast-container" id="toastContainer"></div>
+    
+    <!-- Login Screen -->
+    <div class="login-screen" id="loginScreen">
+        <div class="login-box">
+            <h1>🔐 AMOWALLET</h1>
+            <p class="subtitle">Admin Control Panel</p>
+            <div class="form-group">
+                <label>Admin API Key</label>
+                <input type="password" id="apiKeyInput" placeholder="Enter your admin API key">
+            </div>
+            <div class="form-group" id="twoFactorGroup" style="display: none;">
+                <label>2FA Code</label>
+                <input type="text" id="twoFactorInput" placeholder="Enter 6-digit code" maxlength="6">
+            </div>
+            <button class="btn btn-primary" onclick="login()">Login</button>
+            <p style="text-align: center; margin-top: 16px; color: var(--text-secondary); font-size: 12px;">
+                🔒 Secure access only. All actions are logged.
+            </p>
+        </div>
+    </div>
+    
+    <!-- Dashboard -->
+    <div class="dashboard" id="dashboard">
+        <div class="header">
+            <div class="header-left">
+                <h1>🔐 AMOWALLET Admin</h1>
+                <span class="env-badge development" id="envBadge">DEVELOPMENT</span>
+            </div>
+            <div class="header-right">
+                <div class="admin-info">
+                    <span id="adminUsername">admin</span>
+                    <span class="role-badge SUPER_ADMIN" id="adminRole">SUPER_ADMIN</span>
+                </div>
+                <button class="btn btn-secondary" onclick="logout()">Logout</button>
+            </div>
+        </div>
+        
+        <div class="main-content">
+            <div class="mode-banner ACTIVE" id="modeBanner">
+                <div class="mode-info">
+                    <h2 id="modeTitle">✅ WALLET ACTIVE</h2>
+                    <p id="modeDesc">All features are enabled and operational</p>
+                </div>
+                <button class="btn btn-warning" onclick="showModeModal()">Change Mode</button>
+            </div>
+            
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('control')">🎛️ Controls</button>
+                <button class="tab" onclick="showTab('chains')">⛓️ Chains</button>
+                <button class="tab" onclick="showTab('monitoring')">📊 Monitoring</button>
+                <button class="tab" onclick="showTab('audit')">📝 Audit Logs</button>
+                <button class="tab" onclick="showTab('admins')">👥 Admins</button>
+            </div>
+            
+            <!-- Control Tab -->
+            <div class="tab-content" id="controlTab">
+                <div class="grid grid-2">
+                    <div class="card">
+                        <div class="card-header"><span class="card-title">🚨 Emergency Kill Switch</span></div>
+                        <div class="kill-switch-container">
+                            <button class="kill-switch-btn active" id="killSwitchBtn" onclick="toggleKillSwitch()">
+                                <span class="icon">⚡</span>
+                                <span id="killSwitchStatus">ACTIVE</span>
+                            </button>
+                            <p style="color: var(--text-secondary);">Click to pause all wallet operations</p>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><span class="card-title">🎚️ Feature Toggles</span></div>
+                        <div id="featureToggles"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Chains Tab -->
+            <div class="tab-content" id="chainsTab" style="display: none;">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">⛓️ Chain Controls</span>
+                        <span style="color: var(--text-secondary); font-size: 12px;">Toggle individual blockchains</span>
+                    </div>
+                    <div class="chain-grid" id="chainGrid"></div>
+                </div>
+            </div>
+            
+            <!-- Monitoring Tab -->
+            <div class="tab-content" id="monitoringTab" style="display: none;">
+                <div class="grid grid-4">
+                    <div class="card metric-card">
+                        <div class="metric-value success" id="swapSuccessRate">99.2%</div>
+                        <div class="metric-label">Swap Success Rate</div>
+                    </div>
+                    <div class="card metric-card">
+                        <div class="metric-value" id="activeChains">9/9</div>
+                        <div class="metric-label">Active Chains</div>
+                    </div>
+                    <div class="card metric-card">
+                        <div class="metric-value warning" id="errorRate">0.8%</div>
+                        <div class="metric-label">Error Rate</div>
+                    </div>
+                    <div class="card metric-card">
+                        <div class="metric-value" id="lastUpdate">Just now</div>
+                        <div class="metric-label">Last Update</div>
+                    </div>
+                </div>
+                <div class="card" style="margin-top: 24px;">
+                    <div class="card-header">
+                        <span class="card-title">📡 Service Health</span>
+                        <button class="btn btn-secondary" onclick="refreshHealth()">Refresh</button>
+                    </div>
+                    <div id="serviceHealth"></div>
+                </div>
+            </div>
+            
+            <!-- Audit Tab -->
+            <div class="tab-content" id="auditTab" style="display: none;">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">📝 Audit Logs</span>
+                        <div>
+                            <button class="btn btn-secondary" onclick="exportAuditLogs('json')">Export JSON</button>
+                            <button class="btn btn-secondary" onclick="exportAuditLogs('csv')" style="margin-left: 8px;">Export CSV</button>
+                        </div>
+                    </div>
+                    <table class="audit-table">
+                        <thead>
+                            <tr><th>Timestamp</th><th>Admin</th><th>Action</th><th>Target</th><th>Reason</th></tr>
+                        </thead>
+                        <tbody id="auditTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Admins Tab -->
+            <div class="tab-content" id="adminsTab" style="display: none;">
+                <div class="grid grid-2">
+                    <div class="card">
+                        <div class="card-header">
+                            <span class="card-title">👥 Admin Users</span>
+                            <button class="btn btn-primary" onclick="showCreateAdminModal()">+ Add Admin</button>
+                        </div>
+                        <div id="adminsList"></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><span class="card-title">🔒 Security</span></div>
+                        <div class="toggle-row">
+                            <div class="toggle-info">
+                                <div class="toggle-name">Enable 2FA</div>
+                                <div class="toggle-desc">Require 2-factor authentication</div>
+                            </div>
+                            <button class="btn btn-secondary" onclick="enable2FA()">Enable</button>
+                        </div>
+                        <div class="toggle-row">
+                            <div class="toggle-info">
+                                <div class="toggle-name">Verify Audit Logs</div>
+                                <div class="toggle-desc">Check for tampered records</div>
+                            </div>
+                            <button class="btn btn-secondary" onclick="verifyAuditLogs()">Verify</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Confirmation Modal -->
+    <div class="modal-overlay" id="confirmModal">
+        <div class="modal">
+            <h2 id="confirmTitle">⚠️ Confirm Action</h2>
+            <div class="modal-warning"><p id="confirmWarning">This is a high-impact action.</p></div>
+            <div class="form-group">
+                <label>Reason (required, min 10 characters)</label>
+                <textarea id="confirmReason" rows="3" placeholder="Enter reason..."></textarea>
+            </div>
+            <div class="countdown" id="confirmCountdown" style="display: none;">10</div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancel</button>
+                <button class="btn btn-danger" id="confirmBtn" onclick="executeConfirmedAction()">Confirm</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Mode Change Modal -->
+    <div class="modal-overlay" id="modeModal">
+        <div class="modal">
+            <h2>🔄 Change Wallet Mode</h2>
+            <div class="form-group">
+                <label>Select Mode</label>
+                <select id="modeSelect">
+                    <option value="ACTIVE">✅ ACTIVE - All features enabled</option>
+                    <option value="READ_ONLY">👁️ READ_ONLY - View only</option>
+                    <option value="PAUSED">⏸️ PAUSED - All operations disabled</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Message (shown to users)</label>
+                <input type="text" id="modeMessage" placeholder="Optional message...">
+            </div>
+            <div class="form-group">
+                <label>Reason (required)</label>
+                <textarea id="modeReason" rows="3" placeholder="Enter reason..."></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModeModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="changeMode()">Change Mode</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Create Admin Modal -->
+    <div class="modal-overlay" id="createAdminModal">
+        <div class="modal">
+            <h2>👤 Create New Admin</h2>
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" id="newAdminUsername" placeholder="Enter username">
+            </div>
+            <div class="form-group">
+                <label>Role</label>
+                <select id="newAdminRole">
+                    <option value="VIEWER">👁️ VIEWER - View only access</option>
+                    <option value="OPERATOR">⚙️ OPERATOR - Limited control</option>
+                    <option value="ADMIN" selected>🔧 ADMIN - Full control</option>
+                    <option value="SUPER_ADMIN">👑 SUPER_ADMIN - All permissions</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>API Key</label>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" id="newAdminApiKey" placeholder="API key for login" style="flex: 1;">
+                    <button class="btn btn-secondary" onclick="generateApiKey()" style="white-space: nowrap;">Generate</button>
+                </div>
+            </div>
+            <div style="background: var(--bg-dark); padding: 12px; border-radius: 8px; margin-bottom: 16px;">
+                <p style="font-size: 12px; color: var(--text-secondary);">
+                    ⚠️ <strong>Important:</strong> Save the API key securely. It will be used by this admin to login.
+                </p>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeCreateAdminModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="createAdmin()">Create Admin</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE = 'http://localhost:3000/api/admin';
+        let apiKey = '';
+        let currentAdmin = null;
+        let walletState = null;
+        let pendingAction = null;
+        let countdownInterval = null;
+        
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `<span>${type === 'success' ? '✅' : type === 'error' ? '❌' : '⚠️'}</span><span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 5000);
+        }
+        
+        async function api(endpoint, method = 'GET', body = null) {
+            const options = { method, headers: { 'Content-Type': 'application/json', 'x-admin-key': apiKey } };
+            if (body) options.body = JSON.stringify(body);
+            const response = await fetch(`${API_BASE}${endpoint}`, options);
+            return response.json();
+        }
+        
+        async function login() {
+            apiKey = document.getElementById('apiKeyInput').value;
+            const twoFactor = document.getElementById('twoFactorInput').value;
+            try {
+                const result = await api('/auth/login', 'POST', { twoFactorToken: twoFactor });
+                if (result.requiresTwoFactor) {
+                    document.getElementById('twoFactorGroup').style.display = 'block';
+                    showToast('2FA required', 'warning');
+                    return;
+                }
+                if (result.success) {
+                    currentAdmin = result.admin;
+                    walletState = result.walletState;
+                    document.getElementById('loginScreen').style.display = 'none';
+                    document.getElementById('dashboard').style.display = 'block';
+                    initDashboard();
+                    showToast('Login successful');
+                } else {
+                    showToast(result.error || 'Login failed', 'error');
+                }
+            } catch (error) {
+                showToast('Connection error', 'error');
+            }
+        }
+        
+        function logout() {
+            apiKey = '';
+            currentAdmin = null;
+            document.getElementById('loginScreen').style.display = 'flex';
+            document.getElementById('dashboard').style.display = 'none';
+            document.getElementById('apiKeyInput').value = '';
+        }
+        
+        async function initDashboard() {
+            updateAdminInfo();
+            await refreshWalletState();
+            renderFeatureToggles();
+            renderChainGrid();
+            loadAuditLogs();
+            loadAdmins();
+            setInterval(refreshWalletState, 30000);
+        }
+        
+        function updateAdminInfo() {
+            document.getElementById('adminUsername').textContent = currentAdmin.username;
+            document.getElementById('adminRole').textContent = currentAdmin.role;
+            document.getElementById('adminRole').className = `role-badge ${currentAdmin.role}`;
+            const env = walletState?.environment || 'development';
+            const envBadge = document.getElementById('envBadge');
+            envBadge.textContent = env.toUpperCase();
+            envBadge.className = `env-badge ${env}`;
+        }
+        
+        async function refreshWalletState() {
+            try {
+                const result = await api('/wallet/state');
+                if (result.success) {
+                    walletState = result.state;
+                    updateModeBanner();
+                    updateKillSwitch();
+                    renderFeatureToggles();
+                    renderChainGrid();
+                }
+            } catch (error) { console.error('Failed to refresh state:', error); }
+        }
+        
+        function updateModeBanner() {
+            const banner = document.getElementById('modeBanner');
+            const title = document.getElementById('modeTitle');
+            const desc = document.getElementById('modeDesc');
+            banner.className = `mode-banner ${walletState.mode}`;
+            const modeInfo = {
+                ACTIVE: { title: '✅ WALLET ACTIVE', desc: 'All features enabled' },
+                READ_ONLY: { title: '👁️ READ-ONLY MODE', desc: 'View only, no transactions' },
+                PAUSED: { title: '⏸️ WALLET PAUSED', desc: 'All operations disabled' },
+            };
+            const info = modeInfo[walletState.mode];
+            title.textContent = info.title;
+            desc.textContent = walletState.message || info.desc;
+        }
+        
+        function updateKillSwitch() {
+            const btn = document.getElementById('killSwitchBtn');
+            const status = document.getElementById('killSwitchStatus');
+            const isActive = walletState.mode === 'ACTIVE';
+            btn.className = `kill-switch-btn ${isActive ? 'active' : 'paused'}`;
+            status.textContent = isActive ? 'ACTIVE' : 'PAUSED';
+        }
+        
+        function renderFeatureToggles() {
+            const container = document.getElementById('featureToggles');
+            const features = [
+                { key: 'swaps', name: 'All Swaps', desc: 'All swap operations', field: 'enabled' },
+                { key: 'swaps', name: 'Cross-Chain', desc: 'Bridge transactions', field: 'crossChainEnabled' },
+                { key: 'transfers', name: 'Transfers', desc: 'Send crypto', field: 'enabled' },
+                { key: 'deposits', name: 'Deposits', desc: 'Receive crypto', field: 'enabled' },
+                { key: 'onboarding', name: 'New Wallets', desc: 'Wallet creation', field: 'enabled' },
+                { key: 'fiatRamp', name: 'Fiat On-Ramp', desc: 'Buy crypto', field: 'onRampEnabled' },
+                { key: 'fiatRamp', name: 'Fiat Off-Ramp', desc: 'Sell crypto', field: 'offRampEnabled' },
+            ];
+            container.innerHTML = features.map(f => {
+                const feature = walletState.features[f.key];
+                const enabled = feature[f.field];
+                return `<div class="toggle-row"><div class="toggle-info"><div class="toggle-name">${f.name}</div><div class="toggle-desc">${f.desc}</div></div><label class="toggle-switch"><input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleFeature('${f.key}', '${f.field}', this.checked)"><span class="toggle-slider"></span></label></div>`;
+            }).join('');
+        }
+        
+        function renderChainGrid() {
+            const container = document.getElementById('chainGrid');
+            const chains = Object.entries(walletState.chains);
+            container.innerHTML = chains.map(([chain, state]) => `<div class="chain-item ${state.enabled ? '' : 'disabled'}"><span class="chain-name">${chain}</span><label class="toggle-switch"><input type="checkbox" ${state.enabled ? 'checked' : ''} onchange="toggleChain('${chain}', this.checked)"><span class="toggle-slider"></span></label></div>`).join('');
+        }
+        
+        function showTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.style.display = 'none');
+            event.target.classList.add('active');
+            document.getElementById(`${tabName}Tab`).style.display = 'block';
+        }
+        
+        function toggleKillSwitch() {
+            const isActive = walletState.mode === 'ACTIVE';
+            pendingAction = { type: 'killSwitch', enable: !isActive };
+            document.getElementById('confirmTitle').textContent = isActive ? '🚨 ACTIVATE KILL SWITCH' : '✅ REACTIVATE WALLET';
+            document.getElementById('confirmWarning').textContent = isActive ? 'WARNING: This will PAUSE the entire wallet!' : 'This will reactivate all services.';
+            document.getElementById('confirmModal').classList.add('active');
+            startCountdown();
+        }
+        
+        function toggleFeature(feature, subFeature, enabled) {
+            if (!enabled) {
+                pendingAction = { type: 'toggleFeature', feature, subFeature: subFeature !== 'enabled' ? subFeature : null, enabled };
+                document.getElementById('confirmTitle').textContent = `🚫 Disable ${feature}`;
+                document.getElementById('confirmWarning').textContent = `This will disable ${feature} for ALL users.`;
+                document.getElementById('confirmModal').classList.add('active');
+                startCountdown();
+            } else {
+                executeToggleFeature(feature, subFeature, enabled, 'Re-enabling feature');
+            }
+        }
+        
+        function toggleChain(chain, enabled) {
+            if (!enabled) {
+                pendingAction = { type: 'toggleChain', chain, enabled };
+                document.getElementById('confirmTitle').textContent = `⛓️ Disable ${chain.toUpperCase()}`;
+                document.getElementById('confirmWarning').textContent = `This will disable ALL operations on ${chain.toUpperCase()}.`;
+                document.getElementById('confirmModal').classList.add('active');
+                startCountdown();
+            } else {
+                executeToggleChain(chain, enabled, 'Re-enabling chain');
+            }
+        }
+        
+        function startCountdown() {
+            let seconds = 10;
+            const countdownEl = document.getElementById('confirmCountdown');
+            const confirmBtn = document.getElementById('confirmBtn');
+            countdownEl.style.display = 'block';
+            countdownEl.textContent = seconds;
+            confirmBtn.disabled = true;
+            confirmBtn.textContent = `Wait ${seconds}s...`;
+            countdownInterval = setInterval(() => {
+                seconds--;
+                countdownEl.textContent = seconds;
+                confirmBtn.textContent = `Wait ${seconds}s...`;
+                if (seconds <= 0) {
+                    clearInterval(countdownInterval);
+                    countdownEl.style.display = 'none';
+                    confirmBtn.disabled = false;
+                    confirmBtn.textContent = 'Confirm';
+                }
+            }, 1000);
+        }
+        
+        function closeConfirmModal() {
+            document.getElementById('confirmModal').classList.remove('active');
+            document.getElementById('confirmReason').value = '';
+            if (countdownInterval) clearInterval(countdownInterval);
+            pendingAction = null;
+            refreshWalletState();
+        }
+        
+        async function executeConfirmedAction() {
+            const reason = document.getElementById('confirmReason').value;
+            if (reason.length < 10) { showToast('Reason must be at least 10 characters', 'error'); return; }
+            try {
+                let result;
+                switch (pendingAction.type) {
+                    case 'killSwitch':
+                        result = await api('/wallet/kill-switch', 'POST', { enable: pendingAction.enable, reason, confirm: true });
+                        break;
+                    case 'toggleFeature':
+                        result = await executeToggleFeature(pendingAction.feature, pendingAction.subFeature, pendingAction.enabled, reason);
+                        break;
+                    case 'toggleChain':
+                        result = await executeToggleChain(pendingAction.chain, pendingAction.enabled, reason);
+                        break;
+                }
+                if (result?.success) showToast('Action completed'); else showToast(result?.error || 'Action failed', 'error');
+            } catch (error) { showToast('Action failed', 'error'); }
+            closeConfirmModal();
+        }
+        
+        async function executeToggleFeature(feature, subFeature, enabled, reason) {
+            return await api('/features/toggle', 'POST', { feature, subFeature, enabled, reason, confirm: true });
+        }
+        
+        async function executeToggleChain(chain, enabled, reason) {
+            return await api('/chains/toggle', 'POST', { chain, enabled, reason, confirm: true });
+        }
+        
+        function showModeModal() {
+            document.getElementById('modeSelect').value = walletState.mode;
+            document.getElementById('modeMessage').value = walletState.message || '';
+            document.getElementById('modeModal').classList.add('active');
+        }
+        
+        function closeModeModal() { document.getElementById('modeModal').classList.remove('active'); }
+        
+        async function changeMode() {
+            const mode = document.getElementById('modeSelect').value;
+            const message = document.getElementById('modeMessage').value;
+            const reason = document.getElementById('modeReason').value;
+            if (reason.length < 10) { showToast('Reason required (10+ chars)', 'error'); return; }
+            try {
+                const result = await api('/wallet/mode', 'POST', { mode, message, reason, confirm: true });
+                if (result.success) { showToast(`Mode: ${mode}`); closeModeModal(); refreshWalletState(); }
+                else showToast(result.error || 'Failed', 'error');
+            } catch (error) { showToast('Failed', 'error'); }
+        }
+        
+        async function loadAuditLogs() {
+            try {
+                const result = await api('/audit/logs');
+                if (result.success) renderAuditLogs(result.logs);
+            } catch (error) { console.error('Failed to load audit logs:', error); }
+        }
+        
+        function renderAuditLogs(logs) {
+            const tbody = document.getElementById('auditTableBody');
+            tbody.innerHTML = logs.map(log => `<tr><td>${new Date(log.timestamp).toLocaleString()}</td><td>${log.adminId}</td><td><span class="audit-action ${log.action}">${log.action}</span></td><td>${log.target}</td><td>${log.reason || '-'}</td></tr>`).join('');
+        }
+        
+        async function exportAuditLogs(format) { window.open(`${API_BASE}/audit/export?format=${format}`, '_blank'); }
+        
+        async function verifyAuditLogs() {
+            try {
+                const result = await api('/audit/verify');
+                if (result.success) {
+                    if (result.integrity === 'VERIFIED') showToast(`✅ Verified (${result.validLogs} logs)`);
+                    else showToast(`⚠️ ${result.invalidLogs} tampered!`, 'error');
+                }
+            } catch (error) { showToast('Verification failed', 'error'); }
+        }
+        
+        async function loadAdmins() {
+            try {
+                const result = await api('/admins');
+                if (result.success) renderAdmins(result.admins);
+            } catch (error) { console.error('Failed to load admins:', error); }
+        }
+        
+        function renderAdmins(admins) {
+            const container = document.getElementById('adminsList');
+            container.innerHTML = admins.map(admin => `<div class="toggle-row"><div class="toggle-info"><div class="toggle-name">${admin.username}</div><div class="toggle-desc"><span class="role-badge ${admin.role}" style="font-size: 10px;">${admin.role}</span> ${admin.twoFactorEnabled ? '🔐' : ''} | Last: ${admin.lastLogin ? new Date(admin.lastLogin).toLocaleString() : 'Never'}</div></div>${currentAdmin?.role === 'SUPER_ADMIN' && admin.username !== currentAdmin.username ? `<button class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;" onclick="deleteAdmin('${admin.username}')">Delete</button>` : ''}</div>`).join('');
+        }
+        
+        function showCreateAdminModal() {
+            document.getElementById('newAdminUsername').value = '';
+            document.getElementById('newAdminRole').value = 'ADMIN';
+            document.getElementById('newAdminApiKey').value = '';
+            document.getElementById('createAdminModal').classList.add('active');
+        }
+        
+        function closeCreateAdminModal() {
+            document.getElementById('createAdminModal').classList.remove('active');
+        }
+        
+        function generateApiKey() {
+            const chars = 'abcdef0123456789';
+            let key = 'key_';
+            for (let i = 0; i < 32; i++) {
+                key += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            document.getElementById('newAdminApiKey').value = key;
+        }
+        
+        async function createAdmin() {
+            const username = document.getElementById('newAdminUsername').value.trim();
+            const role = document.getElementById('newAdminRole').value;
+            const apiKeyVal = document.getElementById('newAdminApiKey').value.trim();
+            
+            if (!username) {
+                showToast('Username is required', 'error');
+                return;
+            }
+            if (!apiKeyVal) {
+                showToast('API key is required', 'error');
+                return;
+            }
+            if (username.length < 3) {
+                showToast('Username must be at least 3 characters', 'error');
+                return;
+            }
+            
+            try {
+                const result = await api('/admins/create', 'POST', { username, role, apiKey: apiKeyVal });
+                if (result.success) {
+                    showToast(`Admin "${username}" created successfully!`);
+                    closeCreateAdminModal();
+                    loadAdmins();
+                    loadAuditLogs();
+                } else {
+                    showToast(result.error || 'Failed to create admin', 'error');
+                }
+            } catch (error) {
+                showToast('Failed to create admin', 'error');
+            }
+        }
+        
+        async function deleteAdmin(username) {
+            if (!confirm(`Are you sure you want to delete admin "${username}"?`)) {
+                return;
+            }
+            
+            try {
+                const result = await api(`/admins/${username}`, 'DELETE');
+                if (result.success) {
+                    showToast(`Admin "${username}" deleted`);
+                    loadAdmins();
+                    loadAuditLogs();
+                } else {
+                    showToast(result.error || 'Failed to delete admin', 'error');
+                }
+            } catch (error) {
+                showToast('Failed to delete admin', 'error');
+            }
+        }
+        
+        async function enable2FA() {
+            try {
+                const result = await api('/admins/2fa/enable', 'POST');
+                if (result.success) showToast(`2FA enabled! Secret: ${result.secret}`);
+            } catch (error) { showToast('Failed', 'error'); }
+        }
+        
+        async function refreshHealth() {
+            try {
+                const result = await api('/monitoring/health');
+                if (result.success) {
+                    document.getElementById('swapSuccessRate').textContent = `${result.health.swapSuccessRate}%`;
+                    document.getElementById('errorRate').textContent = `${result.health.errorRate}%`;
+                    document.getElementById('lastUpdate').textContent = 'Just now';
+                    const activeChains = Object.values(result.health.chainStatus).filter(v => v).length;
+                    const totalChains = Object.keys(result.health.chainStatus).length;
+                    document.getElementById('activeChains').textContent = `${activeChains}/${totalChains}`;
+                    showToast('Health refreshed');
+                }
+            } catch (error) { showToast('Failed', 'error'); }
+        }
+        
+        document.getElementById('apiKeyInput').addEventListener('keypress', (e) => { if (e.key === 'Enter') login(); });
+    </script>
+</body>
+</html>

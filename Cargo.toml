@@ -1,0 +1,64 @@
+                                                                                                      [package]
+name = "crypto-wallet-security"
+version = "1.0.0"
+edition = "2021"
+authors = ["Rico Amos"]
+
+[lib]
+name = "crypto_wallet_security"
+path = "crypto-wallet-app/backend/rust/src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "crypto_wallet_cli"
+path = "crypto-wallet-app/backend/rust/src/main.rs"
+
+[[bin]]
+name = "api_server"
+path = "src/main.rs"
+
+[dependencies]
+# HTTP Server
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+hyper = { version = "0.14", features = ["full"] }
+hyper-rustls = "0.24"
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json"] }
+
+# Caching
+moka = { version = "0.12", features = ["future"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# HTTPS and TLS
+rustls = "0.21"
+tokio-rustls = "0.24"
+webpki-roots = "0.25"
+
+# Cryptography
+secp256k1 = { version = "0.28", features = ["rand-std"] }
+ed25519-dalek = "2.1"
+sha2 = "0.10"
+hmac = "0.12"
+pbkdf2 = "0.12"
+aes-gcm = "0.10"
+rand = "0.8"
+bip39 = "2.0"
+tiny-bip39 = "1.0"
+hex = "0.4"
+
+# Node.js FFI
+neon = { version = "1.0", default-features = false, features = ["napi-6"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

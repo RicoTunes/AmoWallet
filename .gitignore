@@ -1,0 +1,77 @@
+# Build outputs
+/target
+
+# Environment files - CRITICAL: Never commit these!
+.env
+.env.local
+.env.production
+.env.*.local
+*.env
+
+# API Keys and Secrets
+*.pem
+*.key
+*.cert
+*.p12
+*.jks
+certs/
+secrets/
+
+# Backend sensitive files
+crypto-wallet-app/backend/.env
+crypto-wallet-app/backend/.env.*
+!crypto-wallet-app/backend/.env.example
+!crypto-wallet-app/backend/.env.template
+
+# Android signing keys
+crypto-wallet-app/frontend/android/key.properties
+crypto-wallet-app/frontend/android/*.keystore
+crypto-wallet-app/frontend/android/*.jks
+
+# iOS certificates
+crypto-wallet-app/frontend/ios/*.mobileprovision
+crypto-wallet-app/frontend/ios/*.p12
+
+# Node modules
+node_modules/
+
+# Build outputs
+build/
+dist/
+*.log
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+# Flutter SDK (too large - download separately)
+flutter-sdk/
+
+# Flutter build artifacts
+.dart_tool/
+*.iml
+.packages
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# APK outputs (build fresh)
+*.apk
+*.aab
+# Rust build cache
+**/target/
+crypto-wallet-app/backend/rust/target/
+
+# Node modules everywhere
+**/node_modules/
+
+# Python virtual environments
+.venv/
+**/.venv/
+venv/
+**/venv/

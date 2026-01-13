@@ -1,0 +1,9 @@
+@echo off
+echo Starting Flutter Crypto Wallet App...
+set PATH=%PATH%;C:\Users\RICO\flutter-sdk\flutter\bin
+cd /d "%USERPROFILE%\ricoamos\crypto-wallet-app\frontend"
+echo Getting Flutter dependencies...
+flutter pub get
+echo Starting Flutter app...
+flutter run
+pause
