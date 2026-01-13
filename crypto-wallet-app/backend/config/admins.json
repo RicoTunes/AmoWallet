@@ -1,0 +1,13 @@
+[
+  {
+    "id": "admin_001",
+    "username": "superadmin",
+    "role": "SUPER_ADMIN",
+    "apiKey": "crypto_wallet_admin_secret_2024",
+    "twoFactorEnabled": true,
+    "twoFactorSecret": "660b56e2a9770ba2132301ba66e730e782142be5",
+    "allowedIPs": [],
+    "createdAt": "2026-01-09T21:52:19.357Z",
+    "lastLogin": "2026-01-10T09:13:42.691Z"
+  }
+]

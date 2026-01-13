@@ -1,0 +1,76 @@
+[package]
+name = "crypto_wallet_rust"
+version = "1.0.0"
+edition = "2021"
+authors = ["Rico Amos"]
+
+[[bin]]
+name = "crypto_wallet_cli"
+path = "src/main.rs"
+
+[lib]
+name = "crypto_wallet_security"
+path = "src/lib.rs"
+
+[dependencies]
+# HTTPS and TLS Security (Rust handles SSL/TLS)
+rustls = "0.22"
+tokio-rustls = "0.25"
+webpki-roots = "0.26"
+rustls-pemfile = "2.0"
+
+# Async runtime for HTTPS server
+tokio = { version = "1.35", features = ["full"] }
+hyper = { version = "1.0", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+http-body-util = "0.1"
+hyper-rustls = { version = "0.26", features = ["http2"] }
+
+# Cryptographic operations (heavy lifting in Rust)
+secp256k1 = { version = "0.28", features = ["rand", "recovery", "global-context"] }
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+sha2 = "0.10"
+sha3 = "0.10"
+hmac = "0.12"
+pbkdf2 = { version = "0.12", features = ["simple"] }
+aes-gcm = "0.10"
+chacha20poly1305 = "0.10"
+argon2 = "0.5"
+rand = { version = "0.8", features = ["getrandom"] }
+rand_core = "0.6"
+
+# BIP standards for wallet key derivation
+bip39 = { version = "2.0", features = ["rand"] }
+tiny-bip39 = "1.0"
+ripemd = "0.1"
+
+# Blockchain specific
+ethereum-types = "0.14"
+tiny-keccak = { version = "2.0", features = ["keccak"] }
+
+# Serialization
+hex = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+base64 = "0.21"
+
+# Ethereum and smart contract interaction
+ethers = { version = "2.0", features = ["abigen", "ws"] }
+
+# Node.js FFI (for Node.js integration)
+neon = { version = "1.0", default-features = false, features = ["napi-6"] }
+
+# Logging and error handling
+tracing = "0.1"
+tracing-subscriber = "0.3"
+thiserror = "1.0"
+anyhow = "1.0"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 1

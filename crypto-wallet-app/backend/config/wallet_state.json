@@ -1,0 +1,90 @@
+{
+  "mode": "ACTIVE",
+  "features": {
+    "swaps": {
+      "enabled": false,
+      "crossChainEnabled": true,
+      "reason": "testing im testing the app",
+      "disabledAt": "2026-01-09T22:52:47.994Z",
+      "disabledBy": "admin_001"
+    },
+    "transfers": {
+      "enabled": true,
+      "reason": null,
+      "disabledAt": null,
+      "disabledBy": null
+    },
+    "deposits": {
+      "enabled": true,
+      "reason": null,
+      "disabledAt": null,
+      "disabledBy": null
+    },
+    "onboarding": {
+      "enabled": true,
+      "newWalletCreation": true,
+      "walletImport": true,
+      "reason": null,
+      "disabledAt": null,
+      "disabledBy": null
+    },
+    "fiatRamp": {
+      "onRampEnabled": true,
+      "offRampEnabled": true,
+      "reason": null,
+      "disabledAt": null,
+      "disabledBy": null
+    }
+  },
+  "chains": {
+    "ethereum": {
+      "enabled": true,
+      "reason": null,
+      "disabledAt": null
+    },
+    "bsc": {
+      "enabled": true,
+      "reason": null,
+      "disabledAt": null
+    },
+    "polygon": {
+      "enabled": true,
+      "reason": null,
+      "disabledAt": null
+    },
+    "arbitrum": {
+      "enabled": true,
+      "reason": null,
+      "disabledAt": null
+    },
+    "optimism": {
+      "enabled": true,
+      "reason": null,
+      "disabledAt": null
+    },
+    "avalanche": {
+      "enabled": true,
+      "reason": null,
+      "disabledAt": null
+    },
+    "bitcoin": {
+      "enabled": true,
+      "reason": null,
+      "disabledAt": null
+    },
+    "solana": {
+      "enabled": true,
+      "reason": null,
+      "disabledAt": null
+    },
+    "tron": {
+      "enabled": true,
+      "reason": null,
+      "disabledAt": null
+    }
+  },
+  "minAppVersion": "1.0.0",
+  "environment": "development",
+  "lastUpdated": "2026-01-09T22:52:47.994Z",
+  "lastUpdatedBy": "admin_001"
+}

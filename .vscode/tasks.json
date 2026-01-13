@@ -1,0 +1,11 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build Android APK",
+			"type": "shell",
+			"command": "cd c:\\Users\\RICO\\ricoamos\\crypto-wallet-app\\frontend && flutter build apk --release",
+			"isBackground": false
+		}
+	]
+}

@@ -1,0 +1,44 @@
+[
+  {
+    "id": "log_1767996089355_08caaa31",
+    "timestamp": "2026-01-09T22:01:29.355Z",
+    "environment": "development",
+    "adminId": "admin_001",
+    "adminRole": "SUPER_ADMIN",
+    "action": "SET_GLOBAL_MODE",
+    "target": "wallet.mode",
+    "beforeState": "{\"mode\":\"ACTIVE\",\"message\":null}",
+    "afterState": "{\"mode\":\"PAUSED\"}",
+    "reason": "Testing kill switch functionality for AMOWALLET",
+    "ipAddress": "::1",
+    "checksum": "4dbb0c820ba72221a1ad97f91e14286d6be7ff5ec27050f081e2c05c8439e4c2"
+  },
+  {
+    "id": "log_1767996517070_dee017b7",
+    "timestamp": "2026-01-09T22:08:37.070Z",
+    "environment": "development",
+    "adminId": "admin_001",
+    "adminRole": "SUPER_ADMIN",
+    "action": "SET_GLOBAL_MODE",
+    "target": "wallet.mode",
+    "beforeState": "{\"mode\":\"PAUSED\",\"message\":null}",
+    "afterState": "{\"mode\":\"ACTIVE\"}",
+    "reason": "for testing",
+    "ipAddress": "::ffff:127.0.0.1",
+    "checksum": "75aa5f2b29f1962586dea057d82d0ac473da3dc1d27b20d2bceb420bdb5391ed"
+  },
+  {
+    "id": "log_1767999167995_be3f65d7",
+    "timestamp": "2026-01-09T22:52:47.995Z",
+    "environment": "development",
+    "adminId": "admin_001",
+    "adminRole": "SUPER_ADMIN",
+    "action": "TOGGLE_FEATURE",
+    "target": "features.swaps.enabled",
+    "beforeState": "{\"enabled\":true}",
+    "afterState": "{\"enabled\":false}",
+    "reason": "testing im testing the app",
+    "ipAddress": "::ffff:127.0.0.1",
+    "checksum": "de4c76a4ff3c2094f06653c44733662e628117d75ea6abe37521057feddc478b"
+  }
+]

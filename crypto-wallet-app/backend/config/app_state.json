@@ -1,0 +1,12 @@
+{
+  "isActive": true,
+  "maintenanceMode": false,
+  "allowSwaps": true,
+  "allowWithdrawals": true,
+  "allowDeposits": true,
+  "minAppVersion": "1.0.0",
+  "message": null,
+  "deactivatedAt": null,
+  "deactivatedBy": null,
+  "lastUpdated": "2026-01-09T21:44:00.489Z"
+}

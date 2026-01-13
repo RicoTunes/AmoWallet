@@ -1,0 +1,35 @@
+[Unit]
+Description=Crypto Wallet Pro Backend Service
+Documentation=https://github.com/yourusername/crypto-wallet-pro
+After=network.target postgresql.service redis.service
+
+[Service]
+Type=simple
+User=RICO
+WorkingDirectory=/home/RICO/ricoamos/crypto-wallet-app/backend
+Environment=NODE_ENV=production
+EnvironmentFile=/home/RICO/ricoamos/crypto-wallet-app/backend/.env.production
+ExecStart=/usr/bin/node /home/RICO/ricoamos/crypto-wallet-app/backend/server.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=crypto-wallet-backend
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/RICO/ricoamos/crypto-wallet-app/backend/logs
+
+# Performance settings
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Restart on failure
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Install]
+WantedBy=multi-user.target

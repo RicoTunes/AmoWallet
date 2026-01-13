@@ -1,0 +1,15 @@
+# Keystore properties for release signing
+# IMPORTANT: Do NOT commit this file to version control!
+# Add key.properties to your .gitignore
+
+# Path to your keystore file
+storeFile=../keystore/release-keystore.jks
+
+# Keystore password
+storePassword=YOUR_KEYSTORE_PASSWORD
+
+# Key alias
+keyAlias=crypto_wallet_key
+
+# Key password
+keyPassword=YOUR_KEY_PASSWORD
