@@ -1,12 +1,16 @@
-# Tell Railway to use Node.js backend only
+# Railway deployment config - Node.js backend only
+providers = ["node"]
+
 [phases.setup]
-nixPkgs = ["nodejs-20_x"]
+nixPkgs = ["nodejs-20_x", "npm-9_x"]
 
 [phases.install]
-cmds = ["cd crypto-wallet-app/backend && npm install"]
-
-[phases.build]
-cmds = ["echo 'No build step needed'"]
+dependsOn = ["setup"]
+cmds = ["cd crypto-wallet-app/backend && npm ci --production"]
 
 [start]
 cmd = "cd crypto-wallet-app/backend && node server.js"
+
+[variables]
+NODE_ENV = "production"
+PORT = "3000"
