@@ -1,7 +1,7 @@
 use ethers::{
     contract::abigen,
     core::types::{Address, U256, Bytes},
-    providers::{Provider, Http},
+    providers::{Provider, Http, Middleware},
     signers::{LocalWallet, Signer},
     middleware::SignerMiddleware,
 };
@@ -126,7 +126,10 @@ impl MultiSigManager {
             .await?
             .await?;
 
-        Ok(format!("{:?}", tx.transaction_hash))
+        match tx {
+            Some(receipt) => Ok(format!("{:?}", receipt.transaction_hash)),
+            None => Err("Transaction receipt not available".into())
+        }
     }
 
     /// Execute confirmed transaction
@@ -148,7 +151,10 @@ impl MultiSigManager {
             .await?
             .await?;
 
-        Ok(format!("{:?}", tx.transaction_hash))
+        match tx {
+            Some(receipt) => Ok(format!("{:?}", receipt.transaction_hash)),
+            None => Err("Transaction receipt not available".into())
+        }
     }
 
     /// Revoke confirmation
@@ -170,7 +176,10 @@ impl MultiSigManager {
             .await?
             .await?;
 
-        Ok(format!("{:?}", tx.transaction_hash))
+        match tx {
+            Some(receipt) => Ok(format!("{:?}", receipt.transaction_hash)),
+            None => Err("Transaction receipt not available".into())
+        }
     }
 
     /// Get transaction details
