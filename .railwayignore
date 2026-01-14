@@ -1,0 +1,16 @@
+# Ignore Rust files - deploy Node.js only
+Cargo.toml
+Cargo.lock
+rust-toolchain.toml
+src/
+target/
+crypto-wallet-app/backend/rust/
+
+# Ignore Flutter frontend
+crypto-wallet-app/frontend/
+flutter-sdk/
+
+# Ignore other non-essential files
+*.apk
+*.bat
+.venv/
