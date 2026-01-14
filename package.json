@@ -1,6 +1,14 @@
 {
-  "dependencies": {
-    "node-cache": "^5.1.2",
-    "node-telegram-bot-api": "^0.66.0"
-  }
+  "name": "amowallet-backend",
+  "version": "1.0.0",
+  "description": "AmoWallet Crypto Wallet Backend",
+  "main": "crypto-wallet-app/backend/server.js",
+  "scripts": {
+    "start": "node crypto-wallet-app/backend/server.js",
+    "postinstall": "cd crypto-wallet-app/backend && npm install"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {}
 }
