@@ -6,7 +6,7 @@ nixPkgs = ["nodejs-20_x", "npm-9_x"]
 
 [phases.install]
 dependsOn = ["setup"]
-cmds = ["cd crypto-wallet-app/backend && npm ci --production"]
+cmds = ["cd crypto-wallet-app/backend && npm install --legacy-peer-deps"]
 
 [start]
 cmd = "cd crypto-wallet-app/backend && node server.js"
