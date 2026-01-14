@@ -1,0 +1,12 @@
+# Tell Railway to use Node.js backend only
+[phases.setup]
+nixPkgs = ["nodejs-20_x"]
+
+[phases.install]
+cmds = ["cd crypto-wallet-app/backend && npm install"]
+
+[phases.build]
+cmds = ["echo 'No build step needed'"]
+
+[start]
+cmd = "cd crypto-wallet-app/backend && node server.js"
