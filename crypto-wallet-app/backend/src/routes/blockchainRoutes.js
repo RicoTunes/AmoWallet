@@ -9,39 +9,32 @@ const Web3 = require('web3');
 const { ethers } = require('ethers');
 const mongoose = require('mongoose');
 
-// Try to load node-cache, fallback to simple in-memory cache
-let NodeCache;
-try {
-  NodeCache = require('node-cache');
-} catch (e) {
-  console.warn('⚠️ node-cache not found, using simple in-memory cache fallback');
-  // Simple fallback cache implementation
-  NodeCache = class SimpleCache {
-    constructor(options = {}) {
-      this.cache = new Map();
-      this.ttl = (options.stdTTL || 300) * 1000; // Convert to ms
+// Simple in-memory cache (no external dependencies)
+class SimpleCache {
+  constructor(options = {}) {
+    this.cache = new Map();
+    this.ttl = (options.stdTTL || 300) * 1000;
+  }
+  get(key) {
+    const item = this.cache.get(key);
+    if (!item) return undefined;
+    if (Date.now() > item.expires) {
+      this.cache.delete(key);
+      return undefined;
     }
-    get(key) {
-      const item = this.cache.get(key);
-      if (!item) return undefined;
-      if (Date.now() > item.expires) {
-        this.cache.delete(key);
-        return undefined;
-      }
-      return item.value;
-    }
-    set(key, value, ttl) {
-      const expires = Date.now() + ((ttl || this.ttl / 1000) * 1000);
-      this.cache.set(key, { value, expires });
-      return true;
-    }
-    del(key) {
-      return this.cache.delete(key);
-    }
-    flushAll() {
-      this.cache.clear();
-    }
-  };
+    return item.value;
+  }
+  set(key, value, ttl) {
+    const expires = Date.now() + ((ttl || this.ttl / 1000) * 1000);
+    this.cache.set(key, { value, expires });
+    return true;
+  }
+  del(key) {
+    return this.cache.delete(key);
+  }
+  flushAll() {
+    this.cache.clear();
+  }
 }
 
 const bitcoin = require('bitcoinjs-lib');
@@ -57,7 +50,7 @@ bitcoin.initEccLib(ecc);
 const ECPair = ECPairFactory(ecc);
 
 // Create cache with 5 minute TTL to reduce API calls (300 seconds)
-const cache = new NodeCache({ stdTTL: 300, checkperiod: 600 });
+const cache = new SimpleCache({ stdTTL: 300, checkperiod: 600 });
 
 // Initialize Telegram service for alerts
 const telegramService = new TelegramService();
