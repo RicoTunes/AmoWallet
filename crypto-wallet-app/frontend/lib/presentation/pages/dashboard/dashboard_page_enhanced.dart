@@ -1764,7 +1764,7 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
                       onTap: () {
                         print('🟢 Dashboard: Navigating to swap with coin: $symbol');
                         Navigator.pop(sheetContext);
-                        parentContext.go('/swap', extra: {'coin': symbol});
+                        parentContext.go('/swap', extra: {'fromCoin': symbol});
                       },
                     ),
                     const SizedBox(width: 12),

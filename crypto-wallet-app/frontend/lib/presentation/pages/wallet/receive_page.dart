@@ -541,6 +541,29 @@ class _ReceivePageState extends ConsumerState<ReceivePage> with SingleTickerProv
         ),
         title: const Text('Receive'),
         actions: [
+          // Create new address button (always visible, prominent)
+          Container(
+            margin: const EdgeInsets.only(right: 4),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: IconButton(
+              icon: _generatingAddress 
+                  ? SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    )
+                  : const Icon(Icons.add),
+              onPressed: _generatingAddress ? null : _generateNewAddressWithAnimation,
+              tooltip: 'Create new address',
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.camera_alt),
             onPressed: _captureQrScreenshot,
@@ -551,31 +574,49 @@ class _ReceivePageState extends ConsumerState<ReceivePage> with SingleTickerProv
             onPressed: _showCoinPicker,
             tooltip: 'Change coin',
           ),
-          IconButton(
-            icon: const Icon(Icons.key),
-            onPressed: () async {
-              final localCtx = context;
-              final addr = _addresses[_selectedCoin];
-              if (addr == null) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(localCtx).showSnackBar(const SnackBar(content: Text('No address selected')));
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'More options',
+            onSelected: (value) async {
+              switch (value) {
+                case 'export':
+                  final localCtx = context;
+                  final addr = _addresses[_selectedCoin];
+                  if (addr == null) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(localCtx).showSnackBar(const SnackBar(content: Text('No address selected')));
+                    }
+                    return;
                   }
-                  return;
-                }
-              await _confirmAndReveal(_selectedCoin, addr);
+                  await _confirmAndReveal(_selectedCoin, addr);
+                  break;
+                case 'refresh':
+                  _loadBalance();
+                  break;
+              }
             },
-            tooltip: 'Export / Reveal private key',
-          ),
-          if (!_loading)
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              onPressed: _generateNewAddress,
-              tooltip: 'Generate new address',
-            ),
-          IconButton(
-            icon: const Icon(Icons.update),
-            onPressed: _loadBalance,
-            tooltip: 'Refresh balance',
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'export',
+                child: Row(
+                  children: [
+                    Icon(Icons.key, size: 20),
+                    SizedBox(width: 12),
+                    Text('Export Private Key'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'refresh',
+                child: Row(
+                  children: [
+                    Icon(Icons.refresh, size: 20),
+                    SizedBox(width: 12),
+                    Text('Refresh Balance'),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),

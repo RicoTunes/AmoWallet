@@ -25,8 +25,9 @@ const defaultKey = initializeDefaultKey();
 const feeSweepService = new FeeSweepService();
 const telegramService = new TelegramService();
 
-// Start main server
-server.listen(serverPort, () => {
+// Start main server - bind to 0.0.0.0 for cloud deployments
+const HOST = process.env.HOST || '0.0.0.0';
+server.listen(serverPort, HOST, () => {
   console.log('\n🚀 Crypto Wallet API Server Started Successfully!');
   console.log(`📡 Server running on port ${serverPort}`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);

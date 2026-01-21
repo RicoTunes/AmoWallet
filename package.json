@@ -5,7 +5,7 @@
   "main": "crypto-wallet-app/backend/server.js",
   "scripts": {
     "start": "node crypto-wallet-app/backend/server.js",
-    "postinstall": "cd crypto-wallet-app/backend && npm install"
+    "build": "cd crypto-wallet-app/backend && npm install --production"
   },
   "engines": {
     "node": ">=18.0.0"

@@ -61,7 +61,9 @@ class SwapQuoteInfo {
 
 /// Real Swap Page with multiple sources and cross-chain support
 class SwapPageReal extends ConsumerStatefulWidget {
-  const SwapPageReal({super.key});
+  final String? initialFromCoin;
+  
+  const SwapPageReal({super.key, this.initialFromCoin});
 
   @override
   ConsumerState<SwapPageReal> createState() => _SwapPageRealState();
@@ -162,10 +164,58 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
     
     _amountController.addListener(_onAmountChanged);
     
+    // Set initial from coin if provided
+    if (widget.initialFromCoin != null) {
+      _setInitialFromCoin(widget.initialFromCoin!);
+    }
+    
     // Load balance in background after frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initServices();
     });
+  }
+
+  void _setInitialFromCoin(String coinSymbol) {
+    // Map the coin symbol to a token
+    // Handle USDT variants (USDT-TRC20, USDT-BEP20, USDT-ERC20)
+    String symbol = coinSymbol.split('-').first.toUpperCase();
+    String? network;
+    
+    if (coinSymbol.contains('TRC20')) {
+      network = 'tron';
+    } else if (coinSymbol.contains('BEP20')) {
+      network = 'bsc';
+    } else if (coinSymbol.contains('ERC20')) {
+      network = 'ethereum';
+    }
+    
+    // Find matching token
+    TokenInfo? matchingToken;
+    for (final token in _tokens) {
+      if (token.symbol.toUpperCase() == symbol) {
+        if (network != null) {
+          if (token.network == network) {
+            matchingToken = token;
+            break;
+          }
+        } else {
+          matchingToken = token;
+          break;
+        }
+      }
+    }
+    
+    if (matchingToken != null) {
+      _fromToken = matchingToken;
+      // Set a different default "to" token
+      if (_fromToken.symbol == 'BTC') {
+        _toToken = _tokens.firstWhere((t) => t.symbol == 'ETH', orElse: () => _tokens[3]);
+      } else if (_fromToken.symbol == 'ETH') {
+        _toToken = _tokens.firstWhere((t) => t.symbol == 'BTC', orElse: () => _tokens[0]);
+      } else {
+        _toToken = _tokens.firstWhere((t) => t.symbol == 'USDT' && t.network == 'bsc', orElse: () => _tokens[0]);
+      }
+    }
   }
 
   Future<void> _initServices() async {
@@ -795,19 +845,35 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
 
           // Amount input + token selector
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
-                child: TextField(
-                  controller: _amountController,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-                  decoration: InputDecoration(
-                    hintText: '0.00',
-                    hintStyle: TextStyle(color: Colors.grey[400]),
-                    border: InputBorder.none,
+                child: Container(
+                  height: 56,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.grey[200]!),
+                  ),
+                  alignment: Alignment.centerLeft,
+                  child: TextField(
+                    controller: _amountController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87),
+                    decoration: InputDecoration(
+                      hintText: '0.00',
+                      hintStyle: TextStyle(color: Colors.grey[400]),
+                      border: InputBorder.none,
+                      filled: true,
+                      fillColor: Colors.transparent,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
                   ),
                 ),
               ),
+              const SizedBox(width: 12),
               _buildTokenSelector(_fromToken, true),
             ],
           ),
@@ -866,27 +932,40 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
 
           // Selected token & estimate
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      est > 0 ? est.toStringAsFixed(6) : '0.00',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: est > 0 ? Colors.black87 : Colors.grey[400],
-                      ),
-                    ),
-                    if (est > 0)
+                child: Container(
+                  height: 56,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[50],
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.grey[200]!),
+                  ),
+                  alignment: Alignment.centerLeft,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
                       Text(
-                        '≈ \$${_getUsdValue(_toToken, est).toStringAsFixed(2)} USD',
-                        style: TextStyle(color: Colors.grey[500], fontSize: 13),
+                        est > 0 ? est.toStringAsFixed(6) : '0.00',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: est > 0 ? Colors.black87 : Colors.grey[400],
+                        ),
                       ),
-                  ],
+                      if (est > 0)
+                        Text(
+                          '≈ \$${_getUsdValue(_toToken, est).toStringAsFixed(2)} USD',
+                          style: TextStyle(color: Colors.grey[500], fontSize: 11),
+                        ),
+                    ],
+                  ),
                 ),
               ),
+              const SizedBox(width: 12),
               _buildTokenSelector(_toToken, false),
             ],
           ),
@@ -919,10 +998,11 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
     return GestureDetector(
       onTap: () => _showTokenPicker(isFrom),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        height: 56,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: token.color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: token.color.withOpacity(0.3)),
         ),
         child: Row(
@@ -932,7 +1012,7 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
             const SizedBox(width: 6),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(token.symbol, style: TextStyle(fontWeight: FontWeight.bold, color: token.color, fontSize: 14)),
                 Text(token.networkName, style: TextStyle(color: token.color.withOpacity(0.7), fontSize: 10)),

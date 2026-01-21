@@ -6,6 +6,8 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../services/wallet_service.dart';
 import '../../../services/biometric_auth_service.dart';
+import '../../../services/pin_auth_service.dart';
+import '../../widgets/pin_dialogs.dart';
 
 class BackupRecoveryPage extends ConsumerStatefulWidget {
   const BackupRecoveryPage({super.key});
@@ -17,7 +19,8 @@ class BackupRecoveryPage extends ConsumerStatefulWidget {
 class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
   final WalletService _walletService = WalletService();
   final BiometricAuthService _authService = BiometricAuthService();
-  
+  final PinAuthService _pinAuthService = PinAuthService();
+
   String? _mnemonic;
   bool _isRevealed = false;
   bool _isVerified = false;
@@ -45,7 +48,8 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 32),
+                    const Icon(Icons.warning_amber_rounded,
+                        color: Colors.orange, size: 32),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -110,7 +114,10 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
                         Text(
                           'You\'ll need to verify your identity before viewing your recovery phrase.',
                           style: AppTheme.bodySmall.copyWith(
-                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withOpacity(0.7),
                           ),
                           textAlign: TextAlign.center,
                         ),
@@ -123,10 +130,13 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
                                 ? const SizedBox(
                                     width: 16,
                                     height: 16,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2),
                                   )
                                 : const Icon(Icons.lock_open),
-                            label: Text(_loading ? 'Authenticating...' : 'Reveal Recovery Phrase'),
+                            label: Text(_loading
+                                ? 'Authenticating...'
+                                : 'Reveal Recovery Phrase'),
                             style: ElevatedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 16),
                             ),
@@ -174,8 +184,13 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
                                 Wrap(
                                   spacing: 8,
                                   runSpacing: 8,
-                                  children: _mnemonic!.split(' ').asMap().entries.map((entry) {
-                                    return _buildWordChip(entry.key + 1, entry.value);
+                                  children: _mnemonic!
+                                      .split(' ')
+                                      .asMap()
+                                      .entries
+                                      .map((entry) {
+                                    return _buildWordChip(
+                                        entry.key + 1, entry.value);
                                   }).toList(),
                                 ),
                               const SizedBox(height: 16),
@@ -205,7 +220,8 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
                             child: ElevatedButton(
                               onPressed: _verifyBackup,
                               style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 16),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 16),
                               ),
                               child: const Text('I\'ve Written It Down'),
                             ),
@@ -219,7 +235,8 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.check_circle, color: Colors.green),
+                                const Icon(Icons.check_circle,
+                                    color: Colors.green),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
@@ -258,7 +275,10 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
 
               // What if I lose my phrase?
               Card(
-                color: Theme.of(context).colorScheme.errorContainer.withOpacity(0.3),
+                color: Theme.of(context)
+                    .colorScheme
+                    .errorContainer
+                    .withOpacity(0.3),
                 child: Padding(
                   padding: const EdgeInsets.all(AppConstants.defaultPadding),
                   child: Column(
@@ -331,28 +351,31 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
             ),
             const SizedBox(height: 12),
             ...items.map((item) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '• ',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      item,
-                      style: AppTheme.bodyMedium.copyWith(
-                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.8),
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '• ',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
+                      Expanded(
+                        child: Text(
+                          item,
+                          style: AppTheme.bodyMedium.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withOpacity(0.8),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            )),
+                )),
           ],
         ),
       ),
@@ -398,47 +421,82 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
     setState(() => _loading = true);
 
     try {
-      // Check biometric first
-      bool canUseBiometric = await _authService.isBiometricAvailable();
-      
-      if (canUseBiometric) {
-        bool authenticated = await _authService.authenticateWithBiometrics(
-          reason: 'Authenticate to view recovery phrase',
-        );
-        
-        if (!authenticated) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Authentication failed')),
-            );
+      bool authenticated = false;
+
+      // Try biometric authentication first, but catch any exceptions
+      try {
+        bool canUseBiometric = await _authService.isBiometricAvailable();
+        bool biometricEnabled = await _authService.isBiometricEnabled();
+
+        if (canUseBiometric && biometricEnabled) {
+          authenticated = await _authService.authenticateWithBiometrics(
+            reason: 'Authenticate to view recovery phrase',
+          );
+        }
+      } catch (e) {
+        // Biometric failed (UIUnavailable error, etc.) - fall back to PIN
+        print('Biometric auth failed: $e - falling back to PIN');
+        authenticated = false;
+      }
+
+      // If biometric didn't work or wasn't available, try PIN
+      if (!authenticated) {
+        final pinSet = await _pinAuthService.isPinSet();
+
+        if (pinSet && mounted) {
+          // Show PIN entry dialog
+          final pin = await showDialog<String>(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => _PinEntryDialog(
+              title: 'Enter PIN',
+              subtitle: 'Enter your PIN to view recovery phrase',
+            ),
+          );
+
+          if (pin != null && pin.isNotEmpty) {
+            authenticated = await _pinAuthService.verifyPin(pin);
+            if (!authenticated && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Invalid PIN'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
           }
+        } else if (mounted) {
+          // No security set up - show warning
+          await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Security Required'),
+              content: const Text(
+                'Please set up PIN or biometric authentication in Settings > Security to view your recovery phrase.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+          setState(() => _loading = false);
           return;
         }
-      } else {
-        // Show warning that they need to set up security
-        if (!mounted) return;
-        final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Security Required'),
-            content: const Text('Please set up PIN or biometric authentication in Settings > Security to view your recovery phrase.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
-              ),
-            ],
-          ),
-        );
-        
-        if (confirmed != true) return;
+      }
+
+      if (!authenticated) {
+        setState(() => _loading = false);
+        return;
       }
 
       // Try to get mnemonic from any stored address
       // Start with BTC as the primary chain
       String? mnemonic;
       final chains = ['BTC', 'ETH', 'BNB'];
-      
+
       for (final chain in chains) {
         try {
           final addresses = await _walletService.getStoredAddresses(chain);
@@ -451,11 +509,13 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
           continue;
         }
       }
-      
+
       if (mnemonic == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No recovery phrase found. Please restore your wallet.')),
+            const SnackBar(
+                content: Text(
+                    'No recovery phrase found. Please restore your wallet.')),
           );
         }
         return;
@@ -465,7 +525,6 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
         _mnemonic = mnemonic;
         _isRevealed = true;
       });
-
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -516,10 +575,10 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
 
     if (confirmed == true) {
       setState(() => _isVerified = true);
-      
+
       // Mark backup as completed in preferences
       await _walletService.markBackupCompleted();
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -529,5 +588,172 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
         );
       }
     }
+  }
+}
+
+/// Simple PIN entry dialog for authentication
+class _PinEntryDialog extends StatefulWidget {
+  final String title;
+  final String subtitle;
+
+  const _PinEntryDialog({
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  State<_PinEntryDialog> createState() => _PinEntryDialogState();
+}
+
+class _PinEntryDialogState extends State<_PinEntryDialog> {
+  String _enteredPin = '';
+
+  void _onDigitPressed(String digit) {
+    if (_enteredPin.length < 6) {
+      setState(() {
+        _enteredPin += digit;
+      });
+
+      // Auto-submit when 6 digits entered
+      if (_enteredPin.length == 6) {
+        Navigator.of(context).pop(_enteredPin);
+      }
+    }
+  }
+
+  void _onBackspace() {
+    if (_enteredPin.isNotEmpty) {
+      setState(() {
+        _enteredPin = _enteredPin.substring(0, _enteredPin.length - 1);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              widget.title,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              widget.subtitle,
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 14,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+
+            // PIN Dots
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(6, (index) {
+                final isFilled = index < _enteredPin.length;
+                return Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 8),
+                  width: 14,
+                  height: 14,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isFilled
+                        ? Theme.of(context).colorScheme.primary
+                        : Colors.transparent,
+                    border: Border.all(
+                      color: isFilled
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.grey[400]!,
+                      width: 2,
+                    ),
+                  ),
+                );
+              }),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Number Pad
+            SizedBox(
+              width: 250,
+              child: GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  childAspectRatio: 1.5,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 8,
+                ),
+                itemCount: 12,
+                itemBuilder: (context, index) {
+                  if (index == 9) {
+                    return const SizedBox();
+                  } else if (index == 10) {
+                    return _buildNumberButton('0');
+                  } else if (index == 11) {
+                    return _buildBackspaceButton();
+                  } else {
+                    return _buildNumberButton('${index + 1}');
+                  }
+                },
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(null),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNumberButton(String digit) {
+    return GestureDetector(
+      onTap: () => _onDigitPressed(digit),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.grey[200],
+          shape: BoxShape.circle,
+        ),
+        child: Center(
+          child: Text(
+            digit,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBackspaceButton() {
+    return GestureDetector(
+      onTap: _onBackspace,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.grey[200],
+          shape: BoxShape.circle,
+        ),
+        child: const Center(
+          child: Icon(Icons.backspace_outlined, size: 22),
+        ),
+      ),
+    );
   }
 }

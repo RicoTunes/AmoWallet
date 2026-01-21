@@ -55,6 +55,9 @@ class _SecuritySettingsPageState extends ConsumerState<SecuritySettingsPage> {
   }
 
   Future<void> _toggleBiometric(bool value) async {
+    print('🔐 Toggling biometric to: $value');
+    print('🔐 isPinSet: $_isPinSet, isBiometricAvailable: $_isBiometricAvailable');
+    
     if (value && !_isPinSet) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -65,18 +68,32 @@ class _SecuritySettingsPageState extends ConsumerState<SecuritySettingsPage> {
       return;
     }
 
+    // Allow enabling even if biometric not detected (user can try later)
+    // Only show warning but don't block
     if (value && !_isBiometricAvailable) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Biometric authentication not available on this device'),
+          content: Text('Note: Biometric may not work if not set up on device'),
           backgroundColor: Colors.orange,
+          duration: Duration(seconds: 2),
         ),
       );
-      return;
+      // Don't return - allow enabling anyway
     }
 
-    await _pinAuthService.setBiometricEnabled(value);
-    setState(() => _biometricEnabled = value);
+    try {
+      await _pinAuthService.setBiometricEnabled(value);
+      print('✅ Biometric enabled set to: $value');
+      setState(() => _biometricEnabled = value);
+    } catch (e) {
+      print('❌ Error setting biometric: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> _changePin() async {
@@ -264,10 +281,10 @@ class _SecuritySettingsPageState extends ConsumerState<SecuritySettingsPage> {
               title: const Text('Biometric Authentication'),
               subtitle: Text(_isBiometricAvailable
                   ? 'Use fingerprint or face to unlock'
-                  : 'Not available on this device'),
+                  : 'Enable biometric unlock (requires device setup)'),
               secondary: const Icon(Icons.fingerprint),
               value: _biometricEnabled,
-              onChanged: _isBiometricAvailable ? _toggleBiometric : null,
+              onChanged: _toggleBiometric,
             ),
           ),
           

@@ -37,7 +37,8 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
   final PinAuthService _pinAuthService = PinAuthService();
   final NotificationService _notificationService = NotificationService();
   final SpendingLimitService _spendingLimitService = SpendingLimitService();
-  final ConfirmationTrackerService _confirmationTracker = ConfirmationTrackerService();
+  final ConfirmationTrackerService _confirmationTracker =
+      ConfirmationTrackerService();
 
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _addressController = TextEditingController();
@@ -81,12 +82,15 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
     CoinData('BTC', 'Bitcoin', const Color(0xFFF7931A), Icons.currency_bitcoin),
     CoinData('ETH', 'Ethereum', const Color(0xFF627EEA), Icons.diamond),
     CoinData('BNB', 'BNB Chain', const Color(0xFFF0B90B), Icons.hexagon),
-    CoinData('USDT-BEP20', 'USDT BEP20', const Color(0xFF26A17B), Icons.attach_money),
-    CoinData('USDT-ERC20', 'USDT ERC20', const Color(0xFF26A17B), Icons.attach_money),
+    CoinData('USDT-BEP20', 'USDT BEP20', const Color(0xFF26A17B),
+        Icons.attach_money),
+    CoinData('USDT-ERC20', 'USDT ERC20', const Color(0xFF26A17B),
+        Icons.attach_money),
     CoinData('SOL', 'Solana', const Color(0xFF9945FF), Icons.flash_on),
     CoinData('XRP', 'Ripple', const Color(0xFF23292F), Icons.water_drop),
     CoinData('TRX', 'Tron', const Color(0xFFEB0029), Icons.bolt),
-    CoinData('LTC', 'Litecoin', const Color(0xFFBFBBBB), Icons.currency_exchange),
+    CoinData(
+        'LTC', 'Litecoin', const Color(0xFFBFBBBB), Icons.currency_exchange),
     CoinData('DOGE', 'Dogecoin', const Color(0xFFC2A633), Icons.pets),
   ];
 
@@ -97,7 +101,8 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
     _addressController.text = widget.initialAddress ?? '';
     _currentHeaderColor = _getCoinColor(_selectedCoin);
 
-    _confettiController = ConfettiController(duration: const Duration(seconds: 3));
+    _confettiController =
+        ConfettiController(duration: const Duration(seconds: 3));
 
     _colorAnimationController = AnimationController(
       duration: const Duration(milliseconds: 500),
@@ -133,10 +138,12 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
   }
 
   Color _getCoinColor(String coin) {
-    return _coins.firstWhere(
-      (c) => c.symbol == coin,
-      orElse: () => _coins.first,
-    ).color;
+    return _coins
+        .firstWhere(
+          (c) => c.symbol == coin,
+          orElse: () => _coins.first,
+        )
+        .color;
   }
 
   void _animateToColor(Color newColor) {
@@ -180,7 +187,8 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
       final addresses = await _walletService.getStoredAddresses(_selectedCoin);
       if (addresses.isNotEmpty) {
         _myAddress = addresses.first;
-        final balance = await _blockchainService.getBalance(_selectedCoin, _myAddress!);
+        final balance =
+            await _blockchainService.getBalance(_selectedCoin, _myAddress!);
         final fee = await _calculateRealFee();
 
         setState(() {
@@ -311,7 +319,8 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
     final total = _availableBalance - _fee;
     if (total > 0) {
       if (_useUsdInput && _currentCryptoPrice > 0) {
-        _amountController.text = (total * _currentCryptoPrice).toStringAsFixed(2);
+        _amountController.text =
+            (total * _currentCryptoPrice).toStringAsFixed(2);
       } else {
         _amountController.text = total.toStringAsFixed(8);
       }
@@ -600,8 +609,11 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
           builder: (context, child) {
             final color = _headerColorAnimation.value ?? _currentHeaderColor;
             return Scaffold(
-              backgroundColor: isDark ? const Color(0xFF0D1421) : Colors.grey[100],
-              body: _showPinEntry ? _buildPinEntryPage(color) : _buildMainPage(color),
+              backgroundColor:
+                  isDark ? const Color(0xFF0D1421) : Colors.grey[100],
+              body: _showPinEntry
+                  ? _buildPinEntryPage(color)
+                  : _buildMainPage(color),
             );
           },
         ),
@@ -657,7 +669,8 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
             Center(
               child: Container(
                 margin: const EdgeInsets.only(right: 12),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
                   color: headerColor.withOpacity(0.3),
                   borderRadius: BorderRadius.circular(16),
@@ -722,7 +735,8 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                 // Coin Selection Cards - Round circles
                 Builder(
                   builder: (context) {
-                    final isDark = Theme.of(context).brightness == Brightness.dark;
+                    final isDark =
+                        Theme.of(context).brightness == Brightness.dark;
                     return Text(
                       'Select Coin',
                       style: TextStyle(
@@ -743,7 +757,8 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                     itemBuilder: (context, index) {
                       final coin = _coins[index];
                       final isSelected = coin.symbol == _selectedCoin;
-                      final isDark = Theme.of(context).brightness == Brightness.dark;
+                      final isDark =
+                          Theme.of(context).brightness == Brightness.dark;
                       return GestureDetector(
                         onTap: () => _onCoinSelected(coin.symbol),
                         child: Container(
@@ -761,23 +776,33 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                                   width: 60,
                                   height: 60,
                                   decoration: BoxDecoration(
-                                    color: isSelected ? coin.color : (isDark ? const Color(0xFF1E2530) : Colors.white),
+                                    color: isSelected
+                                        ? coin.color
+                                        : (isDark
+                                            ? const Color(0xFF1E2530)
+                                            : Colors.white),
                                     shape: BoxShape.circle,
                                     border: Border.all(
-                                      color: isSelected ? coin.color : (isDark ? Colors.white24 : Colors.grey[300]!),
+                                      color: isSelected
+                                          ? coin.color
+                                          : (isDark
+                                              ? Colors.white24
+                                              : Colors.grey[300]!),
                                       width: isSelected ? 3 : 2,
                                     ),
                                     boxShadow: isSelected
                                         ? [
                                             BoxShadow(
-                                              color: coin.color.withOpacity(0.5),
+                                              color:
+                                                  coin.color.withOpacity(0.5),
                                               blurRadius: 15,
                                               offset: const Offset(0, 5),
                                             ),
                                           ]
                                         : [
                                             BoxShadow(
-                                              color: Colors.grey.withOpacity(0.2),
+                                              color:
+                                                  Colors.grey.withOpacity(0.2),
                                               blurRadius: 5,
                                               offset: const Offset(0, 2),
                                             ),
@@ -786,7 +811,9 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                                   child: Center(
                                     child: Icon(
                                       coin.icon,
-                                      color: isSelected ? Colors.white : coin.color,
+                                      color: isSelected
+                                          ? Colors.white
+                                          : coin.color,
                                       size: 28,
                                     ),
                                   ),
@@ -796,8 +823,14 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                               Text(
                                 coin.symbol.split('-').first,
                                 style: TextStyle(
-                                  color: isSelected ? coin.color : (isDark ? Colors.white70 : Colors.grey[600]),
-                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                  color: isSelected
+                                      ? coin.color
+                                      : (isDark
+                                          ? Colors.white70
+                                          : Colors.grey[600]),
+                                  fontWeight: isSelected
+                                      ? FontWeight.bold
+                                      : FontWeight.w500,
                                   fontSize: 11,
                                 ),
                               ),
@@ -829,31 +862,41 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                 // Fee Info
                 Builder(
                   builder: (context) {
-                    final isDark = Theme.of(context).brightness == Brightness.dark;
+                    final isDark =
+                        Theme.of(context).brightness == Brightness.dark;
                     return Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         color: isDark ? const Color(0xFF1E2530) : Colors.white,
                         borderRadius: BorderRadius.circular(16),
-                        border: isDark ? Border.all(color: Colors.white10) : null,
-                        boxShadow: isDark ? null : [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.1),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
+                        border:
+                            isDark ? Border.all(color: Colors.white10) : null,
+                        boxShadow: isDark
+                            ? null
+                            : [
+                                BoxShadow(
+                                  color: Colors.grey.withOpacity(0.1),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.local_gas_station, color: isDark ? Colors.white54 : Colors.grey[500], size: 20),
+                              Icon(Icons.local_gas_station,
+                                  color: isDark
+                                      ? Colors.white54
+                                      : Colors.grey[500],
+                                  size: 20),
                               const SizedBox(width: 8),
                               Text(
                                 'Network Fee',
-                                style: TextStyle(color: isDark ? Colors.white54 : Colors.grey),
+                                style: TextStyle(
+                                    color:
+                                        isDark ? Colors.white54 : Colors.grey),
                               ),
                             ],
                           ),
@@ -892,13 +935,15 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
         color: isDark ? const Color(0xFF1E2530) : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: isDark ? Border.all(color: Colors.white10) : null,
-        boxShadow: isDark ? null : [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.grey.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -945,8 +990,11 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                             child: Text(
                               _selectedCoin.split('-').first,
                               style: TextStyle(
-                                color:
-                                    !_useUsdInput ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+                                color: !_useUsdInput
+                                    ? Colors.white
+                                    : (isDark
+                                        ? Colors.white70
+                                        : Colors.black87),
                                 fontWeight: FontWeight.w600,
                                 fontSize: 12,
                               ),
@@ -974,8 +1022,11 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                             child: Text(
                               'USD',
                               style: TextStyle(
-                                color:
-                                    _useUsdInput ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+                                color: _useUsdInput
+                                    ? Colors.white
+                                    : (isDark
+                                        ? Colors.white70
+                                        : Colors.black87),
                                 fontWeight: FontWeight.w600,
                                 fontSize: 12,
                               ),
@@ -1007,28 +1058,38 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
           TextField(
             controller: _amountController,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87),
+            style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : Colors.black87),
             decoration: InputDecoration(
               filled: true,
               fillColor: isDark ? const Color(0xFF2A3340) : Colors.grey[50],
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey[300]!),
+                borderSide: BorderSide(
+                    color: isDark ? Colors.white24 : Colors.grey[300]!),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey[300]!),
+                borderSide: BorderSide(
+                    color: isDark ? Colors.white24 : Colors.grey[300]!),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(color: _currentHeaderColor, width: 2),
               ),
               hintText: _useUsdInput ? '0.00' : '0.00000000',
-              hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
+              hintStyle:
+                  TextStyle(color: isDark ? Colors.white38 : Colors.grey),
               prefixText: _useUsdInput ? '\$ ' : '',
-              prefixStyle: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 24, fontWeight: FontWeight.bold),
+              prefixStyle: TextStyle(
+                  color: isDark ? Colors.white70 : Colors.black87,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold),
               suffixText: _useUsdInput ? null : _selectedCoin,
-              suffixStyle: TextStyle(color: _currentHeaderColor, fontWeight: FontWeight.bold),
+              suffixStyle: TextStyle(
+                  color: _currentHeaderColor, fontWeight: FontWeight.bold),
             ),
             onChanged: (_) => setState(() {}),
           ),
@@ -1052,23 +1113,27 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
 
   Widget _buildAddressInput() {
     final address = _addressController.text.trim();
-    final bool isValidAddress = address.isNotEmpty && _validateAddressFormat(address);
-    final bool showValidation = address.length >= 3; // Show validation after 3+ chars
+    final bool isValidAddress =
+        address.isNotEmpty && _validateAddressFormat(address);
+    final bool showValidation =
+        address.length >= 3; // Show validation after 3+ chars
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1E2530) : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: isDark ? Border.all(color: Colors.white10) : null,
-        boxShadow: isDark ? null : [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.grey.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1096,7 +1161,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                       ),
                     ),
                   );
-                  
+
                   if (result != null && result.address != null && mounted) {
                     setState(() {
                       _addressController.text = result.address!;
@@ -1107,7 +1172,9 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                       // Auto-select coin if detected
                       if (result.coin != null) {
                         final matchingCoin = _coins.firstWhere(
-                          (c) => c.symbol.toUpperCase() == result.coin!.toUpperCase(),
+                          (c) =>
+                              c.symbol.toUpperCase() ==
+                              result.coin!.toUpperCase(),
                           orElse: () => _coins.first,
                         );
                         if (matchingCoin.symbol != _selectedCoin) {
@@ -1115,7 +1182,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                         }
                       }
                     });
-                    
+
                     // Show success feedback
                     final addr = result.address!;
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -1125,13 +1192,15 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                             const Icon(Icons.check_circle, color: Colors.white),
                             const SizedBox(width: 8),
                             Expanded(
-                              child: Text('Address scanned: ${addr.substring(0, 8)}...${addr.substring(addr.length - 6)}'),
+                              child: Text(
+                                  'Address scanned: ${addr.substring(0, 8)}...${addr.substring(addr.length - 6)}'),
                             ),
                           ],
                         ),
                         backgroundColor: Colors.green,
                         behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
                       ),
                     );
                   }
@@ -1148,12 +1217,13 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
               fillColor: isDark ? const Color(0xFF2A3340) : Colors.grey[50],
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey[300]!),
+                borderSide: BorderSide(
+                    color: isDark ? Colors.white24 : Colors.grey[300]!),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(
-                  color: showValidation 
+                  color: showValidation
                       ? (isValidAddress ? Colors.green : Colors.red)
                       : (isDark ? Colors.white24 : Colors.grey[300]!),
                   width: showValidation ? 2 : 1,
@@ -1162,14 +1232,15 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(
-                  color: showValidation 
+                  color: showValidation
                       ? (isValidAddress ? Colors.green : Colors.red)
-                      : _currentHeaderColor, 
+                      : _currentHeaderColor,
                   width: 2,
                 ),
               ),
               hintText: 'Enter wallet address',
-              hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
+              hintStyle:
+                  TextStyle(color: isDark ? Colors.white38 : Colors.grey),
               suffixIcon: showValidation
                   ? Container(
                       margin: const EdgeInsets.only(right: 12),
@@ -1197,7 +1268,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    isValidAddress 
+                    isValidAddress
                         ? 'Valid ${_selectedCoin.split('-').first} address'
                         : 'Invalid ${_selectedCoin.split('-').first} address format',
                     style: TextStyle(
@@ -1221,13 +1292,15 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
         color: isDark ? const Color(0xFF1E2530) : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: isDark ? Border.all(color: Colors.white10) : null,
-        boxShadow: isDark ? null : [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.grey.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1249,18 +1322,21 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
               fillColor: isDark ? const Color(0xFF2A3340) : Colors.grey[50],
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey[300]!),
+                borderSide: BorderSide(
+                    color: isDark ? Colors.white24 : Colors.grey[300]!),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.grey[300]!),
+                borderSide: BorderSide(
+                    color: isDark ? Colors.white24 : Colors.grey[300]!),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide(color: _currentHeaderColor, width: 2),
               ),
               hintText: 'Add a note',
-              hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey),
+              hintStyle:
+                  TextStyle(color: isDark ? Colors.white38 : Colors.grey),
             ),
           ),
         ],
@@ -1274,29 +1350,34 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
     final total = _availableBalance - _fee;
     final isDisabled = total <= 0 || !_balanceLoaded;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Expanded(
       child: GestureDetector(
-        onTap: isDisabled ? null : () {
-          final amount = total * percent;
-          if (_useUsdInput && _currentCryptoPrice > 0) {
-            _amountController.text = (amount * _currentCryptoPrice).toStringAsFixed(2);
-          } else {
-            _amountController.text = amount.toStringAsFixed(8);
-          }
-          setState(() {
-            _selectedPercent = percent;
-          });
-        },
+        onTap: isDisabled
+            ? null
+            : () {
+                final amount = total * percent;
+                if (_useUsdInput && _currentCryptoPrice > 0) {
+                  _amountController.text =
+                      (amount * _currentCryptoPrice).toStringAsFixed(2);
+                } else {
+                  _amountController.text = amount.toStringAsFixed(8);
+                }
+                setState(() {
+                  _selectedPercent = percent;
+                });
+              },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
           decoration: BoxDecoration(
-            color: isDisabled 
+            color: isDisabled
                 ? (isDark ? Colors.white10 : Colors.grey[200])
-                : (isSelected ? _currentHeaderColor : _currentHeaderColor.withOpacity(isDark ? 0.2 : 0.1)),
+                : (isSelected
+                    ? _currentHeaderColor
+                    : _currentHeaderColor.withOpacity(isDark ? 0.2 : 0.1)),
             borderRadius: BorderRadius.circular(8),
-            border: isDark && !isSelected && !isDisabled 
+            border: isDark && !isSelected && !isDisabled
                 ? Border.all(color: _currentHeaderColor.withOpacity(0.3))
                 : null,
           ),
@@ -1304,7 +1385,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
             child: Text(
               label,
               style: TextStyle(
-                color: isDisabled 
+                color: isDisabled
                     ? (isDark ? Colors.white38 : Colors.grey)
                     : (isSelected ? Colors.white : _currentHeaderColor),
                 fontWeight: FontWeight.w600,
@@ -1363,26 +1444,28 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
             ),
           ),
 
-          // Text hint with animated arrows >>
-          Center(
-            child: AnimatedOpacity(
-              opacity: _slidePosition < 0.3 ? 1.0 : 0.0,
-              duration: const Duration(milliseconds: 200),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    'Slide to Send',
-                    style: TextStyle(
-                      color: color,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 16,
+          // Text hint with animated arrows >> - wrapped in IgnorePointer to not block touch
+          IgnorePointer(
+            child: Center(
+              child: AnimatedOpacity(
+                opacity: _slidePosition < 0.3 ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 200),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'Slide to Send',
+                      style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  // Animated arrows >>
-                  _buildAnimatedArrows(color),
-                ],
+                    const SizedBox(width: 8),
+                    // Animated arrows >>
+                    _buildAnimatedArrows(color),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1401,7 +1484,8 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                   },
                   onHorizontalDragUpdate: (details) {
                     final newPosition =
-                        (_slidePosition * maxSlide + details.delta.dx) / maxSlide;
+                        (_slidePosition * maxSlide + details.delta.dx) /
+                            maxSlide;
                     _onSlideUpdate(newPosition);
                   },
                   onHorizontalDragEnd: (_) {
@@ -1592,8 +1676,8 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.account_balance_wallet_outlined, 
-                             color: Colors.grey[400], size: 20),
+                        Icon(Icons.account_balance_wallet_outlined,
+                            color: Colors.grey[400], size: 20),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -1612,7 +1696,8 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Network Fee', style: TextStyle(color: Colors.grey[500])),
+                      Text('Network Fee',
+                          style: TextStyle(color: Colors.grey[500])),
                       Text(
                         '${_fee.toStringAsFixed(6)} ${_selectedCoin.split('-').first}',
                         style: const TextStyle(fontWeight: FontWeight.w500),
@@ -1658,72 +1743,72 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                 fontSize: 13,
                 color: Colors.grey[500],
               ),
-          ),
-          const SizedBox(height: 24),
-
-          // PIN Dots
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(6, (index) {
-              final isFilled = index < _enteredPin.length;
-              return AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                margin: const EdgeInsets.symmetric(horizontal: 8),
-                width: isFilled ? 16 : 14,
-                height: isFilled ? 16 : 14,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isFilled ? headerColor : Colors.transparent,
-                  border: Border.all(
-                    color: isFilled ? headerColor : Colors.grey[300]!,
-                    width: 2,
-                  ),
-                  boxShadow: isFilled
-                      ? [
-                          BoxShadow(
-                            color: headerColor.withOpacity(0.3),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : null,
-                ),
-              );
-            }),
-          ),
-
-          const SizedBox(height: 28),
-
-          // Number Pad - Fixed size to prevent overflow
-          SizedBox(
-            height: 260,
-            child: GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                childAspectRatio: 1.5,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 8,
-              ),
-              itemCount: 12,
-              itemBuilder: (context, index) {
-                if (index == 9) {
-                  return const SizedBox(); // Empty space
-                } else if (index == 10) {
-                  return _buildNumberButton('0', headerColor);
-                } else if (index == 11) {
-                  return _buildBackspaceButton(headerColor);
-                } else {
-                  return _buildNumberButton('${index + 1}', headerColor);
-                }
-              },
             ),
-          ),
-          const SizedBox(height: 16),
-        ],
-      ),
+            const SizedBox(height: 24),
+
+            // PIN Dots
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(6, (index) {
+                final isFilled = index < _enteredPin.length;
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  margin: const EdgeInsets.symmetric(horizontal: 8),
+                  width: isFilled ? 16 : 14,
+                  height: isFilled ? 16 : 14,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isFilled ? headerColor : Colors.transparent,
+                    border: Border.all(
+                      color: isFilled ? headerColor : Colors.grey[300]!,
+                      width: 2,
+                    ),
+                    boxShadow: isFilled
+                        ? [
+                            BoxShadow(
+                              color: headerColor.withOpacity(0.3),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ]
+                        : null,
+                  ),
+                );
+              }),
+            ),
+
+            const SizedBox(height: 28),
+
+            // Number Pad - Fixed size to prevent overflow
+            SizedBox(
+              height: 260,
+              child: GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  childAspectRatio: 1.5,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 8,
+                ),
+                itemCount: 12,
+                itemBuilder: (context, index) {
+                  if (index == 9) {
+                    return const SizedBox(); // Empty space
+                  } else if (index == 10) {
+                    return _buildNumberButton('0', headerColor);
+                  } else if (index == 11) {
+                    return _buildBackspaceButton(headerColor);
+                  } else {
+                    return _buildNumberButton('${index + 1}', headerColor);
+                  }
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+        ),
       ),
     );
   }
@@ -1847,7 +1932,8 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                 // Background fill animation
                 AnimatedContainer(
                   duration: const Duration(milliseconds: 100),
-                  width: (MediaQuery.of(context).size.width - 64) * _slidePosition,
+                  width:
+                      (MediaQuery.of(context).size.width - 64) * _slidePosition,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [
@@ -1859,25 +1945,28 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                   ),
                 ),
 
-                // Text
-                Center(
-                  child: AnimatedOpacity(
-                    opacity: _slidePosition < 0.3 ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 200),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'Slide to Confirm',
-                          style: TextStyle(
-                            color: headerColor,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 16,
+                // Text - wrapped in IgnorePointer to not block touch events
+                IgnorePointer(
+                  child: Center(
+                    child: AnimatedOpacity(
+                      opacity: _slidePosition < 0.3 ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 200),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'Slide to Confirm',
+                            style: TextStyle(
+                              color: headerColor,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(Icons.arrow_forward, color: headerColor, size: 20),
-                      ],
+                          const SizedBox(width: 8),
+                          Icon(Icons.arrow_forward,
+                              color: headerColor, size: 20),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -1896,7 +1985,8 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                         },
                         onHorizontalDragUpdate: (details) {
                           final newPosition =
-                              (_slidePosition * maxSlide + details.delta.dx) / maxSlide;
+                              (_slidePosition * maxSlide + details.delta.dx) /
+                                  maxSlide;
                           _onSlideUpdate(newPosition);
                         },
                         onHorizontalDragEnd: (_) {

@@ -180,7 +180,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/swap',
         name: 'swap',
-        builder: (context, state) => const SwapPageReal(),
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>?;
+          return SwapPageReal(initialFromCoin: extra?['fromCoin']);
+        },
       ),
       GoRoute(
         path: '/create-multisig',

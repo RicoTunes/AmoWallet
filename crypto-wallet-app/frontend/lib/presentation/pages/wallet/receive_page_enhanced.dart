@@ -30,23 +30,32 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
 
   String _selectedCoin = 'BTC';
   String? _address;
+  List<String> _allAddresses = []; // Store all addresses for the coin
   bool _loading = true;
   bool _copied = false;
   Color _currentHeaderColor = const Color(0xFFF7931A);
 
-  // Coin data with colors and networks
-  final List<CoinData> _coins = [
+  // Main coins (USDT is grouped, networks shown separately)
+  final List<CoinData> _mainCoins = [
     CoinData('BTC', 'Bitcoin', const Color(0xFFF7931A), Icons.currency_bitcoin, 'Bitcoin Network'),
     CoinData('ETH', 'Ethereum', const Color(0xFF627EEA), Icons.diamond, 'Ethereum (ERC20)'),
     CoinData('BNB', 'BNB Chain', const Color(0xFFF0B90B), Icons.hexagon, 'BNB Smart Chain (BEP20)'),
-    CoinData('USDT-BEP20', 'USDT BEP20', const Color(0xFF26A17B), Icons.attach_money, 'BNB Smart Chain'),
-    CoinData('USDT-ERC20', 'USDT ERC20', const Color(0xFF26A17B), Icons.attach_money, 'Ethereum Network'),
+    CoinData('USDT', 'Tether', const Color(0xFF26A17B), Icons.attach_money, 'Select Network'),
     CoinData('SOL', 'Solana', const Color(0xFF9945FF), Icons.flash_on, 'Solana Network'),
-    CoinData('XRP', 'Ripple', const Color(0xFF23292F), Icons.water_drop, 'XRP Ledger'),
     CoinData('TRX', 'Tron', const Color(0xFFEB0029), Icons.bolt, 'TRON Network'),
     CoinData('LTC', 'Litecoin', const Color(0xFFBFBBBB), Icons.currency_exchange, 'Litecoin Network'),
     CoinData('DOGE', 'Dogecoin', const Color(0xFFC2A633), Icons.pets, 'Dogecoin Network'),
   ];
+
+  // USDT network options
+  final List<CoinData> _usdtNetworks = [
+    CoinData('USDT-TRC20', 'TRC20 (Tron)', const Color(0xFFEB0029), Icons.bolt, 'TRON Network - Low fees'),
+    CoinData('USDT-BEP20', 'BEP20 (BSC)', const Color(0xFFF0B90B), Icons.hexagon, 'BNB Smart Chain - Low fees'),
+    CoinData('USDT-ERC20', 'ERC20 (Ethereum)', const Color(0xFF627EEA), Icons.diamond, 'Ethereum Network - Higher fees'),
+  ];
+
+  // Combined coin data for lookups
+  List<CoinData> get _coins => [..._mainCoins, ..._usdtNetworks];
 
   @override
   void initState() {
@@ -116,6 +125,12 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
   }
 
   void _onCoinSelected(String coin) {
+    // If USDT is selected, show network picker
+    if (coin == 'USDT') {
+      _showUsdtNetworkPicker();
+      return;
+    }
+    
     if (coin != _selectedCoin) {
       HapticFeedback.selectionClick();
       setState(() {
@@ -128,20 +143,147 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
     }
   }
 
+  void _showUsdtNetworkPicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Handle bar
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            // Title
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF26A17B).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(Icons.attach_money, color: Color(0xFF26A17B), size: 24),
+                  ),
+                  const SizedBox(width: 12),
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Select USDT Network',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        'Choose your preferred network',
+                        style: TextStyle(color: Colors.grey, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            // Network options
+            ..._usdtNetworks.map((network) => _buildNetworkOption(network)),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNetworkOption(CoinData network) {
+    final isSelected = _selectedCoin == network.symbol;
+    return InkWell(
+      onTap: () {
+        Navigator.pop(context);
+        HapticFeedback.selectionClick();
+        setState(() {
+          _selectedCoin = network.symbol;
+          _loading = true;
+          _copied = false;
+        });
+        _animateToColor(network.color);
+        _loadAddress();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: isSelected ? network.color.withOpacity(0.1) : null,
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: network.color.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(network.icon, color: network.color, size: 22),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    network.name,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15,
+                      color: isSelected ? network.color : Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    network.network,
+                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            if (isSelected)
+              Icon(Icons.check_circle, color: network.color, size: 22)
+            else
+              Icon(Icons.arrow_forward_ios, color: Colors.grey[400], size: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadAddress() async {
     try {
       final addresses = await _walletService.getStoredAddresses(_selectedCoin);
       if (addresses.isNotEmpty) {
         setState(() {
+          _allAddresses = addresses;
           _address = addresses.first;
           _loading = false;
         });
       } else {
-        // Try to generate address
-        await _generateNewAddress();
+        setState(() {
+          _allAddresses = [];
+          _address = null;
+          _loading = false;
+        });
       }
     } catch (e) {
       setState(() {
+        _allAddresses = [];
         _address = null;
         _loading = false;
       });
@@ -149,15 +291,42 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
   }
 
   Future<void> _generateNewAddress() async {
+    print('🟢 _generateNewAddress called for $_selectedCoin');
     setState(() => _loading = true);
     try {
+      print('🟡 Calling walletService.generateAddressFor($_selectedCoin)');
       final result = await _walletService.generateAddressFor(_selectedCoin);
+      print('🟢 Got result: $result');
       final newAddress = result['address'];
+      
+      // Reload all addresses to include the new one
+      final addresses = await _walletService.getStoredAddresses(_selectedCoin);
+      
       setState(() {
-        _address = newAddress;
+        _allAddresses = addresses;
+        _address = newAddress; // Select the newly created address
         _loading = false;
       });
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Text('New $_selectedCoin address created!'),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
     } catch (e) {
+      print('🔴 Error generating address: $e');
       setState(() {
         _address = null;
         _loading = false;
@@ -253,6 +422,30 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
                     fontSize: 22,
                   ),
                 ),
+                actions: [
+                  // Create new address button
+                  Container(
+                    margin: const EdgeInsets.only(right: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: IconButton(
+                      icon: _loading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.add, color: Colors.white),
+                      onPressed: _loading ? null : _generateNewAddress,
+                      tooltip: 'Create new address',
+                    ),
+                  ),
+                ],
                 flexibleSpace: FlexibleSpaceBar(
                   background: Container(
                     decoration: BoxDecoration(
@@ -322,10 +515,15 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
-        itemCount: _coins.length,
+        itemCount: _mainCoins.length,
         itemBuilder: (context, index) {
-          final coin = _coins[index];
-          final isSelected = coin.symbol == _selectedCoin;
+          final coin = _mainCoins[index];
+          // For USDT, check if any USDT network is selected
+          final isUsdtSelected = coin.symbol == 'USDT' && _selectedCoin.startsWith('USDT');
+          final isSelected = coin.symbol == _selectedCoin || isUsdtSelected;
+          // Get the actual color (for USDT use the selected network color)
+          final displayColor = isUsdtSelected ? _getCoinColor(_selectedCoin) : coin.color;
+          
           return GestureDetector(
             onTap: () => _onCoinSelected(coin.symbol),
             child: Container(
@@ -338,35 +536,57 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
                     scale: isSelected ? 1.15 : 1.0,
                     duration: const Duration(milliseconds: 300),
                     curve: Curves.easeOutBack,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 300),
-                      width: 60,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        color: isSelected ? coin.color : Colors.white,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: isSelected ? coin.color : Colors.grey[300]!,
-                          width: isSelected ? 3 : 2,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 300),
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: isSelected ? displayColor : Colors.white,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: isSelected ? displayColor : Colors.grey[300]!,
+                              width: isSelected ? 3 : 2,
+                            ),
+                            boxShadow: isSelected
+                                ? [BoxShadow(color: displayColor.withOpacity(0.5), blurRadius: 15, offset: const Offset(0, 5))]
+                                : [BoxShadow(color: Colors.grey.withOpacity(0.2), blurRadius: 5, offset: const Offset(0, 2))],
+                          ),
+                          child: Center(
+                            child: Icon(
+                              coin.icon,
+                              color: isSelected ? Colors.white : coin.color,
+                              size: 28,
+                            ),
+                          ),
                         ),
-                        boxShadow: isSelected
-                            ? [BoxShadow(color: coin.color.withOpacity(0.5), blurRadius: 15, offset: const Offset(0, 5))]
-                            : [BoxShadow(color: Colors.grey.withOpacity(0.2), blurRadius: 5, offset: const Offset(0, 2))],
-                      ),
-                      child: Center(
-                        child: Icon(
-                          coin.icon,
-                          color: isSelected ? Colors.white : coin.color,
-                          size: 28,
-                        ),
-                      ),
+                        // Show network indicator for USDT when selected
+                        if (coin.symbol == 'USDT' && isUsdtSelected)
+                          Positioned(
+                            right: -4,
+                            bottom: -4,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: displayColor,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 2),
+                              ),
+                              child: const Icon(Icons.check, color: Colors.white, size: 10),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    coin.symbol.split('-').first,
+                    coin.symbol == 'USDT' && isUsdtSelected 
+                        ? _selectedCoin.split('-').last  // Show TRC20, BEP20, etc
+                        : coin.symbol.split('-').first,
                     style: TextStyle(
-                      color: isSelected ? coin.color : Colors.grey[600],
+                      color: isSelected ? displayColor : Colors.grey[600],
                       fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                       fontSize: 11,
                     ),
@@ -539,12 +759,34 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Your ${_selectedCoin.split('-').first} Address',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
+              Row(
+                children: [
+                  Text(
+                    'Your ${_selectedCoin.split('-').first} Address',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                  if (_allAddresses.length > 1) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${_allAddresses.length}',
+                        style: TextStyle(
+                          color: color,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
               if (_address != null)
                 GestureDetector(
@@ -580,32 +822,131 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
             ],
           ),
           const SizedBox(height: 12),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.grey[50],
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey[200]!),
-            ),
-            child: _loading
-                ? Center(
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(color: color, strokeWidth: 2),
+          
+          // Address dropdown or single address display
+          if (_allAddresses.length > 1)
+            _buildAddressDropdown(color)
+          else
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey[50],
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey[200]!),
+              ),
+              child: _loading
+                  ? Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(color: color, strokeWidth: 2),
+                      ),
+                    )
+                  : Text(
+                      _address ?? 'No address yet. Tap + to create one.',
+                      style: TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                        color: _address != null ? Colors.black87 : Colors.grey,
+                      ),
                     ),
-                  )
-                : Text(
-                    _address ?? 'No address available',
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 12,
-                      color: _address != null ? Colors.black87 : Colors.grey,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAddressDropdown(Color color) {
+    // Ensure selected address is in the list
+    final selectedAddress = _allAddresses.contains(_address) ? _address : (_allAddresses.isNotEmpty ? _allAddresses.first : null);
+    
+    if (selectedAddress == null || _allAddresses.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.grey[50],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.grey[200]!),
+        ),
+        child: const Text(
+          'No addresses available',
+          style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.grey),
+        ),
+      );
+    }
+    
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: selectedAddress,
+          isExpanded: true,
+          icon: Icon(Icons.keyboard_arrow_down, color: color),
+          style: const TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 12,
+            color: Colors.black87,
+          ),
+          dropdownColor: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          items: _allAddresses.asMap().entries.map((entry) {
+            final index = entry.key;
+            final address = entry.value;
+            final isSelected = address == selectedAddress;
+            return DropdownMenuItem<String>(
+              value: address,
+              child: Row(
+                children: [
+                  Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: isSelected ? color : Colors.grey[300],
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${index + 1}',
+                        style: TextStyle(
+                          color: isSelected ? Colors.white : Colors.black54,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ),
-          ),
-        ],
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      address,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+          onChanged: (value) {
+            if (value != null) {
+              setState(() {
+                _address = value;
+                _copied = false;
+              });
+            }
+          },
+        ),
       ),
     );
   }

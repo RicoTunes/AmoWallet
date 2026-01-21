@@ -2,8 +2,10 @@ services:
   - type: web
     name: amowallet-backend
     runtime: node
-    buildCommand: npm install
+    buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: 10000
