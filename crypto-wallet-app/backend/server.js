@@ -1,6 +1,28 @@
-const app = require('./src/app');
-const SSLConfigManager = require('./src/config/ssl-config');
-const { initializeDefaultKey } = require('./src/middleware/auth');
+// Early startup logging
+console.log('🚀 Starting AmoWallet server...');
+console.log('📍 PORT:', process.env.PORT || 3000);
+console.log('📍 NODE_ENV:', process.env.NODE_ENV || 'development');
+
+let app, SSLConfigManager, initializeDefaultKey;
+
+try {
+  console.log('📦 Loading app module...');
+  app = require('./src/app');
+  console.log('✅ App module loaded');
+  
+  console.log('📦 Loading SSL config...');
+  SSLConfigManager = require('./src/config/ssl-config');
+  console.log('✅ SSL config loaded');
+  
+  console.log('📦 Loading auth middleware...');
+  const auth = require('./src/middleware/auth');
+  initializeDefaultKey = auth.initializeDefaultKey;
+  console.log('✅ Auth middleware loaded');
+} catch (e) {
+  console.error('❌ Failed to load required modules:', e.message);
+  console.error(e.stack);
+  process.exit(1);
+}
 
 // Port configuration - Railway sets PORT automatically
 const PORT = process.env.PORT || 3000;
