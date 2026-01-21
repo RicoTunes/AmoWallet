@@ -3,9 +3,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 import 'services/confirmation_tracker_service.dart';
+import 'core/config/environment.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Set environment to production (uses Railway backend)
+  EnvironmentConfig.setEnvironment(Environment.production);
   
   // Set preferred orientations
   await SystemChrome.setPreferredOrientations([
