@@ -1,12 +1,18 @@
-# Railway deployment config - Node.js backend only
+# Railway deployment config - Node.js backend ONLY
+# Explicitly disable Rust detection
 providers = ["node"]
 
 [phases.setup]
-nixPkgs = ["nodejs-20_x", "npm-9_x"]
+nixPkgs = ["nodejs_20", "npm-9_x"]
+aptPkgs = []
 
 [phases.install]
 dependsOn = ["setup"]
-cmds = ["cd crypto-wallet-app/backend && npm install --legacy-peer-deps"]
+cmds = ["cd crypto-wallet-app/backend && npm ci --legacy-peer-deps || npm install --legacy-peer-deps"]
+
+[phases.build]
+dependsOn = ["install"]
+cmds = ["echo 'Build complete'"]
 
 [start]
 cmd = "cd crypto-wallet-app/backend && node server.js"
