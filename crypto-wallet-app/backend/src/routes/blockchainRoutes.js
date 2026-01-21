@@ -60,15 +60,30 @@ const blockchainApis = {
   'AVALANCHE': process.env.AVALANCHE_RPC_URL
 };
 
-// Real blockchain providers with proper configuration
-const providers = {
-  ethereum: new ethers.JsonRpcProvider(blockchainApis['ETH']),
-  bsc: new ethers.JsonRpcProvider('https://bsc-dataseed1.binance.org/'),
-  polygon: new ethers.JsonRpcProvider(blockchainApis['POLYGON']),
-  arbitrum: new ethers.JsonRpcProvider(blockchainApis['ARBITRUM']),
-  optimism: new ethers.JsonRpcProvider(blockchainApis['OPTIMISM']),
-  avalanche: new ethers.JsonRpcProvider(blockchainApis['AVALANCHE'])
+// Lazy-loaded blockchain providers (created on first use to avoid startup errors)
+let _providers = null;
+const getProviders = () => {
+  if (!_providers) {
+    try {
+      _providers = {
+        ethereum: new ethers.JsonRpcProvider(blockchainApis['ETH'] || 'https://eth.llamarpc.com'),
+        bsc: new ethers.JsonRpcProvider('https://bsc-dataseed1.binance.org/'),
+        polygon: new ethers.JsonRpcProvider(blockchainApis['POLYGON'] || 'https://polygon-rpc.com'),
+        arbitrum: new ethers.JsonRpcProvider(blockchainApis['ARBITRUM'] || 'https://arb1.arbitrum.io/rpc'),
+        optimism: new ethers.JsonRpcProvider(blockchainApis['OPTIMISM'] || 'https://mainnet.optimism.io'),
+        avalanche: new ethers.JsonRpcProvider(blockchainApis['AVALANCHE'] || 'https://api.avax.network/ext/bc/C/rpc')
+      };
+    } catch (e) {
+      console.error('Failed to create providers:', e.message);
+      _providers = {};
+    }
+  }
+  return _providers;
 };
+// Keep 'providers' reference for backward compatibility
+const providers = new Proxy({}, {
+  get: (target, prop) => getProviders()[prop]
+});
 
 // Transaction schema for MongoDB
 const transactionSchema = new mongoose.Schema({

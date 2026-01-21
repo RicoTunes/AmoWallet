@@ -32,10 +32,23 @@ const UNISWAP_V3_ROUTER_ABI = [
 
 class TransactionManager {
   constructor() {
-    this.providers = {
-      ethereum: new ethers.JsonRpcProvider(`https://mainnet.infura.io/v3/${process.env.INFURA_PROJECT_ID}`),
-      bsc: new ethers.JsonRpcProvider('https://bsc-dataseed.binance.org')
-    };
+    this._providers = null;
+  }
+
+  // Lazy load providers to avoid startup errors
+  get providers() {
+    if (!this._providers) {
+      try {
+        this._providers = {
+          ethereum: new ethers.JsonRpcProvider(`https://mainnet.infura.io/v3/${process.env.INFURA_PROJECT_ID || 'demo'}`),
+          bsc: new ethers.JsonRpcProvider('https://bsc-dataseed.binance.org')
+        };
+      } catch (e) {
+        console.error('Failed to create transaction providers:', e.message);
+        this._providers = {};
+      }
+    }
+    return this._providers;
   }
 
   /**
