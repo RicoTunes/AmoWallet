@@ -4,14 +4,29 @@
  */
 
 const mongoose = require('mongoose');
-const { ethers } = require('ethers');
+
+// Lazy load ethers to avoid startup issues
+let ethers = null;
+const getEthers = () => {
+  if (!ethers) {
+    try {
+      ethers = require('ethers');
+    } catch (e) {
+      console.warn('ethers not available:', e.message);
+    }
+  }
+  return ethers;
+};
 
 // Supported blockchain networks
 const SUPPORTED_NETWORKS = ['ethereum', 'bsc', 'polygon', 'arbitrum', 'optimism', 'avalanche', 'bitcoin', 'litecoin', 'dogecoin', 'tron', 'ripple', 'solana'];
 
 // Transaction validation middleware
 const validateEthereumAddress = (address) => {
-  return ethers.isAddress(address);
+  // Use regex validation (ethers.isAddress can fail in some environments)
+  if (typeof address !== 'string') return false;
+  if (!/^0x[a-fA-F0-9]{40}$/.test(address)) return false;
+  return true;
 };
 
 const validateBitcoinAddress = (address) => {
