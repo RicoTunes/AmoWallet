@@ -15,7 +15,7 @@ dependsOn = ["install"]
 cmds = ["echo 'Build complete'"]
 
 [start]
-cmd = "cd crypto-wallet-app/backend && node server.js"
+cmd = "node server.js"
 
 [variables]
 NODE_ENV = "production"
