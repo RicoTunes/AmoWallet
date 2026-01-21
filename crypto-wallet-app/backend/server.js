@@ -1,10 +1,8 @@
 const app = require('./src/app');
 const SSLConfigManager = require('./src/config/ssl-config');
 const { initializeDefaultKey } = require('./src/middleware/auth');
-const FeeSweepService = require('./src/services/feeSweepService');
-const TelegramService = require('./src/services/telegramService');
 
-// Port configuration
+// Port configuration - Railway sets PORT automatically
 const PORT = process.env.PORT || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 443;
 const HTTP_REDIRECT_PORT = process.env.HTTP_REDIRECT_PORT || 80;
@@ -16,14 +14,31 @@ const enableHTTPS = process.env.ENABLE_HTTPS === 'true';
 // Create server (HTTP or HTTPS based on configuration)
 const server = sslConfig.createHTTPSServer(app);
 const protocol = enableHTTPS ? 'https' : 'http';
-const serverPort = enableHTTPS && process.env.NODE_ENV === 'production' ? HTTPS_PORT : PORT;
+// Always use PORT for Railway compatibility
+const serverPort = PORT;
 
 // Initialize authentication (generate default dev key)
-const defaultKey = initializeDefaultKey();
+let defaultKey = null;
+try {
+  defaultKey = initializeDefaultKey();
+} catch (e) {
+  console.log('⚠️ Could not initialize default key:', e.message);
+}
 
-// Initialize services
-const feeSweepService = new FeeSweepService();
-const telegramService = new TelegramService();
+// Initialize services only if not in minimal mode
+let feeSweepService = null;
+let telegramService = null;
+
+if (process.env.MINIMAL_MODE !== 'true') {
+  try {
+    const FeeSweepService = require('./src/services/feeSweepService');
+    const TelegramService = require('./src/services/telegramService');
+    feeSweepService = new FeeSweepService();
+    telegramService = new TelegramService();
+  } catch (e) {
+    console.log('⚠️ Optional services not loaded:', e.message);
+  }
+}
 
 // Start main server - bind to 0.0.0.0 for cloud deployments
 const HOST = process.env.HOST || '0.0.0.0';
@@ -65,25 +80,35 @@ server.listen(serverPort, HOST, () => {
   console.log('   - POST /api/multisig/execute - Execute transaction');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
   
-  // Start fee sweep service
-  if (process.env.FEE_SWEEP_ENABLED !== 'false') {
-    console.log('\n💰 Starting Fee Sweep Service...');
-    feeSweepService.start();
-    console.log('✅ Fee sweep service running (24h interval)');
+  // Start fee sweep service (if loaded)
+  if (feeSweepService && process.env.FEE_SWEEP_ENABLED !== 'false') {
+    try {
+      console.log('\n💰 Starting Fee Sweep Service...');
+      feeSweepService.start();
+      console.log('✅ Fee sweep service running (24h interval)');
+    } catch (e) {
+      console.log('⚠️ Fee sweep service not available:', e.message);
+    }
   }
   
-  // Send startup notification to Telegram
-  telegramService.sendStartupNotification({
-    port: serverPort,
-    environment: process.env.NODE_ENV || 'development',
-    features: [
-      'Fee Collection ✅',
-      'Automated Sweep Service ✅',
-      'Telegram Alerts ✅',
-      'Multi-Chain Support ✅',
-      'USDT Auto-Conversion ✅'
-    ]
-  });
+  // Send startup notification to Telegram (if loaded)
+  if (telegramService && telegramService.sendStartupNotification) {
+    try {
+      telegramService.sendStartupNotification({
+        port: serverPort,
+        environment: process.env.NODE_ENV || 'development',
+        features: [
+          'Fee Collection ✅',
+          'Automated Sweep Service ✅',
+          'Telegram Alerts ✅',
+          'Multi-Chain Support ✅',
+          'USDT Auto-Conversion ✅'
+        ]
+      });
+    } catch (e) {
+      console.log('⚠️ Telegram notification not sent:', e.message);
+    }
+  }
 });
 
 // Setup HTTP to HTTPS redirect (production only)
@@ -100,8 +125,14 @@ if (enableHTTPS && process.env.NODE_ENV === 'production') {
 const gracefulShutdown = (signal) => {
   console.log(`\n⚠️ Received ${signal}. Starting graceful shutdown...`);
   
-  // Stop fee sweep service
-  feeSweepService.stop();
+  // Stop fee sweep service (if loaded)
+  if (feeSweepService && feeSweepService.stop) {
+    try {
+      feeSweepService.stop();
+    } catch (e) {
+      console.log('⚠️ Could not stop fee sweep service:', e.message);
+    }
+  }
   
   server.close(() => {
     console.log('✅ HTTP server closed');
