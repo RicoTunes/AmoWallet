@@ -268,8 +268,10 @@ function deleteKey(apiKey) {
 function initializeDefaultKey() {
   if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
     const defaultKey = generateAPIKey();
-    console.log('🔑 Development API Key:', defaultKey.apiKey);
-    console.log('🔐 Development API Secret:', defaultKey.apiSecret);
+    // Security: Never log full API keys/secrets
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔑 Dev API Key (masked):', defaultKey.apiKey.substring(0, 8) + '...');
+    }
     console.log('⚠️  Store these credentials securely!');
     return defaultKey;
   }

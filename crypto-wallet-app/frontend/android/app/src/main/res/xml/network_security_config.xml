@@ -1,40 +1,45 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    MILITARY-GRADE NETWORK SECURITY CONFIG
+    - Blocks all cleartext (HTTP) traffic
+    - Only allows HTTPS connections
+    - Certificate pinning for production API
+-->
 <network-security-config>
-    <!-- Development configuration - allow cleartext (HTTP) for testing -->
-    <base-config cleartextTrafficPermitted="true">
+    <!-- PRODUCTION: Block all cleartext traffic -->
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
-            <certificates src="system" />
-            <certificates src="user" />
+            <!-- Only trust system CAs -->
+            <certificates src="system"/>
         </trust-anchors>
     </base-config>
     
-    <!-- Development configuration - allow localhost and local network for testing -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">localhost</domain>
-        <domain includeSubdomains="true">10.0.2.2</domain>
-        <domain includeSubdomains="true">127.0.0.1</domain>
-        <domain includeSubdomains="true">172.20.10.6</domain>
+    <!-- Production API - Certificate Pinning for Railway -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">amowallet-backend-production.up.railway.app</domain>
         <trust-anchors>
-            <certificates src="system" />
-            <certificates src="user" />
+            <certificates src="system"/>
         </trust-anchors>
+        <!-- Pin Let's Encrypt Root Certificates (Railway uses Let's Encrypt) -->
+        <pin-set expiration="2027-01-01">
+            <!-- ISRG Root X1 -->
+            <pin digest="SHA-256">C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=</pin>
+            <!-- ISRG Root X2 (Backup) -->
+            <pin digest="SHA-256">diGVwiVYbubAI3RW4hB9xU8e/CH2GnkuvVFZE8zmgzI=</pin>
+        </pin-set>
     </domain-config>
     
-    <!-- Your production domain - HTTPS only with certificate pinning -->
+    <!-- Trusted third-party APIs - HTTPS only -->
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">api.yourdomain.com</domain>
-        <domain includeSubdomains="true">staging-api.yourdomain.com</domain>
+        <domain includeSubdomains="true">api.coingecko.com</domain>
+        <domain includeSubdomains="true">blockstream.info</domain>
+        <domain includeSubdomains="true">mempool.space</domain>
+        <domain includeSubdomains="true">api.etherscan.io</domain>
+        <domain includeSubdomains="true">api.bscscan.com</domain>
+        <domain includeSubdomains="true">api.binance.com</domain>
+        <domain includeSubdomains="true">bsc-dataseed.binance.org</domain>
         <trust-anchors>
-            <certificates src="system" />
-            <!-- Uncomment and add your certificate pins for production
-            <certificates src="@raw/your_certificate" />
-            -->
+            <certificates src="system"/>
         </trust-anchors>
-        <!-- Certificate pinning - uncomment and add your pins for production
-        <pin-set expiration="2025-12-31">
-            <pin digest="SHA-256">YOUR_CERTIFICATE_PIN_HERE=</pin>
-            <pin digest="SHA-256">YOUR_BACKUP_PIN_HERE=</pin>
-        </pin-set>
-        -->
     </domain-config>
 </network-security-config>

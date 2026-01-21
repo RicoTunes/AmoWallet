@@ -393,6 +393,31 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
     );
   }
 
+  /// Pull-to-refresh handler - reloads address data
+  Future<void> _refreshData() async {
+    HapticFeedback.mediumImpact();
+    await _loadAddress();
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white, size: 20),
+              const SizedBox(width: 8),
+              const Text('Refreshed successfully'),
+            ],
+          ),
+          backgroundColor: _currentHeaderColor,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          margin: const EdgeInsets.all(16),
+          duration: const Duration(seconds: 1),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -401,48 +426,54 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
         final color = _headerColorAnimation.value ?? _currentHeaderColor;
         return Scaffold(
           backgroundColor: Colors.grey[100],
-          body: CustomScrollView(
-            physics: const BouncingScrollPhysics(),
-            slivers: [
-              // Header
-              SliverAppBar(
-                expandedHeight: 100,
-                floating: false,
-                pinned: true,
-                backgroundColor: color,
-                leading: IconButton(
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
-                  onPressed: () => context.go('/dashboard'),
-                ),
-                title: const Text(
-                  'Receive',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 22,
+          body: RefreshIndicator(
+            onRefresh: _refreshData,
+            color: color,
+            backgroundColor: Colors.white,
+            displacement: 60,
+            strokeWidth: 3,
+            child: CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+              slivers: [
+                // Header
+                SliverAppBar(
+                  expandedHeight: 100,
+                  floating: false,
+                  pinned: true,
+                  backgroundColor: color,
+                  leading: IconButton(
+                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    onPressed: () => context.go('/dashboard'),
                   ),
-                ),
-                actions: [
-                  // Create new address button
-                  Container(
-                    margin: const EdgeInsets.only(right: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(8),
+                  title: const Text(
+                    'Receive',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 22,
                     ),
-                    child: IconButton(
-                      icon: _loading
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.add, color: Colors.white),
-                      onPressed: _loading ? null : _generateNewAddress,
-                      tooltip: 'Create new address',
+                  ),
+                  actions: [
+                    // Create new address button
+                    Container(
+                      margin: const EdgeInsets.only(right: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: IconButton(
+                        icon: _loading
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.add, color: Colors.white),
+                        onPressed: _loading ? null : _generateNewAddress,
+                        tooltip: 'Create new address',
                     ),
                   ),
                 ],
@@ -503,6 +534,7 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
                 ),
               ),
             ],
+          ),
           ),
         );
       },
@@ -673,19 +705,46 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
                                 ),
                               ],
                             ),
-                            child: QrImageView(
-                              data: _address!,
-                              version: QrVersions.auto,
-                              size: 180,
-                              backgroundColor: Colors.white,
-                              eyeStyle: QrEyeStyle(
-                                eyeShape: QrEyeShape.square,
-                                color: color,
-                              ),
-                              dataModuleStyle: QrDataModuleStyle(
-                                dataModuleShape: QrDataModuleShape.square,
-                                color: Colors.black87,
-                              ),
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                QrImageView(
+                                  data: _address!,
+                                  version: QrVersions.auto,
+                                  size: 180,
+                                  backgroundColor: Colors.white,
+                                  eyeStyle: QrEyeStyle(
+                                    eyeShape: QrEyeShape.circle,
+                                    color: color,
+                                  ),
+                                  dataModuleStyle: QrDataModuleStyle(
+                                    dataModuleShape: QrDataModuleShape.circle,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                                // Coin icon overlay in center of QR code
+                                Container(
+                                  width: 48,
+                                  height: 48,
+                                  decoration: BoxDecoration(
+                                    color: color,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.white, width: 3),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: color.withOpacity(0.4),
+                                        blurRadius: 8,
+                                        spreadRadius: 1,
+                                      ),
+                                    ],
+                                  ),
+                                  child: Icon(
+                                    _getCoinIcon(_selectedCoin),
+                                    color: Colors.white,
+                                    size: 24,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         );
@@ -949,6 +1008,33 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
         ),
       ),
     );
+  }
+
+  /// Get the icon for a coin symbol
+  IconData _getCoinIcon(String symbol) {
+    final baseSymbol = symbol.split('-').first;
+    switch (baseSymbol) {
+      case 'BTC':
+        return Icons.currency_bitcoin;
+      case 'ETH':
+        return Icons.diamond;
+      case 'SOL':
+        return Icons.flash_on;
+      case 'BNB':
+        return Icons.hexagon;
+      case 'XRP':
+        return Icons.water_drop_outlined;
+      case 'DOGE':
+        return Icons.pets;
+      case 'LTC':
+        return Icons.currency_exchange;
+      case 'TRX':
+        return Icons.bolt;
+      case 'USDT':
+        return Icons.attach_money;
+      default:
+        return Icons.token;
+    }
   }
 
   Widget _buildActionButtons(Color color) {

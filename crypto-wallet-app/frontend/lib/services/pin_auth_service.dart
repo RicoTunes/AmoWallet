@@ -154,7 +154,11 @@ class PinAuthService {
 
   // Enable/Disable biometric authentication
   Future<void> setBiometricEnabled(bool enabled) async {
+    print('💾 PinAuthService: Saving biometric enabled = $enabled');
     await _writeSecure(_biometricEnabledKey, enabled ? 'true' : 'false');
+    // Verify write
+    final verify = await _readSecure(_biometricEnabledKey);
+    print('💾 PinAuthService: Verified biometric saved = $verify');
   }
 
   // Delete PIN

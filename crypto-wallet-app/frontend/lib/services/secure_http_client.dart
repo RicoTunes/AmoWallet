@@ -1,8 +1,12 @@
+import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http_certificate_pinning/http_certificate_pinning.dart';
+import 'package:uuid/uuid.dart';
 import '../core/config/api_config.dart';
 
 class SecureHttpClient {
@@ -91,6 +95,9 @@ class SecureHttpClient {
 
     // Add request throttling interceptor
     _dio.interceptors.add(_RequestThrottlingInterceptor());
+
+    // Add API authentication interceptor
+    _dio.interceptors.add(_ApiAuthInterceptor());
 
     // Add logging interceptor (only in debug mode)
     _dio.interceptors.add(

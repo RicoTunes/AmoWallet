@@ -115,6 +115,47 @@ class _TransactionsPageEnhancedState extends ConsumerState<TransactionsPageEnhan
     }
   }
 
+  /// Pull-to-refresh handler with feedback
+  Future<void> _refreshTransactions() async {
+    HapticFeedback.mediumImpact();
+    try {
+      await _transactionService.clearOldTestTransactions();
+      final allTransactions = await _transactionService.getAllTransactions();
+      
+      setState(() {
+        _transactions = allTransactions;
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Text('${allTransactions.length} transactions loaded'),
+              ],
+            ),
+            backgroundColor: const Color(0xFF1A1A2E),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            margin: const EdgeInsets.all(16),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to refresh: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   List<Transaction> get _filteredTransactions {
     List<Transaction> filtered = _transactions;
 
@@ -413,12 +454,16 @@ class _TransactionsPageEnhancedState extends ConsumerState<TransactionsPageEnhan
             Expanded(
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
-                  : _filteredTransactions.isEmpty
-                      ? _buildEmptyState()
-                      : RefreshIndicator(
-                          onRefresh: _loadTransactions,
-                          child: _buildTransactionList(),
-                        ),
+                  : RefreshIndicator(
+                      onRefresh: _refreshTransactions,
+                      color: const Color(0xFF1A1A2E),
+                      backgroundColor: Colors.white,
+                      displacement: 40,
+                      strokeWidth: 3,
+                      child: _filteredTransactions.isEmpty
+                          ? _buildEmptyState()
+                          : _buildTransactionList(),
+                    ),
             ),
           ],
         ),
@@ -427,57 +472,66 @@ class _TransactionsPageEnhancedState extends ConsumerState<TransactionsPageEnhan
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.grey[200],
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.receipt_long_outlined,
-              size: 64,
-              color: Colors.grey[400],
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            _searchQuery.isNotEmpty
-                ? 'No matching transactions'
-                : 'No transactions yet',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.grey[600],
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _searchQuery.isNotEmpty
-                ? 'Try a different search term'
-                : 'Your transactions will appear here',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[500],
-            ),
-          ),
-          const SizedBox(height: 24),
-          if (_searchQuery.isEmpty)
-            Row(
+    // Wrap in ListView to enable pull-to-refresh even when empty
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        SizedBox(
+          height: MediaQuery.of(context).size.height * 0.5,
+          child: Center(
+            child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                _buildQuickAction('Send', Icons.arrow_upward, Colors.red, '/send'),
-                const SizedBox(width: 16),
-                _buildQuickAction('Receive', Icons.arrow_downward, Colors.green, '/receive'),
-                const SizedBox(width: 16),
-                _buildQuickAction('Swap', Icons.swap_horiz, Colors.blue, '/swap'),
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[200],
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.receipt_long_outlined,
+                    size: 64,
+                    color: Colors.grey[400],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  _searchQuery.isNotEmpty
+                      ? 'No matching transactions'
+                      : 'No transactions yet',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _searchQuery.isNotEmpty
+                      ? 'Try a different search term'
+                      : 'Pull down to refresh',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[500],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                if (_searchQuery.isEmpty)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildQuickAction('Send', Icons.arrow_upward, Colors.red, '/send'),
+                      const SizedBox(width: 16),
+                      _buildQuickAction('Receive', Icons.arrow_downward, Colors.green, '/receive'),
+                      const SizedBox(width: 16),
+                      _buildQuickAction('Swap', Icons.swap_horiz, Colors.blue, '/swap'),
+                    ],
+                  ),
               ],
             ),
-        ],
-      ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -512,6 +566,7 @@ class _TransactionsPageEnhancedState extends ConsumerState<TransactionsPageEnhan
     final grouped = _groupByDate(_filteredTransactions);
     
     return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.only(bottom: 24),
       itemCount: grouped.length,
       itemBuilder: (context, index) {

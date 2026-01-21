@@ -366,25 +366,29 @@ class WalletService {
         return {};
       }
       
-      // Query balance for each address using blockchain service
+      // Query balance for each address using blockchain service - IN PARALLEL for speed
       final blockchainService = BlockchainService();
       
+      // Create list of futures for parallel execution
+      final balanceFutures = <Future<MapEntry<String, double>>>[];
+      
       for (final chain in addressesByChain.keys) {
-        double chainTotal = 0.0;
         for (final address in addressesByChain[chain]!) {
-          try {
-            print('🔍 Fetching balance for $chain $address');
-            // Get real balance from blockchain service
-            final balance = await blockchainService.getBalance(chain, address);
-            print('✅ Balance for $chain $address: $balance');
-            chainTotal += balance;
-          } catch (e) {
-            print('❌ Failed to get balance for $chain $address: $e');
-            _logger.w('Failed to get balance for $chain $address: $e');
-          }
+          balanceFutures.add(
+            _fetchBalanceWithTimeout(blockchainService, chain, address)
+          );
         }
-        if (chainTotal > 0) {
-          balances[chain] = chainTotal;
+      }
+      
+      // Execute all balance fetches in parallel with 10 second timeout
+      final results = await Future.wait(balanceFutures);
+      
+      // Aggregate results by chain
+      for (final entry in results) {
+        final chain = entry.key;
+        final balance = entry.value;
+        if (balance > 0) {
+          balances[chain] = (balances[chain] ?? 0.0) + balance;
         }
       }
       
@@ -411,6 +415,28 @@ class WalletService {
       print('❌ Failed to get balances: $e');
       _logger.e('Failed to get balances: $e');
       return {};
+    }
+  }
+  
+  /// Fetch balance with timeout to prevent slow chains from blocking
+  Future<MapEntry<String, double>> _fetchBalanceWithTimeout(
+    BlockchainService blockchainService, 
+    String chain, 
+    String address
+  ) async {
+    try {
+      print('🔍 Fetching balance for $chain $address');
+      final balance = await blockchainService.getBalance(chain, address)
+          .timeout(const Duration(seconds: 8), onTimeout: () {
+        print('⏱️ Timeout fetching $chain balance');
+        return 0.0;
+      });
+      print('✅ Balance for $chain $address: $balance');
+      return MapEntry(chain, balance);
+    } catch (e) {
+      print('❌ Failed to get balance for $chain $address: $e');
+      _logger.w('Failed to get balance for $chain $address: $e');
+      return MapEntry(chain, 0.0);
     }
   }
   

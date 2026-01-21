@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
+import 'dart:convert';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
@@ -48,7 +50,11 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
   @override
   void initState() {
     super.initState();
-    _loadDashboardData();
+    // Load cached data first for instant display
+    _loadCachedData().then((_) {
+      // Then load fresh data in background
+      _loadDashboardData();
+    });
     
     // Preload swap data in background for instant swap page load
     _preloadService.preloadSwapData();
@@ -71,6 +77,48 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
     }
   }
 
+  /// Load cached data for instant display
+  Future<void> _loadCachedData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedBalances = prefs.getString('cached_balances');
+      final cachedPrices = prefs.getString('cached_prices');
+      final cachedTotal = prefs.getDouble('cached_total_value');
+      
+      if (cachedBalances != null && cachedPrices != null && mounted) {
+        final balances = Map<String, double>.from(
+          (jsonDecode(cachedBalances) as Map).map((k, v) => MapEntry(k.toString(), (v as num).toDouble()))
+        );
+        final prices = Map<String, Map<String, dynamic>>.from(
+          (jsonDecode(cachedPrices) as Map).map((k, v) => MapEntry(k.toString(), Map<String, dynamic>.from(v)))
+        );
+        
+        setState(() {
+          _balances = balances;
+          _priceData = prices;
+          _totalPortfolioValue = cachedTotal ?? 0.0;
+          _isLoading = false; // Show cached data immediately
+        });
+        print('📦 Loaded cached dashboard data');
+      }
+    } catch (e) {
+      print('⚠️ Could not load cached data: $e');
+    }
+  }
+
+  /// Save data to cache for next app launch
+  Future<void> _saveCachedData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('cached_balances', jsonEncode(_balances));
+      await prefs.setString('cached_prices', jsonEncode(_priceData));
+      await prefs.setDouble('cached_total_value', _totalPortfolioValue);
+      print('💾 Saved dashboard data to cache');
+    } catch (e) {
+      print('⚠️ Could not save cached data: $e');
+    }
+  }
+
   Future<void> _loadDashboardData() async {
     // Debounce: prevent loading if called too soon
     if (_lastLoadTime != null) {
@@ -83,7 +131,8 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
     
     _lastLoadTime = DateTime.now();
     
-    if (mounted) {
+    // Only show loading if we don't have cached data
+    if (mounted && _balances.isEmpty) {
       setState(() {
         _isLoading = true;
         _errorMessage = null;
@@ -133,6 +182,9 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
           _isLoading = false;
           _errorMessage = null;
         });
+        
+        // Save to cache for next app launch
+        _saveCachedData();
       }
     } catch (e) {
       if (mounted) {

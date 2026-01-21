@@ -5,6 +5,7 @@ import 'package:web3dart/web3dart.dart';
 // web3crypto not required directly; web3dart provides helpers used below
 import 'package:pointycastle/digests/sha256.dart';
 import 'package:pointycastle/digests/ripemd160.dart';
+import 'package:bitcoin_base/bitcoin_base.dart';
 
 /// Minimal local BIP39/BIP44 wallet helper for ETH, BTC, TRON (TRX), BSC (BNB), LTC, XRP, DOGE, and SOL
 /// - Generates a mnemonic (BIP39)
@@ -41,35 +42,23 @@ class Bip39Wallet {
         'mnemonic': mnemonic,
       };
     } else if (uc == 'BTC') {
-      final path = "m/44'/0'/0'/0/0";
+      // Use BIP84 path for native SegWit (bc1 addresses)
+      final path = "m/84'/0'/0'/0/0";
       final child = root.derivePath(path);
       final priv = child.privateKey;
-      final pub = child.publicKey;
       if (priv == null) {
         throw Exception('Failed to derive BTC keys');
       }
 
-      // Compute P2PKH address (legacy) from compressed public key
-      final sha256 = SHA256Digest().process(pub);
-      final ripemd = RIPEMD160Digest().process(sha256);
-
-      // Prepend version byte 0x00 for mainnet
-      final payload = Uint8List(ripemd.length + 1);
-      payload[0] = 0x00;
-      payload.setRange(1, payload.length, ripemd);
-
-      // Checksum = first 4 bytes of double SHA256
-      final checksumFull = SHA256Digest().process(SHA256Digest().process(payload));
-      final checksum = checksumFull.sublist(0, 4);
-
-      final addressBytes = Uint8List(payload.length + 4);
-      addressBytes.setRange(0, payload.length, payload);
-      addressBytes.setRange(payload.length, addressBytes.length, checksum);
-
-      // Use local Base58Check encode to produce address
-      final address = _base58Encode(addressBytes);
-
       final privHex = bytesToHex(priv);
+      
+      // Use bitcoin_base to generate native SegWit (P2WPKH) address
+      final ecPrivate = ECPrivate.fromBytes(priv);
+      final ecPublic = ecPrivate.getPublic();
+      
+      // Generate native SegWit (bc1) address
+      final segwitAddress = ecPublic.toSegwitAddress();
+      final address = segwitAddress.toAddress(BitcoinNetwork.mainnet);
 
       return {
         'address': address,
@@ -274,30 +263,23 @@ class Bip39Wallet {
         'mnemonic': mnemonic,
       };
     } else if (uc == 'BTC') {
-      final path = "m/44'/0'/0'/0/0";
+      // Use BIP84 path for native SegWit (bc1 addresses)
+      final path = "m/84'/0'/0'/0/0";
       final child = root.derivePath(path);
       final priv = child.privateKey;
-      final pub = child.publicKey;
       if (priv == null) {
         throw Exception('Failed to derive BTC keys');
       }
 
-      final sha256 = SHA256Digest().process(pub);
-      final ripemd = RIPEMD160Digest().process(sha256);
-
-      final payload = Uint8List(ripemd.length + 1);
-      payload[0] = 0x00;
-      payload.setRange(1, payload.length, ripemd);
-
-      final checksumFull = SHA256Digest().process(SHA256Digest().process(payload));
-      final checksum = checksumFull.sublist(0, 4);
-
-      final addressBytes = Uint8List(payload.length + 4);
-      addressBytes.setRange(0, payload.length, payload);
-      addressBytes.setRange(payload.length, addressBytes.length, checksum);
-
-      final address = _base58Encode(addressBytes);
       final privHex = bytesToHex(priv);
+      
+      // Use bitcoin_base to generate native SegWit (P2WPKH) address
+      final ecPrivate = ECPrivate.fromBytes(priv);
+      final ecPublic = ecPrivate.getPublic();
+      
+      // Generate native SegWit (bc1) address
+      final segwitAddress = ecPublic.toSegwitAddress();
+      final address = segwitAddress.toAddress(BitcoinNetwork.mainnet);
 
       return {
         'address': address,

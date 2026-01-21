@@ -14,6 +14,7 @@ import '../../../services/notification_service.dart';
 import '../../../services/transaction_service.dart';
 import '../../../services/preload_service.dart';
 import '../../../services/incoming_tx_monitor.dart';
+import '../../../services/blockchain_service.dart';
 import '../../../models/transaction_model.dart';
 import '../../widgets/portfolio_chart_widget.dart';
 
@@ -45,6 +46,7 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
   List<Transaction> _recentTransactions = [];
   bool _isLoading = true;
   bool _refreshing = false;
+  bool _isSheetOpen = false; // Prevent multiple bottom sheets
   Set<String> _favorites = {'BTC', 'ETH'}; // Default favorites
   bool _balanceHidden = false; // Toggle to hide/show balance
 
@@ -1458,6 +1460,10 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
   }
 
   void _showCoinDetailSheet(Map<String, dynamic> coin) {
+    // Prevent multiple sheets from opening
+    if (_isSheetOpen) return;
+    _isSheetOpen = true;
+    
     final symbol = coin['symbol'] as String;
     final name = coin['name'] as String;
     final color = coin['color'] as Color;
@@ -1469,8 +1475,8 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
     final usdValue = balance * price;
     final isPositive = change >= 0;
 
-    // Filter transactions for this coin
-    final coinTransactions =
+    // Get locally stored transactions for this coin (immediately available)
+    List<Transaction> localTransactions =
         _recentTransactions.where((tx) => tx.coin == symbol).toList();
 
     // Store parent context for navigation after sheet closes
@@ -1480,484 +1486,26 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) => DraggableScrollableSheet(
-        initialChildSize: 0.95,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        snap: true,
-        snapSizes: const [0.5, 0.95],
-        builder: (innerContext, scrollController) => Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFF0D1421),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            border: Border.all(
-              color: color.withOpacity(0.3),
-              width: 1,
-            ),
-          ),
-          child: SingleChildScrollView(
-            controller: scrollController,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-              // Drag handle
-              Container(
-                margin: const EdgeInsets.only(top: 12),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-
-              // Header with coin info
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      color.withOpacity(0.2),
-                      Colors.transparent,
-                    ],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                ),
-                child: Column(
-                  children: [
-                    // Coin icon
-                    Container(
-                      width: 70,
-                      height: 70,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [color, color.withOpacity(0.7)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: color.withOpacity(0.4),
-                            blurRadius: 20,
-                            spreadRadius: 2,
-                          ),
-                        ],
-                      ),
-                      child: Center(
-                        child: _getCoinIcon(symbol, color),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Price
-                    Text(
-                      _formatPrice(price),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 36,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-
-                    // Name and change
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          name,
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.7),
-                            fontSize: 16,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: isPositive
-                                ? const Color(0xFF10B981).withOpacity(0.2)
-                                : const Color(0xFFEF4444).withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            '${isPositive ? '+' : ''}${change.toStringAsFixed(2)}%',
-                            style: TextStyle(
-                              color: isPositive
-                                  ? const Color(0xFF10B981)
-                                  : const Color(0xFFEF4444),
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
-              // Balance section
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 20),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A1F2E),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    Column(
-                      children: [
-                        Text(
-                          balance.toStringAsFixed(8),
-                          style: TextStyle(
-                            color: color,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          symbol,
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.5),
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Container(
-                      width: 1,
-                      height: 40,
-                      color: Colors.white12,
-                    ),
-                    Column(
-                      children: [
-                        Text(
-                          _formatCurrency(usdValue),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Value',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.5),
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-
-              // Chart placeholder
-              Container(
-                margin: const EdgeInsets.all(20),
-                height: 120,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A1F2E),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: CustomPaint(
-                  size: const Size(double.infinity, 120),
-                  painter: _SimpleChartPainter(
-                    color: color,
-                    isPositive: isPositive,
-                  ),
-                ),
-              ),
-
-              // Time period selector
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: ['LIVE', '1D', '7D', '1M', '3M', '6M', '1Y']
-                      .map((period) {
-                    final isSelected = period == 'LIVE';
-                    return GestureDetector(
-                      onTap: () => HapticFeedback.lightImpact(),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? const Color(0xFF1A1F2E)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (isSelected)
-                              Container(
-                                width: 6,
-                                height: 6,
-                                margin: const EdgeInsets.only(right: 4),
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFF10B981),
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                            Text(
-                              period,
-                              style: TextStyle(
-                                color:
-                                    isSelected ? Colors.white : Colors.white54,
-                                fontSize: 12,
-                                fontWeight: isSelected
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              // Action buttons
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  children: [
-                    _buildSheetActionButton(
-                      icon: Icons.download_rounded,
-                      label: 'Receive',
-                      color: const Color(0xFF10B981),
-                      onTap: () {
-                        print('🟢 Dashboard: Navigating to receive with coin: $symbol');
-                        Navigator.pop(sheetContext);
-                        parentContext.go('/receive', extra: {'coin': symbol});
-                      },
-                    ),
-                    const SizedBox(width: 12),
-                    _buildSheetActionButton(
-                      icon: Icons.upload_rounded,
-                      label: 'Send',
-                      color: const Color(0xFFEF4444),
-                      onTap: () {
-                        print('🟢 Dashboard: Navigating to send with coin: $symbol');
-                        Navigator.pop(sheetContext);
-                        parentContext.go('/send', extra: {'coin': symbol});
-                      },
-                    ),
-                    const SizedBox(width: 12),
-                    _buildSheetActionButton(
-                      icon: Icons.swap_horiz_rounded,
-                      label: 'Swap',
-                      color: const Color(0xFF8B5CF6),
-                      onTap: () {
-                        print('🟢 Dashboard: Navigating to swap with coin: $symbol');
-                        Navigator.pop(sheetContext);
-                        parentContext.go('/swap', extra: {'fromCoin': symbol});
-                      },
-                    ),
-                    const SizedBox(width: 12),
-                    _buildSheetActionButton(
-                      icon: Icons.show_chart_rounded,
-                      label: 'Chart',
-                      color: const Color(0xFF3B82F6),
-                      onTap: () {
-                        print('🟢 Dashboard: Navigating to price chart for: $symbol');
-                        Navigator.pop(sheetContext);
-                        parentContext.go('/price-chart', extra: {
-                          'coin': symbol,
-                          'name': name,
-                          'price': price,
-                          'change': change,
-                        });
-                      },
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              // Activity section header
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1A1F2E),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Text(
-                        'ACTIVITY',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      'ABOUT',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.4),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 12),
-
-              // Transaction list - no Expanded needed since we're in SingleChildScrollView
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                itemCount:
-                    coinTransactions.isEmpty ? 1 : coinTransactions.length,
-                itemBuilder: (context, index) {
-                    if (coinTransactions.isEmpty) {
-                      return Container(
-                        padding: const EdgeInsets.all(32),
-                        child: Column(
-                          children: [
-                            Icon(
-                              Icons.receipt_long_outlined,
-                              size: 48,
-                              color: Colors.white.withOpacity(0.2),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              'No transactions yet',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.4),
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-
-                    final tx = coinTransactions[index];
-                    final isReceived = tx.type == 'received';
-                    final txDate = tx.timestamp;
-                    final formattedDate =
-                        '${txDate.hour}:${txDate.minute.toString().padLeft(2, '0')} ${txDate.hour >= 12 ? 'PM' : 'AM'}';
-
-                    return GestureDetector(
-                      onTap: () => _showTransactionDetailsSheet(
-                        context, 
-                        tx, 
-                        color, 
-                        symbol,
-                        price,
-                      ),
-                      child: Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1A1F2E),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                color: isReceived
-                                    ? const Color(0xFF10B981).withOpacity(0.1)
-                                    : const Color(0xFFEF4444).withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Icon(
-                                isReceived ? Icons.south_west : Icons.north_east,
-                                color: isReceived
-                                    ? const Color(0xFF10B981)
-                                    : const Color(0xFFEF4444),
-                                size: 20,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    isReceived ? 'Received' : 'Sent',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  Text(
-                                    formattedDate,
-                                    style: TextStyle(
-                                      color: Colors.white.withOpacity(0.5),
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                              Text(
-                                '${tx.amount.toStringAsFixed(8)}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              Text(
-                                _formatCurrency(tx.amount * price),
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.5),
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(width: 8),
-                          Icon(
-                            Icons.chevron_right,
-                            color: Colors.white.withOpacity(0.3),
-                            size: 20,
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                  },
-                ),
-                const SizedBox(height: 30),
-              ],
-            ),
-          ),
-        ),
+      builder: (sheetContext) => _CoinDetailSheetContent(
+        symbol: symbol,
+        name: name,
+        color: color,
+        price: price,
+        change: change,
+        balance: balance,
+        usdValue: usdValue,
+        isPositive: isPositive,
+        localTransactions: localTransactions,
+        walletService: _walletService,
+        parentContext: parentContext,
+        formatPrice: _formatPrice,
+        formatCurrency: _formatCurrency,
+        getCoinIcon: _getCoinIcon,
+        showTransactionDetailsSheet: _showTransactionDetailsSheet,
       ),
-    );
+    ).whenComplete(() {
+      _isSheetOpen = false;
+    });
   }
 
   Widget _buildSheetActionButton({
@@ -2629,5 +2177,664 @@ extension TransactionDetailsSheet on _DashboardPageEnhancedState {
       default:
         return null;
     }
+  }
+}
+// Separate StatefulWidget for coin detail sheet - loads transactions asynchronously
+class _CoinDetailSheetContent extends StatefulWidget {
+  final String symbol;
+  final String name;
+  final Color color;
+  final double price;
+  final double change;
+  final double balance;
+  final double usdValue;
+  final bool isPositive;
+  final List<Transaction> localTransactions;
+  final WalletService walletService;
+  final BuildContext parentContext;
+  final String Function(double) formatPrice;
+  final String Function(double) formatCurrency;
+  final Widget Function(String, Color) getCoinIcon;
+  final void Function(BuildContext, Transaction, Color, String, double) showTransactionDetailsSheet;
+
+  const _CoinDetailSheetContent({
+    required this.symbol,
+    required this.name,
+    required this.color,
+    required this.price,
+    required this.change,
+    required this.balance,
+    required this.usdValue,
+    required this.isPositive,
+    required this.localTransactions,
+    required this.walletService,
+    required this.parentContext,
+    required this.formatPrice,
+    required this.formatCurrency,
+    required this.getCoinIcon,
+    required this.showTransactionDetailsSheet,
+  });
+
+  @override
+  State<_CoinDetailSheetContent> createState() => _CoinDetailSheetContentState();
+}
+
+class _CoinDetailSheetContentState extends State<_CoinDetailSheetContent> {
+  List<Transaction> _transactions = [];
+  bool _isLoadingTransactions = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _transactions = List.from(widget.localTransactions);
+    _loadBlockchainTransactions();
+  }
+
+  Future<void> _loadBlockchainTransactions() async {
+    try {
+      final storedAddresses = await widget.walletService.getStoredAddresses(widget.symbol);
+      final address = storedAddresses.isNotEmpty ? storedAddresses.first : null;
+      
+      if (address != null && address.isNotEmpty) {
+        final blockchainService = BlockchainService();
+        final blockchainTx = await blockchainService.getTransactionHistory(widget.symbol, address);
+        
+        final newTransactions = <Transaction>[];
+        for (final tx in blockchainTx) {
+          final existingTx = _transactions.where((t) => t.txHash == tx['hash']).toList();
+          if (existingTx.isEmpty) {
+            final rawAmount = (tx['amount'] as num?)?.toDouble() ?? 0.0;
+            final amount = rawAmount.abs();
+            
+            String txType = tx['type'] ?? 'unknown';
+            if (txType == 'unknown' && rawAmount != 0) {
+              txType = rawAmount < 0 ? 'sent' : 'received';
+            }
+            
+            newTransactions.add(Transaction(
+              id: tx['hash'] ?? '',
+              txHash: tx['hash'] ?? '',
+              coin: widget.symbol,
+              type: txType == 'received' ? 'received' : 'sent',
+              amount: amount,
+              address: txType == 'received' 
+                  ? (tx['fromAddress'] ?? 'Unknown') 
+                  : (tx['toAddress'] ?? 'Unknown'),
+              timestamp: DateTime.fromMillisecondsSinceEpoch(
+                ((tx['timestamp'] as int?) ?? 0) * 1000
+              ),
+              status: (tx['confirmations'] ?? 0) > 0 ? 'confirmed' : 'pending',
+              confirmations: tx['confirmations'] ?? 0,
+            ));
+          }
+        }
+        
+        if (mounted) {
+          setState(() {
+            _transactions.addAll(newTransactions);
+            _transactions.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+            _isLoadingTransactions = false;
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _isLoadingTransactions = false;
+          });
+        }
+      }
+    } catch (e) {
+      print('Error fetching blockchain transactions: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingTransactions = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.95,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      snap: true,
+      snapSizes: const [0.5, 0.95],
+      builder: (innerContext, scrollController) => Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF0D1421),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border.all(
+            color: widget.color.withOpacity(0.3),
+            width: 1,
+          ),
+        ),
+        child: SingleChildScrollView(
+          controller: scrollController,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Drag handle
+              Container(
+                margin: const EdgeInsets.only(top: 12),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+
+              // Header with coin info
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      widget.color.withOpacity(0.2),
+                      Colors.transparent,
+                    ],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    // Coin icon
+                    Container(
+                      width: 70,
+                      height: 70,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [widget.color, widget.color.withOpacity(0.7)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: widget.color.withOpacity(0.4),
+                            blurRadius: 20,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: Center(
+                        child: widget.getCoinIcon(widget.symbol, widget.color),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Price
+                    Text(
+                      widget.formatPrice(widget.price),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 36,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+
+                    // Name and change
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          widget.name,
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.7),
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: widget.isPositive
+                                ? const Color(0xFF10B981).withOpacity(0.2)
+                                : const Color(0xFFEF4444).withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '${widget.isPositive ? '+' : ''}${widget.change.toStringAsFixed(2)}%',
+                            style: TextStyle(
+                              color: widget.isPositive
+                                  ? const Color(0xFF10B981)
+                                  : const Color(0xFFEF4444),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // Balance section
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 20),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A1F2E),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    Column(
+                      children: [
+                        Text(
+                          widget.balance.toStringAsFixed(8),
+                          style: TextStyle(
+                            color: widget.color,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          widget.symbol,
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.5),
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      width: 1,
+                      height: 40,
+                      color: Colors.white12,
+                    ),
+                    Column(
+                      children: [
+                        Text(
+                          widget.formatCurrency(widget.usdValue),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Value',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.5),
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // Chart placeholder
+              Container(
+                margin: const EdgeInsets.all(20),
+                height: 120,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A1F2E),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: CustomPaint(
+                  size: const Size(double.infinity, 120),
+                  painter: _SimpleChartPainter(
+                    color: widget.color,
+                    isPositive: widget.isPositive,
+                  ),
+                ),
+              ),
+
+              // Time period selector
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: ['LIVE', '1D', '7D', '1M', '3M', '6M', '1Y']
+                      .map((period) {
+                    final isSelected = period == 'LIVE';
+                    return GestureDetector(
+                      onTap: () => HapticFeedback.lightImpact(),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? const Color(0xFF1A1F2E)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (isSelected)
+                              Container(
+                                width: 6,
+                                height: 6,
+                                margin: const EdgeInsets.only(right: 4),
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF10B981),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                            Text(
+                              period,
+                              style: TextStyle(
+                                color:
+                                    isSelected ? Colors.white : Colors.white54,
+                                fontSize: 12,
+                                fontWeight: isSelected
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // Action buttons
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    _buildActionButton(
+                      icon: Icons.download_rounded,
+                      label: 'Receive',
+                      color: const Color(0xFF10B981),
+                      onTap: () {
+                        Navigator.pop(context);
+                        widget.parentContext.go('/receive', extra: {'coin': widget.symbol});
+                      },
+                    ),
+                    const SizedBox(width: 12),
+                    _buildActionButton(
+                      icon: Icons.upload_rounded,
+                      label: 'Send',
+                      color: const Color(0xFFEF4444),
+                      onTap: () {
+                        Navigator.pop(context);
+                        widget.parentContext.go('/send', extra: {'coin': widget.symbol});
+                      },
+                    ),
+                    const SizedBox(width: 12),
+                    _buildActionButton(
+                      icon: Icons.swap_horiz_rounded,
+                      label: 'Swap',
+                      color: const Color(0xFF8B5CF6),
+                      onTap: () {
+                        Navigator.pop(context);
+                        widget.parentContext.go('/swap', extra: {'fromCoin': widget.symbol});
+                      },
+                    ),
+                    const SizedBox(width: 12),
+                    _buildActionButton(
+                      icon: Icons.show_chart_rounded,
+                      label: 'Chart',
+                      color: const Color(0xFF3B82F6),
+                      onTap: () {
+                        Navigator.pop(context);
+                        widget.parentContext.go('/price-chart', extra: {
+                          'coin': widget.symbol,
+                          'name': widget.name,
+                          'price': widget.price,
+                          'change': widget.change,
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // Activity section header
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1A1F2E),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Text(
+                        'ACTIVITY',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'ABOUT',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.4),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    // Loading indicator while fetching transactions
+                    if (_isLoadingTransactions)
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white54),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Transaction list
+              _buildTransactionList(),
+              
+              const SizedBox(height: 30),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTransactionList() {
+    if (_transactions.isEmpty && _isLoadingTransactions) {
+      return Container(
+        padding: const EdgeInsets.all(32),
+        child: const Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.white54),
+          ),
+        ),
+      );
+    }
+
+    if (_transactions.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          children: [
+            Icon(
+              Icons.receipt_long_outlined,
+              size: 48,
+              color: Colors.white.withOpacity(0.2),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'No transactions yet',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.4),
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      itemCount: _transactions.length,
+      itemBuilder: (context, index) {
+        final tx = _transactions[index];
+        final isReceived = tx.type == 'received';
+        final txDate = tx.timestamp;
+        final formattedDate =
+            '${txDate.hour}:${txDate.minute.toString().padLeft(2, '0')} ${txDate.hour >= 12 ? 'PM' : 'AM'}';
+
+        return GestureDetector(
+          onTap: () => widget.showTransactionDetailsSheet(
+            context, 
+            tx, 
+            widget.color, 
+            widget.symbol,
+            widget.price,
+          ),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A1F2E),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: isReceived
+                        ? const Color(0xFF10B981).withOpacity(0.1)
+                        : const Color(0xFFEF4444).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    isReceived ? Icons.south_west : Icons.north_east,
+                    color: isReceived
+                        ? const Color(0xFF10B981)
+                        : const Color(0xFFEF4444),
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isReceived ? 'Received' : 'Sent',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        formattedDate,
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.5),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      tx.amount.toStringAsFixed(8),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      widget.formatCurrency(tx.amount * widget.price),
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.5),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 8),
+                Icon(
+                  Icons.chevron_right,
+                  color: Colors.white.withOpacity(0.3),
+                  size: 20,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          HapticFeedback.lightImpact();
+          onTap();
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1A1F2E),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: color.withOpacity(0.3),
+              width: 1,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: color, size: 24),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

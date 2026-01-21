@@ -11,6 +11,9 @@ const {
   validateSignature,
 } = require('./middleware/securityMiddleware');
 
+// Import API key authentication
+const { authenticate } = require('./middleware/auth');
+
 // Apply comprehensive security (DDoS, headers, etc.)
 applySecurity(app);
 
@@ -105,16 +108,22 @@ app.use('/health', healthRoutes);
 // Apply rate limiting to all API routes
 app.use('/api', apiLimiter);
 
-// Admin routes (always accessible, IP whitelist in production)
+// Admin routes (IP whitelist + authentication in production)
 app.use('/api/admin', adminIpWhitelist, adminRoutes);
 
-// Apply app status check to protected routes
-app.use('/api/wallet', checkAppActive, checkReadOnly, walletRoutes);
-app.use('/api/blockchain', checkAppActive, checkReadOnly, blockchainRoutes);
-app.use('/api/swap', checkAppActive, checkReadOnly, swapRoutes);
-app.use('/api/multisig', checkAppActive, checkReadOnly, multisigRoutes);
-app.use('/api/spending', checkAppActive, checkReadOnly, spendingRoutes);
-app.use('/api/audit', checkAppActive, auditRoutes);
+// Conditionally apply authentication based on environment
+const requireAuth = process.env.REQUIRE_API_AUTH === 'true' || process.env.NODE_ENV === 'production';
+
+// Apply app status check and authentication to protected routes
+// Transaction routes require signature validation
+app.use('/api/wallet', checkAppActive, checkReadOnly, requireAuth ? authenticate : (req, res, next) => next(), validateSignature, walletRoutes);
+app.use('/api/swap', checkAppActive, checkReadOnly, requireAuth ? authenticate : (req, res, next) => next(), validateSignature, swapRoutes);
+app.use('/api/multisig', checkAppActive, checkReadOnly, requireAuth ? authenticate : (req, res, next) => next(), validateSignature, multisigRoutes);
+
+// Read-heavy routes (auth required, no signature needed)
+app.use('/api/blockchain', checkAppActive, checkReadOnly, requireAuth ? authenticate : (req, res, next) => next(), blockchainRoutes);
+app.use('/api/spending', checkAppActive, checkReadOnly, requireAuth ? authenticate : (req, res, next) => next(), spendingRoutes);
+app.use('/api/audit', checkAppActive, requireAuth ? authenticate : (req, res, next) => next(), auditRoutes);
 
 // Auth routes (public - no kill switch)
 app.use('/api/auth', authRoutes);

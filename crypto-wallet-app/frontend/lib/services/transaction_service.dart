@@ -48,12 +48,20 @@ class TransactionService {
         final allStorageKeys = rawKeys is Map ? Map<String, String>.from(rawKeys.map((k, v) => MapEntry(k.toString(), v.toString()))) : <String, String>{};
         final addressesByChain = <String, Set<String>>{};
 
-        // Group addresses by chain
+        // Group addresses by chain - handle keys like "BTC_address_private" or "USDT-BEP20_address_private"
         for (final k in allStorageKeys.keys) {
-          final parts = k.split('_');
-          if (parts.length >= 3 && parts[2] == 'private') {
-            final chain = parts[0];
-            final address = parts[1];
+          // Only process keys ending with _private
+          if (!k.endsWith('_private')) continue;
+          
+          // Remove the _private suffix and split to find chain and address
+          final withoutSuffix = k.substring(0, k.length - 8); // Remove "_private"
+          final firstUnderscoreIdx = withoutSuffix.indexOf('_');
+          if (firstUnderscoreIdx == -1) continue;
+          
+          final chain = withoutSuffix.substring(0, firstUnderscoreIdx);
+          final address = withoutSuffix.substring(firstUnderscoreIdx + 1);
+          
+          if (chain.isNotEmpty && address.isNotEmpty) {
             addressesByChain.putIfAbsent(chain, () => {}).add(address);
           }
         }
@@ -63,10 +71,22 @@ class TransactionService {
 
         // Fetch transactions for each address
         for (final chain in addressesByChain.keys) {
+          // Map chain name to blockchain service chain (e.g., USDT-BEP20 -> BNB for BSC)
+          String blockchainChain = chain;
+          if (chain.startsWith('USDT-')) {
+            if (chain.contains('TRC20')) {
+              blockchainChain = 'TRX';
+            } else if (chain.contains('BEP20')) {
+              blockchainChain = 'BNB';
+            } else if (chain.contains('ERC20')) {
+              blockchainChain = 'ETH';
+            }
+          }
+          
           for (final address in addressesByChain[chain]!) {
             try {
-              print('DEBUG TX_SERVICE: Fetching transactions for $chain at $address');
-              final blockchainTxs = await _blockchainService.getTransactionHistory(chain, address);
+              print('DEBUG TX_SERVICE: Fetching transactions for $chain (as $blockchainChain) at $address');
+              final blockchainTxs = await _blockchainService.getTransactionHistory(blockchainChain, address);
               print('DEBUG TX_SERVICE: Got ${blockchainTxs.length} transactions for $chain');
 
 

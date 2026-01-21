@@ -50,14 +50,39 @@
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
 
-# Remove logging in release
+# MILITARY-GRADE: Remove ALL logging in release builds
 -assumenosideeffects class android.util.Log {
     public static boolean isLoggable(java.lang.String, int);
     public static int v(...);
     public static int d(...);
     public static int i(...);
+    public static int w(...);
+    public static int e(...);
+    public static int wtf(...);
 }
+
+# Remove System.out/err logging
+-assumenosideeffects class java.io.PrintStream {
+    public void println(...);
+    public void print(...);
+}
+
+# MILITARY-GRADE: Maximum obfuscation settings
+-optimizationpasses 5
+-allowaccessmodification
+-repackageclasses ''
+-flattenpackagehierarchy
+-dontpreverify
+
+# Protect against reflection attacks
+-keepattributes InnerClasses
+-keepattributes EnclosingMethod
 
 # Play Core library (for deferred components)
 -keep class com.google.android.play.core.** { *; }
 -dontwarn com.google.android.play.core.**
+
+# Secure storage - keep encrypted preferences
+-keep class androidx.security.crypto.EncryptedSharedPreferences { *; }
+-keep class androidx.security.crypto.MasterKey { *; }
+-keep class androidx.security.crypto.MasterKey$Builder { *; }

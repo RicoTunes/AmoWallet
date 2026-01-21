@@ -472,12 +472,210 @@ class BlockchainService {
           return await _getEthereumTransactions(address);
         case 'BNB':
           return await _getBnbTransactions(address);
-        // Add other coins as needed
+        case 'SOL':
+          return await _getSolanaTransactions(address);
+        case 'DOGE':
+          return await _getDogeTransactions(address);
+        case 'LTC':
+          return await _getLitecoinTransactions(address);
+        case 'XRP':
+          return await _getXrpTransactions(address);
+        case 'TRX':
+          return await _getTronTransactions(address);
+        case 'POLYGON':
+        case 'MATIC':
+          return await _getPolygonTransactions(address);
         default:
+          print('Transaction history not supported for $coin');
           return [];
       }
     } catch (e) {
       print('Error getting transaction history for $coin: $e');
+      return [];
+    }
+  }
+  
+  /// Get Solana transactions
+  Future<List<Map<String, dynamic>>> _getSolanaTransactions(String address) async {
+    try {
+      final response = await _dio.post(
+        _publicApis['SOL']!,
+        data: {
+          'jsonrpc': '2.0',
+          'id': 1,
+          'method': 'getSignaturesForAddress',
+          'params': [address, {'limit': 20}],
+        },
+      );
+      
+      if (response.data['result'] != null) {
+        return (response.data['result'] as List).map((tx) {
+          return {
+            'hash': tx['signature'] ?? '',
+            'amount': 0.0, // SOL doesn't include amount in signatures
+            'timestamp': tx['blockTime'] ?? 0,
+            'confirmations': tx['confirmationStatus'] == 'finalized' ? 100 : 0,
+            'type': 'unknown',
+            'fromAddress': '',
+            'toAddress': '',
+          };
+        }).toList();
+      }
+      return [];
+    } catch (e) {
+      print('Error fetching Solana transactions: $e');
+      return [];
+    }
+  }
+  
+  /// Get Dogecoin transactions
+  Future<List<Map<String, dynamic>>> _getDogeTransactions(String address) async {
+    try {
+      final response = await _dio.get(
+        'https://dogechain.info/api/v1/address/transactions/$address',
+      );
+      
+      if (response.data['transactions'] != null) {
+        return (response.data['transactions'] as List).take(20).map((tx) {
+          final amount = (tx['value'] as num?)?.toDouble() ?? 0.0;
+          return {
+            'hash': tx['hash'] ?? '',
+            'amount': amount.abs(),
+            'timestamp': tx['time'] ?? 0,
+            'confirmations': tx['confirmations'] ?? 0,
+            'type': amount >= 0 ? 'received' : 'sent',
+            'fromAddress': '',
+            'toAddress': '',
+          };
+        }).toList();
+      }
+      return [];
+    } catch (e) {
+      print('Error fetching Dogecoin transactions: $e');
+      return [];
+    }
+  }
+  
+  /// Get Litecoin transactions  
+  Future<List<Map<String, dynamic>>> _getLitecoinTransactions(String address) async {
+    try {
+      final response = await _dio.get(
+        'https://api.blockcypher.com/v1/ltc/main/addrs/$address?limit=20',
+      );
+      
+      if (response.data['txrefs'] != null) {
+        return (response.data['txrefs'] as List).map((tx) {
+          final amount = ((tx['value'] as num?) ?? 0) / 100000000;
+          return {
+            'hash': tx['tx_hash'] ?? '',
+            'amount': amount.abs(),
+            'timestamp': DateTime.tryParse(tx['confirmed'] ?? '')?.millisecondsSinceEpoch ?? 0,
+            'confirmations': tx['confirmations'] ?? 0,
+            'type': tx['tx_input_n'] == -1 ? 'received' : 'sent',
+            'fromAddress': '',
+            'toAddress': '',
+          };
+        }).toList();
+      }
+      return [];
+    } catch (e) {
+      print('Error fetching Litecoin transactions: $e');
+      return [];
+    }
+  }
+  
+  /// Get XRP transactions
+  Future<List<Map<String, dynamic>>> _getXrpTransactions(String address) async {
+    try {
+      final response = await _dio.post(
+        _publicApis['XRP']!,
+        data: {
+          'method': 'account_tx',
+          'params': [
+            {'account': address, 'limit': 20}
+          ]
+        },
+      );
+      
+      if (response.data['result']?['transactions'] != null) {
+        return (response.data['result']['transactions'] as List).map((item) {
+          final tx = item['tx'];
+          final amount = ((tx['Amount'] as num?) ?? 0) / 1000000;
+          return {
+            'hash': tx['hash'] ?? '',
+            'amount': amount.abs(),
+            'timestamp': (tx['date'] ?? 0) + 946684800, // Ripple epoch
+            'confirmations': 100,
+            'type': tx['Destination'] == address ? 'received' : 'sent',
+            'fromAddress': tx['Account'] ?? '',
+            'toAddress': tx['Destination'] ?? '',
+          };
+        }).toList();
+      }
+      return [];
+    } catch (e) {
+      print('Error fetching XRP transactions: $e');
+      return [];
+    }
+  }
+  
+  /// Get Tron transactions
+  Future<List<Map<String, dynamic>>> _getTronTransactions(String address) async {
+    try {
+      final response = await _dio.get(
+        'https://api.trongrid.io/v1/accounts/$address/transactions?limit=20',
+      );
+      
+      if (response.data['data'] != null) {
+        return (response.data['data'] as List).map((tx) {
+          final rawData = tx['raw_data'];
+          final contract = rawData?['contract']?[0];
+          final value = contract?['parameter']?['value'];
+          final amount = ((value?['amount'] as num?) ?? 0) / 1000000;
+          
+          return {
+            'hash': tx['txID'] ?? '',
+            'amount': amount.abs(),
+            'timestamp': (tx['block_timestamp'] ?? 0) ~/ 1000,
+            'confirmations': 100,
+            'type': value?['to_address'] == address ? 'received' : 'sent',
+            'fromAddress': value?['owner_address'] ?? '',
+            'toAddress': value?['to_address'] ?? '',
+          };
+        }).toList();
+      }
+      return [];
+    } catch (e) {
+      print('Error fetching Tron transactions: $e');
+      return [];
+    }
+  }
+  
+  /// Get Polygon transactions
+  Future<List<Map<String, dynamic>>> _getPolygonTransactions(String address) async {
+    try {
+      final response = await _dio.get(
+        'https://api.polygonscan.com/api?module=account&action=txlist&address=$address&startblock=0&endblock=99999999&sort=desc&apikey=YourApiKeyToken',
+      );
+      
+      if (response.data['status'] == '1' && response.data['result'] != null) {
+        return (response.data['result'] as List).take(20).map((tx) {
+          final valueWei = BigInt.tryParse(tx['value']?.toString() ?? '0') ?? BigInt.zero;
+          final amount = valueWei.toDouble() / 1e18;
+          return {
+            'hash': tx['hash'] ?? '',
+            'amount': amount.abs(),
+            'timestamp': int.tryParse(tx['timeStamp']?.toString() ?? '0') ?? 0,
+            'confirmations': int.tryParse(tx['confirmations']?.toString() ?? '0') ?? 0,
+            'type': tx['from'].toString().toLowerCase() == address.toLowerCase() ? 'sent' : 'received',
+            'fromAddress': tx['from'] ?? '',
+            'toAddress': tx['to'] ?? '',
+          };
+        }).toList();
+      }
+      return [];
+    } catch (e) {
+      print('Error fetching Polygon transactions: $e');
       return [];
     }
   }

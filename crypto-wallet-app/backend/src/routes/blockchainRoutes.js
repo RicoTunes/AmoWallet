@@ -410,11 +410,12 @@ router.post('/send/bitcoin', transactionLimiter, [
   try {
     const { from, to, amount, privateKeyWIF, fee: requestedFee } = req.body;
     
+    // Security: Never log private keys or sensitive data
     console.log('🔵 Bitcoin Transaction Request:');
     console.log(`  From: ${from}`);
     console.log(`  To: ${to}`);
     console.log(`  Amount: ${amount} BTC`);
-    console.log(`  Private Key Format: ${privateKeyWIF.substring(0, 10)}...`);
+    // Private key logging removed for security
     
     // Convert amount to satoshis (1 BTC = 100,000,000 satoshis)
     const amountSatoshis = Math.floor(amount * 100000000);

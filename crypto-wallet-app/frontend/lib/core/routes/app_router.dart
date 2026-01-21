@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../presentation/pages/onboarding/onboarding_page.dart';
@@ -267,34 +268,76 @@ final routerProvider = Provider<GoRouter>((ref) {
   );
 });
 
-class MainNavigationWrapper extends StatelessWidget {
+class MainNavigationWrapper extends StatefulWidget {
   final Widget child;
 
   const MainNavigationWrapper({super.key, required this.child});
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      extendBody: true,
-      extendBodyBehindAppBar: true,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFF0D1421),
-              Color(0xFF151C28),
-            ],
-          ),
+  State<MainNavigationWrapper> createState() => _MainNavigationWrapperState();
+}
+
+class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
+  DateTime? _lastBackPress;
+
+  Future<bool> _onWillPop() async {
+    final location = GoRouterState.of(context).uri.toString();
+    
+    // If not on dashboard, go to dashboard
+    if (!location.startsWith('/dashboard')) {
+      context.go('/dashboard');
+      return false;
+    }
+    
+    // On dashboard, double tap to exit
+    final now = DateTime.now();
+    if (_lastBackPress == null || now.difference(_lastBackPress!) > const Duration(seconds: 2)) {
+      _lastBackPress = now;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Press back again to exit'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
         ),
-        child: child,
-      ),
-      bottomNavigationBar: ModernBottomNav(
-        currentIndex: _getCurrentIndex(context),
-        onTap: (index) => _onItemTapped(context, index),
-        onCenterTap: () => _showQuickActions(context),
+      );
+      return false;
+    }
+    
+    // Exit the app
+    SystemNavigator.pop();
+    return true;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _onWillPop();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        extendBody: true,
+        extendBodyBehindAppBar: true,
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFF0D1421),
+                Color(0xFF151C28),
+              ],
+            ),
+          ),
+          child: widget.child,
+        ),
+        bottomNavigationBar: ModernBottomNav(
+          currentIndex: _getCurrentIndex(context),
+          onTap: (index) => _onItemTapped(context, index),
+          onCenterTap: () => _showQuickActions(context),
+        ),
       ),
     );
   }

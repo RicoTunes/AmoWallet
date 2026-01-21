@@ -37,10 +37,9 @@ class _SecuritySettingsPageState extends ConsumerState<SecuritySettingsPage> {
 
   Future<void> _togglePin(bool value) async {
     if (value && !_isPinSet) {
-      // Navigate to PIN setup using go_router
-      context.push('/pin-setup');
-      // Reload settings after returning
-      await Future.delayed(const Duration(milliseconds: 500));
+      // Navigate to PIN setup using go_router and wait for return
+      await context.push('/pin-setup');
+      // Reload settings after returning from PIN setup
       await _loadSettings();
     } else {
       await _pinAuthService.setPinEnabled(value);
@@ -58,33 +57,56 @@ class _SecuritySettingsPageState extends ConsumerState<SecuritySettingsPage> {
     print('🔐 Toggling biometric to: $value');
     print('🔐 isPinSet: $_isPinSet, isBiometricAvailable: $_isBiometricAvailable');
     
+    // Reload pin status first to ensure we have latest state
+    _isPinSet = await _pinAuthService.isPinSet();
+    print('🔐 After reload - isPinSet: $_isPinSet');
+    
     if (value && !_isPinSet) {
+      // Navigate to PIN setup first
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please set up a PIN first'),
           backgroundColor: Colors.orange,
         ),
       );
-      return;
+      
+      // Navigate to PIN setup and wait
+      final result = await context.push<bool>('/pin-setup');
+      
+      // Reload settings after PIN setup
+      await _loadSettings();
+      
+      // Check if PIN is now set
+      if (!_isPinSet) {
+        // User cancelled PIN setup
+        return;
+      }
+      
+      // If PIN was just set, continue to enable biometric
+      if (result != true) {
+        return;
+      }
     }
 
-    // Allow enabling even if biometric not detected (user can try later)
-    // Only show warning but don't block
-    if (value && !_isBiometricAvailable) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Note: Biometric may not work if not set up on device'),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 2),
-        ),
-      );
-      // Don't return - allow enabling anyway
-    }
-
+    // Don't block - just enable biometric regardless of device support
+    // The actual authentication will fail gracefully if not available
     try {
       await _pinAuthService.setBiometricEnabled(value);
-      print('✅ Biometric enabled set to: $value');
-      setState(() => _biometricEnabled = value);
+      
+      // Verify it was saved by re-reading
+      final savedValue = await _pinAuthService.isBiometricEnabled();
+      print('✅ Biometric saved: $value, read back: $savedValue');
+      
+      setState(() => _biometricEnabled = savedValue);
+      
+      if (value) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Biometric authentication enabled'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     } catch (e) {
       print('❌ Error setting biometric: $e');
       ScaffoldMessenger.of(context).showSnackBar(

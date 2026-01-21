@@ -64,9 +64,10 @@ android {
         }
         
         getByName("release") {
-            // Disable minification to prevent crashes
-            isMinifyEnabled = false
-            isShrinkResources = false
+            // MILITARY-GRADE: Enable code obfuscation and shrinking
+            isMinifyEnabled = true
+            isShrinkResources = true
+            isDebuggable = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

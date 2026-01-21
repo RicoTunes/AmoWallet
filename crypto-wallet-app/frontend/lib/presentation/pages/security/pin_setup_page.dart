@@ -82,8 +82,12 @@ class _PinSetupPageState extends ConsumerState<PinSetupPage> {
         ),
       );
       
-      // Navigate to dashboard
-      context.go('/dashboard');
+      // Pop back to previous screen (security settings or onboarding)
+      if (context.canPop()) {
+        context.pop(true); // Return true to indicate success
+      } else {
+        context.go('/dashboard');
+      }
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
