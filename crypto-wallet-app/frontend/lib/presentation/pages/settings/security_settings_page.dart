@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../services/pin_auth_service.dart';
+import '../../../services/screenshot_service.dart';
 
 class SecuritySettingsPage extends ConsumerStatefulWidget {
   const SecuritySettingsPage({super.key});
@@ -12,10 +13,12 @@ class SecuritySettingsPage extends ConsumerStatefulWidget {
 
 class _SecuritySettingsPageState extends ConsumerState<SecuritySettingsPage> {
   final PinAuthService _pinAuthService = PinAuthService();
+  final ScreenshotService _screenshotService = ScreenshotService();
   bool _pinEnabled = false;
   bool _biometricEnabled = false;
   bool _isPinSet = false;
   bool _isBiometricAvailable = false;
+  bool _screenshotAllowed = false;
   bool _isLoading = true;
 
   @override
@@ -31,6 +34,7 @@ class _SecuritySettingsPageState extends ConsumerState<SecuritySettingsPage> {
     _biometricEnabled = await _pinAuthService.isBiometricEnabled();
     _isPinSet = await _pinAuthService.isPinSet();
     _isBiometricAvailable = await _pinAuthService.isBiometricAvailable();
+    _screenshotAllowed = await _screenshotService.isScreenshotAllowed();
     
     setState(() => _isLoading = false);
   }
@@ -310,21 +314,56 @@ class _SecuritySettingsPageState extends ConsumerState<SecuritySettingsPage> {
             ),
           ),
           
+          const SizedBox(height: 16),
+          
+          // Screenshot Section
+          Card(
+            child: SwitchListTile(
+              title: const Text('Allow Screenshots'),
+              subtitle: Text(_screenshotAllowed
+                  ? 'Screenshots and screen recording are enabled'
+                  : 'Screenshots and screen recording are blocked'),
+              secondary: Icon(
+                _screenshotAllowed ? Icons.screenshot : Icons.no_photography,
+                color: _screenshotAllowed ? Colors.orange : Theme.of(context).colorScheme.primary,
+              ),
+              value: _screenshotAllowed,
+              onChanged: (value) async {
+                await _screenshotService.setScreenshotAllowed(value);
+                setState(() => _screenshotAllowed = value);
+                
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(value 
+                          ? 'Screenshots enabled - Less secure'
+                          : 'Screenshots blocked - More secure'),
+                      backgroundColor: value ? Colors.orange : Colors.green,
+                    ),
+                  );
+                }
+              },
+            ),
+          ),
+          
           const SizedBox(height: 24),
           
           // Info Card
           Card(
-            color: Colors.blue.withOpacity(0.1),
-            child: const Padding(
-              padding: EdgeInsets.all(16),
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline, color: Colors.blue),
-                  SizedBox(width: 12),
+                  Icon(Icons.info_outline, color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       'Security features help protect your wallet when the app is closed or sent to background.',
-                      style: TextStyle(fontSize: 13),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(context).textTheme.bodyMedium?.color,
+                      ),
                     ),
                   ),
                 ],

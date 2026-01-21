@@ -119,7 +119,8 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
   Future<bool> _authenticate() async {
     // Try biometric first
     final biometricAvailable = await _biometricService.isBiometricAvailable();
-    final biometricEnabled = await _biometricService.isBiometricEnabled();
+    // Use PinAuthService as single source of truth for biometric enabled
+    final biometricEnabled = await _pinAuthService.isBiometricEnabled();
 
     if (biometricAvailable && biometricEnabled) {
       final result = await _biometricService.authenticateWithBiometrics(

@@ -8,6 +8,7 @@ import '../../../core/providers/theme_provider.dart';
 import '../../../services/auth_service.dart';
 import '../../../services/wallet_service.dart';
 import '../../../services/biometric_auth_service.dart';
+import '../../../services/pin_auth_service.dart';
 import 'security_settings_page.dart';
 import 'backup_recovery_page.dart';
 import 'network_settings_page.dart';
@@ -31,6 +32,7 @@ class SettingsPage extends ConsumerStatefulWidget {
 
 class _SettingsPageState extends ConsumerState<SettingsPage> {
   final BiometricAuthService _biometricService = BiometricAuthService();
+  final PinAuthService _pinAuthService = PinAuthService();
 
   @override
   void initState() {
@@ -40,7 +42,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   Future<void> _loadBiometricStatus() async {
     final available = await _biometricService.isBiometricAvailable();
-    final enabled = await _biometricService.isBiometricEnabled();
+    // Read from PinAuthService as the single source of truth
+    final enabled = await _pinAuthService.isBiometricEnabled();
     ref.read(biometricAvailableProvider.notifier).state = available;
     ref.read(biometricEnabledProvider.notifier).state = enabled;
   }
@@ -132,12 +135,26 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                             value: biometricEnabled ?? false,
                             onChanged: (value) async {
                               if (value) {
+                                // Check if PIN is set first
+                                final isPinSet = await _pinAuthService.isPinSet();
+                                if (!isPinSet) {
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Please set up a PIN first in Security Settings'),
+                                        backgroundColor: Colors.orange,
+                                      ),
+                                    );
+                                  }
+                                  return;
+                                }
                                 // Authenticate before enabling
                                 final authenticated = await _biometricService.authenticateWithBiometrics(
                                   reason: 'Authenticate to enable biometric login',
                                 );
                                 if (authenticated) {
-                                  await _biometricService.setBiometricEnabled(true);
+                                  // Use PinAuthService as the single source of truth
+                                  await _pinAuthService.setBiometricEnabled(true);
                                   ref.read(biometricEnabledProvider.notifier).state = true;
                                   if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
@@ -149,7 +166,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                                   }
                                 }
                               } else {
-                                await _biometricService.setBiometricEnabled(false);
+                                // Use PinAuthService as the single source of truth
+                                await _pinAuthService.setBiometricEnabled(false);
                                 ref.read(biometricEnabledProvider.notifier).state = false;
                                 if (mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(

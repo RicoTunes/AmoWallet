@@ -22,8 +22,12 @@ class IncomingTxMonitor {
   Timer? _monitorTimer;
   bool _isMonitoring = false;
   Map<String, double> _lastKnownBalances = {};
+  DateTime? _monitorStartTime; // Track when monitoring started (app install/first run)
+  Set<String> _notifiedTxHashes = {}; // Track already notified transaction hashes
   
   static const String LAST_BALANCES_KEY = 'last_known_balances';
+  static const String MONITOR_START_TIME_KEY = 'tx_monitor_start_time';
+  static const String NOTIFIED_TX_HASHES_KEY = 'notified_tx_hashes';
   static const int CHECK_INTERVAL_SECONDS = 60; // Check every minute
 
   /// Start monitoring for incoming transactions
@@ -32,6 +36,12 @@ class IncomingTxMonitor {
     _isMonitoring = true;
     
     print('🔍 Starting incoming transaction monitor...');
+    
+    // Load or set the monitor start time (tracks when monitoring first started)
+    await _loadOrSetMonitorStartTime();
+    
+    // Load already notified transaction hashes
+    await _loadNotifiedTxHashes();
     
     // Load last known balances
     await _loadLastKnownBalances();
@@ -51,6 +61,58 @@ class IncomingTxMonitor {
     Future.delayed(const Duration(seconds: 10), () {
       if (_isMonitoring) _checkForIncomingTransactions();
     });
+  }
+
+  /// Load or set the monitor start time
+  Future<void> _loadOrSetMonitorStartTime() async {
+    try {
+      final stored = await _storage.read(key: MONITOR_START_TIME_KEY);
+      if (stored != null) {
+        _monitorStartTime = DateTime.parse(stored);
+        print('📅 Monitor start time loaded: $_monitorStartTime');
+      } else {
+        // First time - set the start time to now
+        _monitorStartTime = DateTime.now();
+        await _storage.write(
+          key: MONITOR_START_TIME_KEY,
+          value: _monitorStartTime!.toIso8601String(),
+        );
+        print('📅 Monitor start time set to: $_monitorStartTime');
+      }
+    } catch (e) {
+      _monitorStartTime = DateTime.now();
+      print('⚠️ Error loading monitor start time, defaulting to now: $e');
+    }
+  }
+
+  /// Load already notified transaction hashes
+  Future<void> _loadNotifiedTxHashes() async {
+    try {
+      final stored = await _storage.read(key: NOTIFIED_TX_HASHES_KEY);
+      if (stored != null) {
+        final List<dynamic> decoded = jsonDecode(stored);
+        _notifiedTxHashes = decoded.map((e) => e.toString()).toSet();
+        print('📋 Loaded ${_notifiedTxHashes.length} already notified tx hashes');
+      }
+    } catch (e) {
+      print('⚠️ Error loading notified tx hashes: $e');
+    }
+  }
+
+  /// Save notified transaction hashes
+  Future<void> _saveNotifiedTxHashes() async {
+    try {
+      // Keep only the last 500 tx hashes to prevent unbounded growth
+      if (_notifiedTxHashes.length > 500) {
+        _notifiedTxHashes = _notifiedTxHashes.toList().sublist(_notifiedTxHashes.length - 500).toSet();
+      }
+      await _storage.write(
+        key: NOTIFIED_TX_HASHES_KEY,
+        value: jsonEncode(_notifiedTxHashes.toList()),
+      );
+    } catch (e) {
+      print('⚠️ Error saving notified tx hashes: $e');
+    }
   }
 
   /// Stop monitoring
@@ -142,6 +204,19 @@ class IncomingTxMonitor {
     double newBalance,
   ) async {
     try {
+      // Create a unique identifier for this transaction
+      final txIdentifier = '$coin-${amount.toStringAsFixed(8)}-${DateTime.now().millisecondsSinceEpoch ~/ 60000}';
+      
+      // Check if we've already notified about this transaction
+      if (_notifiedTxHashes.contains(txIdentifier)) {
+        print('⏭️ Already notified about transaction: $txIdentifier');
+        return;
+      }
+      
+      // Add to notified set and save
+      _notifiedTxHashes.add(txIdentifier);
+      await _saveNotifiedTxHashes();
+      
       // Get USD value
       final usdValue = await _getUsdValue(coin, amount);
       final usdString = usdValue > 0 ? ' (\$${usdValue.toStringAsFixed(2)})' : '';

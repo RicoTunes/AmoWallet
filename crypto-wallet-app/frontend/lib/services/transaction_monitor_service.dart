@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'wallet_service.dart';
 import 'notification_service.dart';
 import 'transaction_service.dart';
@@ -16,11 +18,15 @@ class TransactionMonitorService {
   Timer? _pollingTimer;
   bool _isMonitoring = false;
   final Map<String, double> _lastBalances = {};
-  final Set<String> _notifiedTransactions = {};
+  Set<String> _notifiedTransactions = {};
   final Set<String> _pendingTransactions = {}; // Track pending transactions
+  DateTime? _monitorStartTime; // When monitoring first started
+  
+  static const String _notifiedTxKey = 'transaction_monitor_notified_txs';
+  static const String _monitorStartTimeKey = 'transaction_monitor_start_time';
 
   /// Start monitoring for incoming transactions
-  void startMonitoring({Duration interval = const Duration(seconds: 90)}) {
+  Future<void> startMonitoring({Duration interval = const Duration(seconds: 90)}) async {
     if (_isMonitoring) {
       return;
     }
@@ -28,13 +34,60 @@ class TransactionMonitorService {
     _isMonitoring = true;
     debugPrint('🔍 Transaction monitoring started (polling every ${interval.inSeconds}s)');
 
+    // Load persisted data
+    await _loadPersistedData();
+
     // Initial balance snapshot
-    _captureBalances();
+    await _captureBalances();
 
     // Poll for changes periodically
     _pollingTimer = Timer.periodic(interval, (_) {
       _checkForNewTransactions();
     });
+  }
+
+  /// Load persisted notified transactions
+  Future<void> _loadPersistedData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Load monitor start time
+      final startTimeStr = prefs.getString(_monitorStartTimeKey);
+      if (startTimeStr != null) {
+        _monitorStartTime = DateTime.parse(startTimeStr);
+        debugPrint('📅 Monitor start time: $_monitorStartTime');
+      } else {
+        // First run - set start time to now
+        _monitorStartTime = DateTime.now();
+        await prefs.setString(_monitorStartTimeKey, _monitorStartTime!.toIso8601String());
+        debugPrint('📅 Set monitor start time to: $_monitorStartTime');
+      }
+      
+      // Load notified transactions
+      final notifiedList = prefs.getStringList(_notifiedTxKey);
+      if (notifiedList != null) {
+        _notifiedTransactions = notifiedList.toSet();
+        debugPrint('📋 Loaded ${_notifiedTransactions.length} notified transactions');
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error loading persisted data: $e');
+      _monitorStartTime = DateTime.now();
+    }
+  }
+
+  /// Save notified transactions
+  Future<void> _saveNotifiedTransactions() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // Keep only the last 500 to prevent unbounded growth
+      final list = _notifiedTransactions.toList();
+      if (list.length > 500) {
+        _notifiedTransactions = list.sublist(list.length - 500).toSet();
+      }
+      await prefs.setStringList(_notifiedTxKey, _notifiedTransactions.toList());
+    } catch (e) {
+      debugPrint('⚠️ Error saving notified transactions: $e');
+    }
   }
 
   /// Stop monitoring
@@ -43,7 +96,6 @@ class TransactionMonitorService {
     _pollingTimer = null;
     _isMonitoring = false;
     _lastBalances.clear();
-    _notifiedTransactions.clear();
     debugPrint('🛑 Transaction monitoring stopped');
   }
 
@@ -74,12 +126,18 @@ class TransactionMonitorService {
           // Use txHash if available, otherwise use id
           final uniqueId = tx.txHash ?? tx.id;
           
+          // Skip if transaction is older than when we started monitoring
+          if (_monitorStartTime != null && tx.timestamp.isBefore(_monitorStartTime!)) {
+            continue; // Skip old transactions
+          }
+          
           if (tx.isPending) {
             // Pending (unconfirmed) transaction
             final pendingKey = 'pending-$uniqueId';
             if (!_notifiedTransactions.contains(pendingKey)) {
               _pendingTransactions.add(uniqueId);
               _notifiedTransactions.add(pendingKey);
+              await _saveNotifiedTransactions();
               debugPrint('✅ Tracking pending: $uniqueId (${tx.coin}: ${tx.amount})');
             }
           } else {
@@ -88,6 +146,7 @@ class TransactionMonitorService {
             if (_pendingTransactions.contains(uniqueId) && !_notifiedTransactions.contains(confirmedKey)) {
               _pendingTransactions.remove(uniqueId);
               _notifiedTransactions.add(confirmedKey);
+              await _saveNotifiedTransactions();
               debugPrint('✅ Tracking confirmed: $uniqueId');
             }
           }

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../services/pin_auth_service.dart';
+import '../../../core/providers/theme_provider.dart';
 
 class PinEntryPage extends ConsumerStatefulWidget {
   const PinEntryPage({super.key});
@@ -11,18 +13,45 @@ class PinEntryPage extends ConsumerStatefulWidget {
   ConsumerState<PinEntryPage> createState() => _PinEntryPageState();
 }
 
-class _PinEntryPageState extends ConsumerState<PinEntryPage> {
+class _PinEntryPageState extends ConsumerState<PinEntryPage> 
+    with SingleTickerProviderStateMixin {
   final PinAuthService _pinAuthService = PinAuthService();
   String _pin = '';
   bool _isLoading = false;
   int _attemptCount = 0;
   String? _returnRoute;
+  bool _biometricAttempted = false;
+  bool _isAuthenticating = false;
+  
+  late AnimationController _shakeController;
+  late Animation<double> _shakeAnimation;
   
   @override
   void initState() {
     super.initState();
+    
+    // Shake animation for wrong PIN
+    _shakeController = AnimationController(
+      duration: const Duration(milliseconds: 500),
+      vsync: this,
+    );
+    _shakeAnimation = Tween<double>(begin: 0, end: 24)
+        .chain(CurveTween(curve: Curves.elasticIn))
+        .animate(_shakeController);
+    _shakeController.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        _shakeController.reverse();
+      }
+    });
+    
     _loadReturnRoute();
     _checkAuthenticationMethods();
+  }
+  
+  @override
+  void dispose() {
+    _shakeController.dispose();
+    super.dispose();
   }
   
   Future<void> _loadReturnRoute() async {
@@ -34,36 +63,61 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage> {
   }
   
   Future<void> _checkAuthenticationMethods() async {
-    // Check if PIN is set up
+    if (_isAuthenticating || _biometricAttempted) return;
+    
     final isPinSet = await _pinAuthService.isPinSet();
     
     if (!isPinSet) {
-      // No PIN set up - go to PIN setup
       if (mounted) context.go('/pin-setup');
       return;
     }
     
-    // Check if biometric is enabled and available
     final isBiometricEnabled = await _pinAuthService.isBiometricEnabled();
     final isBiometricAvailable = await _pinAuthService.isBiometricAvailable();
     
-    if (isBiometricEnabled && isBiometricAvailable) {
-      // Try biometric authentication automatically
+    if (isBiometricEnabled && isBiometricAvailable && !_biometricAttempted) {
       _authenticateWithBiometric();
     }
   }
   
   Future<void> _authenticateWithBiometric() async {
-    final success = await _pinAuthService.authenticateWithBiometric();
+    if (_biometricAttempted || _isAuthenticating) {
+      print('⏭️ Skipping biometric - already attempted or authenticating');
+      return;
+    }
     
-    if (success && mounted) {
-      print('✅ Biometric auth success - returning to: $_returnRoute');
-      context.go(_returnRoute ?? '/dashboard');
+    setState(() {
+      _biometricAttempted = true;
+      _isAuthenticating = true;
+    });
+    
+    try {
+      final success = await _pinAuthService.authenticateWithBiometric();
+      
+      if (success && mounted) {
+        print('✅ Biometric auth success - returning to: $_returnRoute');
+        
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setInt('last_auth_time', DateTime.now().millisecondsSinceEpoch);
+        
+        context.go(_returnRoute ?? '/dashboard');
+      } else {
+        print('❌ Biometric auth failed or cancelled - please enter PIN');
+        if (mounted) {
+          setState(() => _isAuthenticating = false);
+        }
+      }
+    } catch (e) {
+      print('❌ Biometric error: $e');
+      if (mounted) {
+        setState(() => _isAuthenticating = false);
+      }
     }
   }
   
   void _onNumberPressed(String number) {
     if (_pin.length < 6) {
+      HapticFeedback.lightImpact();
       setState(() {
         _pin += number;
         if (_pin.length == 6) {
@@ -75,6 +129,7 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage> {
   
   void _onDeletePressed() {
     if (_pin.isNotEmpty) {
+      HapticFeedback.lightImpact();
       setState(() {
         _pin = _pin.substring(0, _pin.length - 1);
       });
@@ -90,15 +145,14 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage> {
     
     if (isValid && mounted) {
       print('✅ PIN verification success - returning to: $_returnRoute');
+      HapticFeedback.mediumImpact();
       
-      // Save auth time to prevent re-authentication too soon
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('last_auth_time', DateTime.now().millisecondsSinceEpoch);
       
       try {
         context.go(_returnRoute ?? '/dashboard');
       } catch (navError) {
-        // Log and fallback to Navigator in case go_router fails for some reason
         print('⚠️ Navigation error after PIN verification: $navError');
         if (mounted) {
           Navigator.of(context).pushReplacementNamed(_returnRoute ?? '/dashboard');
@@ -106,15 +160,25 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage> {
       }
     } else {
       _attemptCount++;
+      HapticFeedback.heavyImpact();
+      _shakeController.forward();
       
       if (mounted) {
-        // Show snackbar before mutating state to avoid disposing context used
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(_attemptCount >= 3 
-                ? 'Too many failed attempts. Please try again later.'
-                : 'Incorrect PIN. Please try again.'),
-            backgroundColor: Colors.red,
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white),
+                const SizedBox(width: 8),
+                Text(_attemptCount >= 3 
+                    ? 'Too many failed attempts. Please wait.'
+                    : 'Incorrect PIN. ${5 - _attemptCount} attempts remaining.'),
+              ],
+            ),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            margin: const EdgeInsets.all(16),
           ),
         );
 
@@ -124,7 +188,6 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage> {
         });
         
         if (_attemptCount >= 5) {
-          // Lock out after 5 failed attempts
           await Future.delayed(const Duration(seconds: 30));
           setState(() {
             _attemptCount = 0;
@@ -136,7 +199,15 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    final backgroundColor = isDark ? const Color(0xFF121212) : Colors.white;
+    final surfaceColor = isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade50;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subtextColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
+    
     return Scaffold(
+      backgroundColor: backgroundColor,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -144,79 +215,117 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage> {
               child: ConstrainedBox(
                 constraints: BoxConstraints(minHeight: constraints.maxHeight),
                 child: Padding(
-                  padding: const EdgeInsets.all(24.0),
+                  padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 24.0),
                   child: Column(
                     children: [
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 40),
                       
-                      // App Icon
+                      // App Logo with gradient background
                       Container(
-                        width: 60,
-                        height: 60,
+                        width: 90,
+                        height: 90,
                         decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(16),
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              primaryColor,
+                              primaryColor.withOpacity(0.7),
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(24),
+                          boxShadow: [
+                            BoxShadow(
+                              color: primaryColor.withOpacity(0.4),
+                              blurRadius: 20,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
                         ),
-                        child: Icon(
+                        child: const Icon(
                           Icons.account_balance_wallet_rounded,
-                          size: 32,
-                          color: Theme.of(context).colorScheme.primary,
+                          size: 45,
+                          color: Colors.white,
                         ),
                       ),
                       
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 32),
                       
-                      // Title
-                      const Text(
-                        'Enter your PIN',
+                      // Welcome text
+                      Text(
+                        'Welcome Back',
                         style: TextStyle(
-                          fontSize: 24,
+                          fontSize: 28,
                           fontWeight: FontWeight.bold,
+                          color: textColor,
+                          letterSpacing: -0.5,
                         ),
                       ),
                       
                       const SizedBox(height: 8),
                       
                       Text(
-                        'Enter your 6-digit PIN to unlock',
+                        'Enter your PIN to unlock AmoWallet',
                         style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
+                          fontSize: 15,
+                          color: subtextColor,
                         ),
                       ),
                       
-                      const SizedBox(height: 40),
+                      const SizedBox(height: 48),
               
-              // PIN Dots
-              if (!_isLoading)
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  children: List.generate(6, (index) {
-                    final isFilled = index < _pin.length;
-                    
-                    return Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 8),
-                      width: 16,
-                      height: 16,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: isFilled 
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.grey[300],
-                        border: Border.all(
-                          color: isFilled 
-                              ? Theme.of(context).colorScheme.primary
-                              : Colors.grey[400]!,
-                          width: 2,
+              // PIN Dots with animation
+              AnimatedBuilder(
+                animation: _shakeAnimation,
+                builder: (context, child) {
+                  return Transform.translate(
+                    offset: Offset(_shakeAnimation.value * ((_shakeController.status == AnimationStatus.reverse) ? -1 : 1), 0),
+                    child: child,
+                  );
+                },
+                child: _isLoading
+                    ? SizedBox(
+                        height: 50,
+                        child: Center(
+                          child: CircularProgressIndicator(
+                            color: primaryColor,
+                            strokeWidth: 3,
+                          ),
                         ),
+                      )
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(6, (index) {
+                          final isFilled = index < _pin.length;
+                          
+                          return AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            margin: const EdgeInsets.symmetric(horizontal: 10),
+                            width: isFilled ? 20 : 18,
+                            height: isFilled ? 20 : 18,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: isFilled ? primaryColor : Colors.transparent,
+                              border: Border.all(
+                                color: isFilled ? primaryColor : subtextColor.withOpacity(0.5),
+                                width: 2.5,
+                              ),
+                              boxShadow: isFilled
+                                  ? [
+                                      BoxShadow(
+                                        color: primaryColor.withOpacity(0.4),
+                                        blurRadius: 8,
+                                        spreadRadius: 1,
+                                      ),
+                                    ]
+                                  : null,
+                            ),
+                          );
+                        }),
                       ),
-                    );
-                  }),
-                )
-              else
-                const CircularProgressIndicator(),
+              ),
               
-              const SizedBox(height: 32),
+              const SizedBox(height: 40),
               
               // Biometric Button
               FutureBuilder<bool>(
@@ -225,23 +334,50 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage> {
                   if (snapshot.data == true) {
                     return Column(
                       children: [
-                        IconButton(
-                          icon: Icon(
-                            Icons.fingerprint,
-                            size: 48,
-                            color: Theme.of(context).colorScheme.primary,
+                        Container(
+                          decoration: BoxDecoration(
+                            color: surfaceColor,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: primaryColor.withOpacity(0.3),
+                              width: 1.5,
+                            ),
                           ),
-                          onPressed: _authenticateWithBiometric,
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: _authenticateWithBiometric,
+                              borderRadius: BorderRadius.circular(16),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.fingerprint,
+                                      size: 28,
+                                      color: primaryColor,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Text(
+                                      'Use Biometric',
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                        color: primaryColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
-                        const Text(
-                          'Use biometric',
-                          style: TextStyle(fontSize: 14),
-                        ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 32),
                       ],
                     );
                   }
-                  return const SizedBox();
+                  return const SizedBox(height: 16);
                 },
               ),
               
@@ -269,31 +405,55 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage> {
               // Forgot PIN
               TextButton(
                 onPressed: () {
-                  // Show dialog to reset PIN (requires wallet recovery)
+                  final isDark = Theme.of(context).brightness == Brightness.dark;
                   showDialog(
                     context: context,
                     builder: (context) => AlertDialog(
-                      title: const Text('Forgot PIN?'),
+                      backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      title: Row(
+                        children: [
+                          Icon(Icons.help_outline, color: Theme.of(context).colorScheme.primary),
+                          const SizedBox(width: 10),
+                          const Text('Forgot PIN?'),
+                        ],
+                      ),
                       content: const Text(
                         'To reset your PIN, you\'ll need to restore your wallet using your recovery phrase.',
                       ),
                       actions: [
                         TextButton(
                           onPressed: () => Navigator.pop(context),
-                          child: const Text('Cancel'),
+                          child: Text(
+                            'Cancel',
+                            style: TextStyle(color: subtextColor),
+                          ),
                         ),
-                        TextButton(
+                        ElevatedButton(
                           onPressed: () {
                             Navigator.pop(context);
                             context.go('/wallet-import');
                           },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
                           child: const Text('Restore Wallet'),
                         ),
                       ],
                     ),
                   );
                 },
-                child: const Text('Forgot PIN?'),
+                child: Text(
+                  'Forgot PIN?',
+                  style: TextStyle(
+                    color: subtextColor,
+                    fontSize: 14,
+                  ),
+                ),
               ),
               
               const SizedBox(height: 20),
@@ -309,22 +469,37 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage> {
   }
   
   Widget _buildNumberButton(String number) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    final surfaceColor = isDark ? const Color(0xFF2A2A2A) : Colors.grey.shade100;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: _isLoading ? null : () => _onNumberPressed(number),
         borderRadius: BorderRadius.circular(50),
+        splashColor: primaryColor.withOpacity(0.3),
+        highlightColor: primaryColor.withOpacity(0.1),
         child: Container(
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(color: Colors.grey[300]!, width: 1),
+            color: surfaceColor,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.3 : 0.08),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
           child: Center(
             child: Text(
               number,
-              style: const TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w500,
+              style: TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w600,
+                color: textColor,
               ),
             ),
           ),
@@ -334,18 +509,35 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage> {
   }
   
   Widget _buildDeleteButton() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+    final surfaceColor = isDark ? const Color(0xFF2A2A2A) : Colors.grey.shade100;
+    
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: _isLoading ? null : _onDeletePressed,
         borderRadius: BorderRadius.circular(50),
+        splashColor: Colors.red.withOpacity(0.3),
+        highlightColor: Colors.red.withOpacity(0.1),
         child: Container(
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(color: Colors.grey[300]!, width: 1),
+            color: surfaceColor,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.3 : 0.08),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
-          child: const Center(
-            child: Icon(Icons.backspace_outlined, size: 28),
+          child: Center(
+            child: Icon(
+              Icons.backspace_outlined,
+              size: 26,
+              color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+            ),
           ),
         ),
       ),

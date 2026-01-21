@@ -144,13 +144,18 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
   }
 
   void _showUsdtNetworkPicker() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subtextColor = isDark ? Colors.grey.shade400 : Colors.grey;
+    
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -161,7 +166,7 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey[300],
+                color: isDark ? Colors.grey[700] : Colors.grey[300],
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -179,25 +184,25 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
                     child: const Icon(Icons.attach_money, color: Color(0xFF26A17B), size: 24),
                   ),
                   const SizedBox(width: 12),
-                  const Column(
+                  Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         'Select USDT Network',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor),
                       ),
                       Text(
                         'Choose your preferred network',
-                        style: TextStyle(color: Colors.grey, fontSize: 13),
+                        style: TextStyle(color: subtextColor, fontSize: 13),
                       ),
                     ],
                   ),
                 ],
               ),
             ),
-            const Divider(height: 1),
+            Divider(height: 1, color: isDark ? Colors.grey[800] : Colors.grey[200]),
             // Network options
-            ..._usdtNetworks.map((network) => _buildNetworkOption(network)),
+            ..._usdtNetworks.map((network) => _buildNetworkOption(network, isDark, textColor, subtextColor)),
             const SizedBox(height: 20),
           ],
         ),
@@ -205,7 +210,7 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
     );
   }
 
-  Widget _buildNetworkOption(CoinData network) {
+  Widget _buildNetworkOption(CoinData network, bool isDark, Color textColor, Color subtextColor) {
     final isSelected = _selectedCoin == network.symbol;
     return InkWell(
       onTap: () {
@@ -244,13 +249,13 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
                       fontSize: 15,
-                      color: isSelected ? network.color : Colors.black87,
+                      color: isSelected ? network.color : textColor,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     network.network,
-                    style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                    style: TextStyle(color: subtextColor, fontSize: 12),
                   ),
                 ],
               ),
@@ -258,7 +263,7 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
             if (isSelected)
               Icon(Icons.check_circle, color: network.color, size: 22)
             else
-              Icon(Icons.arrow_forward_ios, color: Colors.grey[400], size: 16),
+              Icon(Icons.arrow_forward_ios, color: subtextColor, size: 16),
           ],
         ),
       ),
@@ -420,16 +425,22 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final backgroundColor = isDark ? const Color(0xFF121212) : Colors.grey[100]!;
+    final cardColor = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subtextColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
+    
     return AnimatedBuilder(
       animation: _colorAnimationController,
       builder: (context, child) {
         final color = _headerColorAnimation.value ?? _currentHeaderColor;
         return Scaffold(
-          backgroundColor: Colors.grey[100],
+          backgroundColor: backgroundColor,
           body: RefreshIndicator(
             onRefresh: _refreshData,
             color: color,
-            backgroundColor: Colors.white,
+            backgroundColor: cardColor,
             displacement: 60,
             strokeWidth: 3,
             child: CustomScrollView(
@@ -497,36 +508,36 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Coin Selection
-                      const Text(
+                      Text(
                         'Select Coin',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: Colors.black87,
+                          color: textColor,
                         ),
                       ),
                       const SizedBox(height: 12),
-                      _buildCoinSelector(),
+                      _buildCoinSelector(isDark, cardColor, textColor, subtextColor),
 
                       const SizedBox(height: 24),
 
                       // QR Code Card
-                      _buildQrCard(color),
+                      _buildQrCard(color, isDark, cardColor, textColor),
 
                       const SizedBox(height: 16),
 
                       // Address Card
-                      _buildAddressCard(color),
+                      _buildAddressCard(color, isDark, cardColor, textColor, subtextColor),
 
                       const SizedBox(height: 16),
 
                       // Action Buttons
-                      _buildActionButtons(color),
+                      _buildActionButtons(color, isDark, cardColor, textColor),
 
                       const SizedBox(height: 24),
 
                       // Warning Card
-                      _buildWarningCard(color),
+                      _buildWarningCard(color, isDark),
 
                       const SizedBox(height: 32),
                     ],
@@ -541,7 +552,7 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
     );
   }
 
-  Widget _buildCoinSelector() {
+  Widget _buildCoinSelector(bool isDark, Color cardColor, Color textColor, Color subtextColor) {
     return SizedBox(
       height: 100,
       child: ListView.builder(
@@ -576,15 +587,15 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
                           width: 60,
                           height: 60,
                           decoration: BoxDecoration(
-                            color: isSelected ? displayColor : Colors.white,
+                            color: isSelected ? displayColor : cardColor,
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: isSelected ? displayColor : Colors.grey[300]!,
+                              color: isSelected ? displayColor : (isDark ? Colors.grey[700]! : Colors.grey[300]!),
                               width: isSelected ? 3 : 2,
                             ),
                             boxShadow: isSelected
                                 ? [BoxShadow(color: displayColor.withOpacity(0.5), blurRadius: 15, offset: const Offset(0, 5))]
-                                : [BoxShadow(color: Colors.grey.withOpacity(0.2), blurRadius: 5, offset: const Offset(0, 2))],
+                                : [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.3 : 0.1), blurRadius: 5, offset: const Offset(0, 2))],
                           ),
                           child: Center(
                             child: Icon(
@@ -618,7 +629,7 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
                         ? _selectedCoin.split('-').last  // Show TRC20, BEP20, etc
                         : coin.symbol.split('-').first,
                     style: TextStyle(
-                      color: isSelected ? displayColor : Colors.grey[600],
+                      color: isSelected ? displayColor : subtextColor,
                       fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                       fontSize: 11,
                     ),
@@ -632,17 +643,17 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
     );
   }
 
-  Widget _buildQrCard(Color color) {
+  Widget _buildQrCard(Color color, bool isDark, Color cardColor, Color textColor) {
     final coinData = _getCoinData(_selectedCoin);
     
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardColor,
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
+            color: Colors.black.withOpacity(isDark ? 0.3 : 0.1),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
@@ -798,15 +809,17 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
     );
   }
 
-  Widget _buildAddressCard(Color color) {
+  Widget _buildAddressCard(Color color, bool isDark, Color cardColor, Color textColor, Color subtextColor) {
+    final surfaceColor = isDark ? const Color(0xFF2A2A2A) : Colors.grey.shade50;
+    
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardColor,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
+            color: Colors.black.withOpacity(isDark ? 0.3 : 0.1),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -822,9 +835,10 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
                 children: [
                   Text(
                     'Your ${_selectedCoin.split('-').first} Address',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
+                      color: textColor,
                     ),
                   ),
                   if (_allAddresses.length > 1) ...[
@@ -884,15 +898,15 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
           
           // Address dropdown or single address display
           if (_allAddresses.length > 1)
-            _buildAddressDropdown(color)
+            _buildAddressDropdown(color, isDark, surfaceColor, textColor)
           else
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.grey[50],
+                color: surfaceColor,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey[200]!),
+                border: Border.all(color: isDark ? Colors.grey[700]! : Colors.grey[200]!),
               ),
               child: _loading
                   ? Center(
@@ -907,7 +921,7 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
                       style: TextStyle(
                         fontFamily: 'monospace',
                         fontSize: 12,
-                        color: _address != null ? Colors.black87 : Colors.grey,
+                        color: _address != null ? textColor : subtextColor,
                       ),
                     ),
             ),
@@ -916,22 +930,23 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
     );
   }
 
-  Widget _buildAddressDropdown(Color color) {
+  Widget _buildAddressDropdown(Color color, bool isDark, Color surfaceColor, Color textColor) {
     // Ensure selected address is in the list
     final selectedAddress = _allAddresses.contains(_address) ? _address : (_allAddresses.isNotEmpty ? _allAddresses.first : null);
+    final borderColor = isDark ? Colors.grey[700]! : Colors.grey[200]!;
     
     if (selectedAddress == null || _allAddresses.isEmpty) {
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.grey[50],
+          color: surfaceColor,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey[200]!),
+          border: Border.all(color: borderColor),
         ),
-        child: const Text(
+        child: Text(
           'No addresses available',
-          style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.grey),
+          style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: isDark ? Colors.grey[400] : Colors.grey),
         ),
       );
     }
@@ -940,21 +955,21 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: surfaceColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[200]!),
+        border: Border.all(color: borderColor),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           value: selectedAddress,
           isExpanded: true,
           icon: Icon(Icons.keyboard_arrow_down, color: color),
-          style: const TextStyle(
+          style: TextStyle(
             fontFamily: 'monospace',
             fontSize: 12,
-            color: Colors.black87,
+            color: textColor,
           ),
-          dropdownColor: Colors.white,
+          dropdownColor: isDark ? const Color(0xFF2A2A2A) : Colors.white,
           borderRadius: BorderRadius.circular(12),
           items: _allAddresses.asMap().entries.map((entry) {
             final index = entry.key;
@@ -968,14 +983,14 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
                     width: 24,
                     height: 24,
                     decoration: BoxDecoration(
-                      color: isSelected ? color : Colors.grey[300],
+                      color: isSelected ? color : (isDark ? Colors.grey[600] : Colors.grey[300]),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Center(
                       child: Text(
                         '${index + 1}',
                         style: TextStyle(
-                          color: isSelected ? Colors.white : Colors.black54,
+                          color: isSelected ? Colors.white : (isDark ? Colors.white70 : Colors.black54),
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
                         ),
@@ -987,7 +1002,7 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
                     child: Text(
                       address,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontFamily: 'monospace',
                         fontSize: 11,
                       ),
@@ -1037,7 +1052,7 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
     }
   }
 
-  Widget _buildActionButtons(Color color) {
+  Widget _buildActionButtons(Color color, bool isDark, Color cardColor, Color textColor) {
     return Row(
       children: [
         Expanded(
@@ -1056,12 +1071,12 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
                   ),
                 ],
               ),
-              child: Row(
+              child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(Icons.copy, color: Colors.white, size: 20),
-                  const SizedBox(width: 8),
-                  const Text(
+                  SizedBox(width: 8),
+                  Text(
                     'Copy Address',
                     style: TextStyle(
                       color: Colors.white,
@@ -1081,7 +1096,7 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 16),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: cardColor,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: color, width: 2),
               ),
@@ -1107,15 +1122,18 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
     );
   }
 
-  Widget _buildWarningCard(Color color) {
+  Widget _buildWarningCard(Color color, bool isDark) {
     final coinData = _getCoinData(_selectedCoin);
+    final warningBg = isDark ? Colors.orange.withOpacity(0.15) : Colors.orange[50]!;
+    final warningBorder = isDark ? Colors.orange.withOpacity(0.3) : Colors.orange[200]!;
+    final warningIconBg = isDark ? Colors.orange.withOpacity(0.2) : Colors.orange[100]!;
     
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.orange[50],
+        color: warningBg,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.orange[200]!),
+        border: Border.all(color: warningBorder),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1123,7 +1141,7 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.orange[100],
+              color: warningIconBg,
               shape: BoxShape.circle,
             ),
             child: Icon(Icons.warning_amber_rounded, color: Colors.orange[700], size: 20),
@@ -1137,7 +1155,7 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
                   'Important',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    color: Colors.orange[800],
+                    color: isDark ? Colors.orange[400] : Colors.orange[800],
                     fontSize: 14,
                   ),
                 ),
@@ -1145,7 +1163,7 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
                 Text(
                   'Only send ${coinData.name} (${_selectedCoin.split('-').first}) to this address on the ${coinData.network}. Sending other assets may result in permanent loss.',
                   style: TextStyle(
-                    color: Colors.orange[700],
+                    color: isDark ? Colors.orange[300] : Colors.orange[700],
                     fontSize: 12,
                   ),
                 ),

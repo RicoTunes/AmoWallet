@@ -426,7 +426,8 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
       // Try biometric authentication first, but catch any exceptions
       try {
         bool canUseBiometric = await _authService.isBiometricAvailable();
-        bool biometricEnabled = await _authService.isBiometricEnabled();
+        // Use PinAuthService as single source of truth for biometric enabled
+        bool biometricEnabled = await _pinAuthService.isBiometricEnabled();
 
         if (canUseBiometric && biometricEnabled) {
           authenticated = await _authService.authenticateWithBiometrics(

@@ -6,6 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
+/// BiometricAuthService handles biometric authentication and device capabilities.
+/// IMPORTANT: For biometric ENABLED state, this service delegates to PinAuthService
+/// to ensure consistency across the app. Always use a single source of truth.
 class BiometricAuthService {
   static final BiometricAuthService _instance = BiometricAuthService._internal();
   factory BiometricAuthService() => _instance;
@@ -21,6 +24,7 @@ class BiometricAuthService {
 
   static const String _pinKey = 'user_pin_hash';
   static const String _pinSaltKey = 'pin_salt';
+  // IMPORTANT: This key MUST match the one in PinAuthService for consistency
   static const String _biometricEnabledKey = 'biometric_enabled';
   static const String _lastAuthTimeKey = 'last_auth_time';
   static const int _authTimeoutMinutes = 5; // Require re-auth after 5 minutes
@@ -86,8 +90,12 @@ class BiometricAuthService {
   }
 
   /// Enable or disable biometric authentication
+  /// This writes to secure storage with 'true'/'false' string values
+  /// to match PinAuthService's format
   Future<void> setBiometricEnabled(bool enabled) async {
-    await _writeSecure(_biometricEnabledKey, enabled.toString());
+    // Use 'true'/'false' strings to match PinAuthService format
+    await _writeSecure(_biometricEnabledKey, enabled ? 'true' : 'false');
+    print('💾 BiometricAuthService: Saved biometric enabled = $enabled');
   }
 
   /// Authenticate using biometrics (fingerprint, face ID, etc.)

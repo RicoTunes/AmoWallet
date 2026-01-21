@@ -19,6 +19,7 @@ class _CryptoWalletProAppState extends ConsumerState<CryptoWalletProApp> with Wi
   final PinAuthService _pinAuthService = PinAuthService();
   bool _isAppInBackground = false;
   DateTime? _lastAuthTime;
+  bool _isCheckingAuth = false; // Prevent multiple concurrent auth checks
   
   // Minimum time (in seconds) before requiring re-authentication
   static const int _authCooldownSeconds = 60;
@@ -59,34 +60,49 @@ class _CryptoWalletProAppState extends ConsumerState<CryptoWalletProApp> with Wi
   }
   
   Future<void> _checkAuthenticationOnResume() async {
-    // Check if we recently authenticated (within cooldown period)
-    if (_lastAuthTime != null) {
-      final elapsed = DateTime.now().difference(_lastAuthTime!).inSeconds;
-      if (elapsed < _authCooldownSeconds) {
-        print('⏭️ Skipping re-auth, only ${elapsed}s since last auth (cooldown: ${_authCooldownSeconds}s)');
-        return;
-      }
+    // Prevent concurrent auth checks
+    if (_isCheckingAuth) {
+      print('⏭️ Already checking auth, skipping');
+      return;
     }
+    _isCheckingAuth = true;
     
-    final isPinEnabled = await _pinAuthService.isPinEnabled();
-    final isPinSet = await _pinAuthService.isPinSet();
-    
-    if (isPinEnabled && isPinSet) {
-      // Save current route before navigating to PIN entry
-      final router = ref.read(routerProvider);
-      final currentLocation = router.routerDelegate.currentConfiguration.uri.toString();
-      
-      // Don't save PIN entry or splash routes
-      if (!currentLocation.contains('/pin-entry') && 
-          !currentLocation.contains('/splash') &&
-          !currentLocation.contains('/onboarding')) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('last_route', currentLocation);
-        print('💾 Saved current route: $currentLocation');
+    try {
+      // Check if we recently authenticated (within cooldown period)
+      if (_lastAuthTime != null) {
+        final elapsed = DateTime.now().difference(_lastAuthTime!).inSeconds;
+        if (elapsed < _authCooldownSeconds) {
+          print('⏭️ Skipping re-auth, only ${elapsed}s since last auth (cooldown: ${_authCooldownSeconds}s)');
+          return;
+        }
       }
       
-      // Navigate to PIN entry page
-      router.go('/pin-entry');
+      final isPinEnabled = await _pinAuthService.isPinEnabled();
+      final isPinSet = await _pinAuthService.isPinSet();
+      
+      if (isPinEnabled && isPinSet) {
+        // Save current route before navigating to PIN entry
+        final router = ref.read(routerProvider);
+        final currentLocation = router.routerDelegate.currentConfiguration.uri.toString();
+        
+        // Don't save PIN entry or splash routes, and don't redirect if already on PIN entry
+        if (currentLocation.contains('/pin-entry')) {
+          print('⏭️ Already on PIN entry page, skipping redirect');
+          return;
+        }
+        
+        if (!currentLocation.contains('/splash') &&
+            !currentLocation.contains('/onboarding')) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('last_route', currentLocation);
+          print('💾 Saved current route: $currentLocation');
+        }
+        
+        // Navigate to PIN entry page
+        router.go('/pin-entry');
+      }
+    } finally {
+      _isCheckingAuth = false;
     }
   }
 
