@@ -11,6 +11,7 @@ console.log('NODE_ENV:', process.env.NODE_ENV || 'development');
 // Create a basic server FIRST to pass healthcheck
 let app = null;
 let serverReady = false;
+let lastError = null;
 
 const server = http.createServer((req, res) => {
   // Health check - always respond
@@ -20,7 +21,22 @@ const server = http.createServer((req, res) => {
       status: 'OK',
       timestamp: new Date().toISOString(),
       ready: serverReady,
-      message: serverReady ? 'Crypto Wallet API is running' : 'Server starting...'
+      message: serverReady ? 'Crypto Wallet API is running' : 'Server starting...',
+      error: lastError
+    }));
+    return;
+  }
+
+  // Status endpoint to check errors
+  if (req.url === '/status' || req.url === '/status/') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      ready: serverReady,
+      error: lastError,
+      env: {
+        NODE_ENV: process.env.NODE_ENV || 'not set',
+        PORT: PORT
+      }
     }));
     return;
   }
@@ -100,6 +116,7 @@ async function loadApp() {
   } catch (error) {
     console.error('Failed to load app:', error.message);
     console.error(error.stack);
+    lastError = error.message + ' | ' + (error.stack || '').split('\n').slice(0, 3).join(' ');
     // Keep server running for healthcheck, but not ready
     serverReady = false;
   }
