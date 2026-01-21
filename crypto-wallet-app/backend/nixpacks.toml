@@ -5,7 +5,7 @@ providers = ["node"]
 nixPkgs = ["nodejs-20_x"]
 
 [phases.install]
-cmds = ["npm install"]
+cmds = ["npm ci --include=prod"]
 
 [start]
 cmd = "node server.js"

@@ -11,7 +11,7 @@ RUN cargo build --release
 FROM node:20-slim
 WORKDIR /usr/src/app
 COPY package*.json ./
-RUN npm install --production
+RUN npm ci --only=production
 COPY . .
 ## Copy Rust binary
 COPY --from=builder /usr/src/app/rust/target/release/crypto_wallet_cli /usr/src/app/rust/target/release/crypto_wallet_cli
