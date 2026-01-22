@@ -1,5 +1,6 @@
 # Railway deployment config - Node.js backend ONLY
 # Explicitly disable Rust detection
+# Cache bust: v2 - 2026-01-22
 providers = ["node"]
 
 [phases.setup]
@@ -8,14 +9,14 @@ aptPkgs = []
 
 [phases.install]
 dependsOn = ["setup"]
-cmds = ["cd crypto-wallet-app/backend && npm ci --legacy-peer-deps || npm install --legacy-peer-deps"]
+cmds = ["rm -rf node_modules package-lock.json && npm install --legacy-peer-deps"]
 
 [phases.build]
 dependsOn = ["install"]
-cmds = ["echo 'Build complete'"]
+cmds = ["echo 'Build complete - v2'"]
 
 [start]
-cmd = "node server.js"
+cmd = "node crypto-wallet-app/backend/server.js"
 
 [variables]
 NODE_ENV = "production"
