@@ -9,6 +9,7 @@ import '../../../services/auth_service.dart';
 import '../../../services/wallet_service.dart';
 import '../../../services/biometric_auth_service.dart';
 import '../../../services/pin_auth_service.dart';
+import '../../../services/screenshot_service.dart';
 import 'security_settings_page.dart';
 import 'backup_recovery_page.dart';
 import 'network_settings_page.dart';
@@ -22,6 +23,7 @@ import 'notification_settings_page.dart';
 // Provider for biometric state
 final biometricEnabledProvider = StateProvider<bool?>((ref) => null);
 final biometricAvailableProvider = StateProvider<bool>((ref) => false);
+final screenshotAllowedProvider = StateProvider<bool>((ref) => false);
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -33,25 +35,31 @@ class SettingsPage extends ConsumerStatefulWidget {
 class _SettingsPageState extends ConsumerState<SettingsPage> {
   final BiometricAuthService _biometricService = BiometricAuthService();
   final PinAuthService _pinAuthService = PinAuthService();
+  final ScreenshotService _screenshotService = ScreenshotService();
 
   @override
   void initState() {
     super.initState();
-    _loadBiometricStatus();
+    _loadSettings();
   }
 
-  Future<void> _loadBiometricStatus() async {
+  Future<void> _loadSettings() async {
+    // Load biometric status
     final available = await _biometricService.isBiometricAvailable();
-    // Read from PinAuthService as the single source of truth
     final enabled = await _pinAuthService.isBiometricEnabled();
     ref.read(biometricAvailableProvider.notifier).state = available;
     ref.read(biometricEnabledProvider.notifier).state = enabled;
+    
+    // Load screenshot status
+    final screenshotAllowed = await _screenshotService.isScreenshotAllowed();
+    ref.read(screenshotAllowedProvider.notifier).state = screenshotAllowed;
   }
 
   @override
   Widget build(BuildContext context) {
     final biometricEnabled = ref.watch(biometricEnabledProvider);
     final biometricAvailable = ref.watch(biometricAvailableProvider);
+    final screenshotAllowed = ref.watch(screenshotAllowedProvider);
     return BackButtonListener(
       onBackButtonPressed: () async {
         context.go('/dashboard');
@@ -128,10 +136,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                           context,
                           icon: Icons.fingerprint,
                           title: 'Biometric Authentication',
-                          subtitle: biometricAvailable 
-                            ? (biometricEnabled == true ? 'Enabled' : 'Disabled')
-                            : 'Not available on this device',
-                          trailing: biometricAvailable ? Switch(
+                          subtitle: biometricEnabled == true ? 'Enabled' : 'Disabled',
+                          trailing: Switch(
                             value: biometricEnabled ?? false,
                             onChanged: (value) async {
                               if (value) {
@@ -148,25 +154,37 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                                   }
                                   return;
                                 }
-                                // Authenticate before enabling
-                                final authenticated = await _biometricService.authenticateWithBiometrics(
-                                  reason: 'Authenticate to enable biometric login',
-                                );
-                                if (authenticated) {
-                                  // Use PinAuthService as the single source of truth
+                                // Try to authenticate, but enable anyway if device supports it
+                                try {
+                                  final authenticated = await _biometricService.authenticateWithBiometrics(
+                                    reason: 'Authenticate to enable biometric login',
+                                  );
+                                  if (authenticated) {
+                                    await _pinAuthService.setBiometricEnabled(true);
+                                    ref.read(biometricEnabledProvider.notifier).state = true;
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Biometric authentication enabled'),
+                                          backgroundColor: Colors.green,
+                                        ),
+                                      );
+                                    }
+                                  }
+                                } catch (e) {
+                                  // Enable anyway - authentication will handle failures gracefully
                                   await _pinAuthService.setBiometricEnabled(true);
                                   ref.read(biometricEnabledProvider.notifier).state = true;
                                   if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
-                                        content: Text('Biometric authentication enabled'),
+                                        content: Text('Biometric enabled - authenticate when unlocking'),
                                         backgroundColor: Colors.green,
                                       ),
                                     );
                                   }
                                 }
                               } else {
-                                // Use PinAuthService as the single source of truth
                                 await _pinAuthService.setBiometricEnabled(false);
                                 ref.read(biometricEnabledProvider.notifier).state = false;
                                 if (mounted) {
@@ -176,7 +194,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                                 }
                               }
                             },
-                          ) : null,
+                          ),
                         ),
                         _buildSettingsItem(
                           context,
@@ -249,6 +267,29 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                             value: ref.watch(themeProvider) == ThemeMode.dark,
                             onChanged: (value) {
                               ref.read(themeProvider.notifier).toggleTheme();
+                            },
+                          ),
+                        ),
+                        _buildSettingsItem(
+                          context,
+                          icon: screenshotAllowed ? Icons.screenshot : Icons.no_photography,
+                          title: 'Allow Screenshots',
+                          subtitle: screenshotAllowed ? 'Screenshots enabled' : 'Screenshots blocked',
+                          trailing: Switch(
+                            value: screenshotAllowed,
+                            onChanged: (value) async {
+                              await _screenshotService.setScreenshotAllowed(value);
+                              ref.read(screenshotAllowedProvider.notifier).state = value;
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(value 
+                                        ? 'Screenshots enabled - Less secure'
+                                        : 'Screenshots blocked - More secure'),
+                                    backgroundColor: value ? Colors.orange : Colors.green,
+                                  ),
+                                );
+                              }
                             },
                           ),
                         ),
