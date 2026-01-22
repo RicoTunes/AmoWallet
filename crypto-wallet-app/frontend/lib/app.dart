@@ -20,9 +20,10 @@ class _CryptoWalletProAppState extends ConsumerState<CryptoWalletProApp> with Wi
   bool _isAppInBackground = false;
   DateTime? _lastAuthTime;
   bool _isCheckingAuth = false; // Prevent multiple concurrent auth checks
+  bool _justAuthenticated = false; // Prevent immediate re-lock after auth
   
   // Minimum time (in seconds) before requiring re-authentication
-  static const int _authCooldownSeconds = 60;
+  static const int _authCooldownSeconds = 120; // 2 minutes cooldown
   
   @override
   void initState() {
@@ -68,6 +69,13 @@ class _CryptoWalletProAppState extends ConsumerState<CryptoWalletProApp> with Wi
     _isCheckingAuth = true;
     
     try {
+      // Reload last auth time from storage (may have been updated by PIN entry page)
+      final prefs = await SharedPreferences.getInstance();
+      final timestamp = prefs.getInt('last_auth_time');
+      if (timestamp != null) {
+        _lastAuthTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
+      }
+      
       // Check if we recently authenticated (within cooldown period)
       if (_lastAuthTime != null) {
         final elapsed = DateTime.now().difference(_lastAuthTime!).inSeconds;
@@ -93,7 +101,6 @@ class _CryptoWalletProAppState extends ConsumerState<CryptoWalletProApp> with Wi
         
         if (!currentLocation.contains('/splash') &&
             !currentLocation.contains('/onboarding')) {
-          final prefs = await SharedPreferences.getInstance();
           await prefs.setString('last_route', currentLocation);
           print('💾 Saved current route: $currentLocation');
         }

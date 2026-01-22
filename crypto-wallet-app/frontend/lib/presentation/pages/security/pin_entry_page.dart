@@ -97,10 +97,20 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
       if (success && mounted) {
         print('✅ Biometric auth success - returning to: $_returnRoute');
         
+        // Save auth time FIRST before any navigation
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setInt('last_auth_time', DateTime.now().millisecondsSinceEpoch);
+        final authTime = DateTime.now().millisecondsSinceEpoch;
+        await prefs.setInt('last_auth_time', authTime);
+        print('💾 Saved auth time: $authTime');
         
-        context.go(_returnRoute ?? '/dashboard');
+        // Small delay to ensure auth time is saved before navigation
+        await Future.delayed(const Duration(milliseconds: 100));
+        
+        if (mounted) {
+          final targetRoute = _returnRoute ?? '/dashboard';
+          print('🚀 Navigating to: $targetRoute');
+          context.go(targetRoute);
+        }
       } else {
         print('❌ Biometric auth failed or cancelled - please enter PIN');
         if (mounted) {
