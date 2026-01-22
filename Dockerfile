@@ -1,4 +1,5 @@
 # AmoWallet Backend - Node.js Only
+# Cache bust: v3 - 2026-01-22
 FROM node:20-alpine
 
 # Set working directory
@@ -7,11 +8,14 @@ WORKDIR /app
 # Copy package files from backend
 COPY crypto-wallet-app/backend/package*.json ./
 
-# Install dependencies
-RUN npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+# Install dependencies - force fresh install
+RUN rm -rf node_modules && npm install --legacy-peer-deps
 
 # Copy backend source code
 COPY crypto-wallet-app/backend/ ./
+
+# Verify the fix is applied (will show in build logs)
+RUN head -15 src/routes/blockchainRoutes.js
 
 # Set environment variables
 ENV NODE_ENV=production
