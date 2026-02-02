@@ -507,6 +507,71 @@ class _WalletCreatePageState extends ConsumerState<WalletCreatePage> {
           ElevatedButton(
             onPressed: _isBackedUp
                   ? () async {
+                      // Show loading dialog
+                      showDialog(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (context) => WillPopScope(
+                          onWillPop: () async => false,
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.all(32),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  SizedBox(
+                                    width: 60,
+                                    height: 60,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 4,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Theme.of(context).colorScheme.primary,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 24),
+                                  Text(
+                                    'Creating Your Wallet',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: Theme.of(context).colorScheme.onSurface,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    'Generating keys for all blockchains...',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.grey[600],
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 24),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(4),
+                                    child: LinearProgressIndicator(
+                                      minHeight: 4,
+                                      backgroundColor: Colors.grey[300],
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Theme.of(context).colorScheme.primary,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+
+                      // Ensure dialog is visible for at least 500ms
+                      await Future.delayed(const Duration(milliseconds: 500));
+
                       // Generate wallets for all supported chains from the same mnemonic
                       final svc = WalletService();
                       final authService = AuthService();
@@ -547,6 +612,8 @@ class _WalletCreatePageState extends ConsumerState<WalletCreatePage> {
                         
                         // After async work, ensure widget is still mounted before navigation
                         if (!mounted) return;
+                        // Dismiss loading dialog
+                        Navigator.pop(context);
                         // Navigate to dashboard after success
                         context.go('/dashboard');
                       } catch (e) {

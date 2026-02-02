@@ -86,6 +86,23 @@ class BlockchainService {
           return await _getRippleBalance(address);
         case 'SOL':
           return await _getSolanaBalance(address);
+        case 'USDT':
+          // USDT is a token - check all networks where it might exist
+          // Try ERC20 first (most common)
+          double usdtBalance = 0.0;
+          try {
+            usdtBalance = await _getTokenBalance('USDT', address, 'ethereum');
+            if (usdtBalance > 0) return usdtBalance;
+          } catch (_) {}
+          try {
+            usdtBalance = await _getTokenBalance('USDT', address, 'bsc');
+            if (usdtBalance > 0) return usdtBalance;
+          } catch (_) {}
+          try {
+            usdtBalance = await _getTokenBalance('USDT', address, 'tron');
+            if (usdtBalance > 0) return usdtBalance;
+          } catch (_) {}
+          return usdtBalance;
         default:
           return 0.0;
       }
@@ -139,100 +156,254 @@ class BlockchainService {
     }
   }
 
-  /// Get Bitcoin balance
+  /// Get Bitcoin balance with multiple fallback APIs for reliability
   Future<double> _getBitcoinBalance(String address) async {
+    print('🔍 Fetching BTC balance for: $address');
+    
+    // Validate BTC address format
+    if (address.isEmpty) {
+      print('❌ Empty BTC address');
+      return 0.0;
+    }
+    
+    // Method 1: Try Blockstream API directly (fastest, most reliable)
     try {
-      // Use backend API instead of Blockstream
-      final response = await _dio
-          .get('${ApiConfig.baseUrl}/api/blockchain/balance/BTC/$address');
+      final blockstreamUrl = 'https://blockstream.info/api/address/$address';
+      print('📡 Trying Blockstream: $blockstreamUrl');
+      
+      final response = await _dio.get(
+        blockstreamUrl,
+        options: Options(
+          receiveTimeout: const Duration(seconds: 8),
+          headers: {'Accept': 'application/json'},
+        ),
+      );
+      
+      if (response.data != null) {
+        final data = response.data;
+        // Blockstream returns balance in satoshis in chain_stats and mempool_stats
+        final chainStats = data['chain_stats'] ?? {};
+        final mempoolStats = data['mempool_stats'] ?? {};
+        
+        final funded = (chainStats['funded_txo_sum'] ?? 0) as int;
+        final spent = (chainStats['spent_txo_sum'] ?? 0) as int;
+        final mempoolFunded = (mempoolStats['funded_txo_sum'] ?? 0) as int;
+        final mempoolSpent = (mempoolStats['spent_txo_sum'] ?? 0) as int;
+        
+        final totalSatoshis = (funded - spent) + (mempoolFunded - mempoolSpent);
+        final balance = totalSatoshis / 100000000.0; // Convert satoshis to BTC
+        
+        print('✅ BTC balance from Blockstream: $balance BTC ($totalSatoshis sats)');
+        return balance;
+      }
+    } catch (e) {
+      print('⚠️ Blockstream failed: $e');
+    }
+    
+    // Method 2: Try Mempool.space API
+    try {
+      final mempoolUrl = 'https://mempool.space/api/address/$address';
+      print('📡 Trying Mempool.space: $mempoolUrl');
+      
+      final response = await _dio.get(
+        mempoolUrl,
+        options: Options(receiveTimeout: const Duration(seconds: 8)),
+      );
+      
+      if (response.data != null) {
+        final data = response.data;
+        final chainStats = data['chain_stats'] ?? {};
+        final mempoolStats = data['mempool_stats'] ?? {};
+        
+        final funded = (chainStats['funded_txo_sum'] ?? 0) as int;
+        final spent = (chainStats['spent_txo_sum'] ?? 0) as int;
+        final mempoolFunded = (mempoolStats['funded_txo_sum'] ?? 0) as int;
+        final mempoolSpent = (mempoolStats['spent_txo_sum'] ?? 0) as int;
+        
+        final totalSatoshis = (funded - spent) + (mempoolFunded - mempoolSpent);
+        final balance = totalSatoshis / 100000000.0;
+        
+        print('✅ BTC balance from Mempool.space: $balance BTC');
+        return balance;
+      }
+    } catch (e) {
+      print('⚠️ Mempool.space failed: $e');
+    }
+    
+    // Method 3: Try BlockCypher API
+    try {
+      final blockcypherUrl = 'https://api.blockcypher.com/v1/btc/main/addrs/$address/balance';
+      print('📡 Trying BlockCypher: $blockcypherUrl');
+      
+      final response = await _dio.get(
+        blockcypherUrl,
+        options: Options(receiveTimeout: const Duration(seconds: 8)),
+      );
+      
+      if (response.data != null) {
+        final data = response.data;
+        final balanceSat = (data['balance'] ?? 0) as int;
+        final unconfirmedSat = (data['unconfirmed_balance'] ?? 0) as int;
+        final totalSatoshis = balanceSat + unconfirmedSat;
+        final balance = totalSatoshis / 100000000.0;
+        
+        print('✅ BTC balance from BlockCypher: $balance BTC');
+        return balance;
+      }
+    } catch (e) {
+      print('⚠️ BlockCypher failed: $e');
+    }
+    
+    // Method 4: Try backend API as last resort
+    try {
+      final response = await _dio.get(
+        '${ApiConfig.baseUrl}/api/blockchain/balance/BTC/$address',
+        options: Options(receiveTimeout: const Duration(seconds: 8)),
+      );
       final data = response.data;
 
       if (data is Map && data['success'] == true) {
-        final balance =
-            double.tryParse(data['balance']?.toString() ?? '0') ?? 0.0;
+        final balance = double.tryParse(data['balance']?.toString() ?? '0') ?? 0.0;
+        print('✅ BTC balance from backend: $balance BTC');
         return balance;
       }
-
-      return 0.0;
     } catch (e) {
-      print('Error fetching Bitcoin balance: $e');
-      return 0.0;
+      print('⚠️ Backend API failed: $e');
     }
+
+    print('❌ All BTC balance APIs failed for $address');
+    return 0.0;
   }
 
-  /// Get Ethereum balance
+  /// Get Ethereum balance with robust multi-API fallback
   Future<double> _getEthereumBalance(String address) async {
+    print('🔄 Fetching ETH balance for: $address');
+    
+    // Format address properly (0x prefix, lowercase)
+    final addr = _formatEthereumAddress(address);
+    print('📍 Formatted address: $addr');
+    
+    // Method 1: Use Infura JSON-RPC (fastest, most reliable)
     try {
-      // Try multiple APIs for reliability
+      final infuraResponse = await _dio.post(
+        'https://mainnet.infura.io/v3/ecba451c1c7d4a659088b8a182b559f3',
+        data: {
+          'jsonrpc': '2.0',
+          'method': 'eth_getBalance',
+          'params': [addr, 'latest'],
+          'id': 1,
+        },
+        options: Options(receiveTimeout: const Duration(seconds: 6)),
+      );
 
-      // Method 1: Use Infura JSON-RPC
-      try {
-        final infuraResponse = await _dio.post(
-          'https://mainnet.infura.io/v3/ecba451c1c7d4a659088b8a182b559f3',
-          data: {
-            'jsonrpc': '2.0',
-            'method': 'eth_getBalance',
-            'params': [address, 'latest'],
-            'id': 1,
-          },
-        );
-
-        if (infuraResponse.data != null &&
-            infuraResponse.data['result'] != null) {
-          final hexBalance = infuraResponse.data['result'] as String;
+      print('📡 Infura response: ${infuraResponse.statusCode} - ${infuraResponse.data}');
+      
+      if (infuraResponse.data != null &&
+          infuraResponse.data['result'] != null) {
+        final hexBalance = infuraResponse.data['result'] as String;
+        print('📊 Hex balance: $hexBalance');
+        if (hexBalance.length > 2) {
           final balanceWei = BigInt.parse(hexBalance.substring(2), radix: 16);
           final balanceEth = balanceWei.toDouble() / 1e18;
           print('✅ ETH balance from Infura: $balanceEth');
           return balanceEth;
         }
-      } catch (e) {
-        print('Infura failed, trying Etherscan: $e');
+      } else if (infuraResponse.data != null && infuraResponse.data['error'] != null) {
+        print('⚠️ Infura error: ${infuraResponse.data['error']}');
       }
+    } catch (e) {
+      print('⚠️ Infura failed: $e');
+    }
 
-      // Method 2: Use Etherscan public API (no key needed for basic queries)
-      try {
-        final response = await _dio.get(
-            'https://api.etherscan.io/api?module=account&action=balance&address=$address&tag=latest');
-        final data = response.data;
+    // Method 2: Use Cloudflare Ethereum Gateway (fast, free)
+    try {
+      final cfResponse = await _dio.post(
+        'https://cloudflare-eth.com',
+        data: {
+          'jsonrpc': '2.0',
+          'method': 'eth_getBalance',
+          'params': [addr, 'latest'],
+          'id': 1,
+        },
+        options: Options(receiveTimeout: const Duration(seconds: 6)),
+      );
 
-        if (data is Map && data['status'] == '1') {
-          final balanceWei = BigInt.parse(data['result']);
-          final balanceEth = balanceWei.toDouble() / 1e18;
-          print('✅ ETH balance from Etherscan: $balanceEth');
-          return balanceEth;
-        }
-      } catch (e) {
-        print('Etherscan failed: $e');
-      }
-
-      // Method 3: Use Cloudflare Ethereum Gateway
-      try {
-        final cfResponse = await _dio.post(
-          'https://cloudflare-eth.com',
-          data: {
-            'jsonrpc': '2.0',
-            'method': 'eth_getBalance',
-            'params': [address, 'latest'],
-            'id': 1,
-          },
-        );
-
-        if (cfResponse.data != null && cfResponse.data['result'] != null) {
-          final hexBalance = cfResponse.data['result'] as String;
+      if (cfResponse.data != null && cfResponse.data['result'] != null) {
+        final hexBalance = cfResponse.data['result'] as String;
+        if (hexBalance.length > 2) {
           final balanceWei = BigInt.parse(hexBalance.substring(2), radix: 16);
           final balanceEth = balanceWei.toDouble() / 1e18;
           print('✅ ETH balance from Cloudflare: $balanceEth');
           return balanceEth;
         }
-      } catch (e) {
-        print('Cloudflare failed: $e');
       }
-
-      return 0.0;
     } catch (e) {
-      print('Error fetching Ethereum balance: $e');
-      return 0.0;
+      print('⚠️ Cloudflare failed: $e');
     }
+
+    // Method 3: Use Etherscan public API
+    try {
+      final response = await _dio.get(
+        'https://api.etherscan.io/api?module=account&action=balance&address=$addr&tag=latest',
+        options: Options(receiveTimeout: const Duration(seconds: 6)),
+      );
+      final data = response.data;
+
+      if (data is Map && data['status'] == '1') {
+        final balanceWei = BigInt.parse(data['result']);
+        final balanceEth = balanceWei.toDouble() / 1e18;
+        print('✅ ETH balance from Etherscan: $balanceEth');
+        return balanceEth;
+      }
+    } catch (e) {
+      print('⚠️ Etherscan failed: $e');
+    }
+
+    // Method 4: Use Alchemy free tier
+    try {
+      final alchemyResponse = await _dio.post(
+        'https://eth-mainnet.g.alchemy.com/v2/demo',
+        data: {
+          'jsonrpc': '2.0',
+          'method': 'eth_getBalance',
+          'params': [addr, 'latest'],
+          'id': 1,
+        },
+        options: Options(receiveTimeout: const Duration(seconds: 6)),
+      );
+
+      if (alchemyResponse.data != null && alchemyResponse.data['result'] != null) {
+        final hexBalance = alchemyResponse.data['result'] as String;
+        if (hexBalance.length > 2) {
+          final balanceWei = BigInt.parse(hexBalance.substring(2), radix: 16);
+          final balanceEth = balanceWei.toDouble() / 1e18;
+          print('✅ ETH balance from Alchemy: $balanceEth');
+          return balanceEth;
+        }
+      }
+    } catch (e) {
+      print('⚠️ Alchemy failed: $e');
+    }
+
+    // Method 5: Try backend API as last resort
+    try {
+      final response = await _dio.get(
+        '${ApiConfig.baseUrl}/api/blockchain/balance/ETH/$addr',
+        options: Options(receiveTimeout: const Duration(seconds: 6)),
+      );
+      final data = response.data;
+
+      if (data is Map && data['success'] == true) {
+        final balance = double.tryParse(data['balance']?.toString() ?? '0') ?? 0.0;
+        print('✅ ETH balance from backend: $balance');
+        return balance;
+      }
+    } catch (e) {
+      print('⚠️ Backend API failed: $e');
+    }
+
+    print('❌ All ETH balance APIs failed for $address');
+    return 0.0;
   }
 
   /// Get ERC20 token balance (USDT, USDC, etc.)
@@ -1372,5 +1543,17 @@ class BlockchainService {
     }
 
     return result;
+  }
+
+  /// Format Ethereum address to proper format (0x prefix, lowercase)
+  String _formatEthereumAddress(String address) {
+    // Remove 0x if present and convert to lowercase
+    String formatted = address.replaceAll('0x', '').toLowerCase();
+    // Ensure it's exactly 40 hex characters
+    if (formatted.length != 40) {
+      print('⚠️ Address has unusual length: ${formatted.length}');
+    }
+    // Add 0x prefix
+    return '0x$formatted';
   }
 }

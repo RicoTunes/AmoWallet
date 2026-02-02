@@ -163,35 +163,93 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
         'XRP',
         'DOGE',
         'LTC',
-        'USDT'
+        'USDT',
+        'TRX',
       ];
-      final prices = await _priceService.getPrices(symbols);
-      final realBalances = await _walletService.getBalances();
+      
+      // OPTIMIZED: Fetch prices, balances, and transactions in PARALLEL
+      print('🚀 Starting parallel data fetch...');
+      final startTime = DateTime.now();
+      
+      final results = await Future.wait([
+        _priceService.getPrices(symbols).timeout(
+          const Duration(seconds: 8),
+          onTimeout: () {
+            print('⏱️ Price fetch timeout - using cached/fallback');
+            return <String, Map<String, dynamic>>{};
+          },
+        ),
+        _walletService.getBalances().timeout(
+          const Duration(seconds: 12),
+          onTimeout: () {
+            print('⏱️ Balance fetch timeout');
+            return <String, double>{};
+          },
+        ),
+        _transactionService.getAllTransactions().timeout(
+          const Duration(seconds: 8),
+          onTimeout: () => <Transaction>[],
+        ),
+      ]);
+      
+      final fetchTime = DateTime.now().difference(startTime).inMilliseconds;
+      print('⚡ Parallel fetch completed in ${fetchTime}ms');
+      
+      final prices = results[0] as Map<String, Map<String, dynamic>>;
+      final realBalances = results[1] as Map<String, double>;
+      final allTx = results[2] as List<Transaction>;
+      
+      print('📈 Loaded prices for ${prices.length} symbols');
+      print('💰 Dashboard loaded balances: $realBalances');
 
       double totalValue = 0.0;
+      
+      // Use fallback prices if API failed
+      final fallbackPrices = {
+        'BTC': 96000.0, 'ETH': 3400.0, 'BNB': 680.0, 'SOL': 200.0,
+        'XRP': 2.50, 'DOGE': 0.35, 'LTC': 120.0, 'USDT': 1.0, 'TRX': 0.25,
+      };
+      
       realBalances.forEach((symbol, balance) {
+        double price = 0.0;
         final coinPrice = prices[symbol];
-        if (coinPrice != null && balance > 0) {
-          totalValue += balance * (coinPrice['price'] as double? ?? 0);
+        if (coinPrice != null && coinPrice['price'] != null) {
+          price = (coinPrice['price'] as double?) ?? 0.0;
+        } else {
+          price = fallbackPrices[symbol] ?? 0.0;
+        }
+        
+        if (balance > 0) {
+          final value = balance * price;
+          totalValue += value;
+          print('💵 $symbol: $balance @ \$${price.toStringAsFixed(2)} = \$${value.toStringAsFixed(2)}');
         }
       });
 
-      final allTx = await _transactionService.getAllTransactions();
-
       if (mounted) {
         setState(() {
-          _priceData = prices;
+          _priceData = prices.isNotEmpty ? prices : _buildFallbackPrices(fallbackPrices);
           _balances = realBalances;
           _totalPortfolioValue = totalValue;
           _recentTransactions = allTx.take(5).toList();
           _isLoading = false;
         });
+        print('✅ Dashboard state updated: ${_balances.length} balances, total \$${totalValue.toStringAsFixed(2)}');
       }
     } catch (e) {
+      print('❌ Dashboard load error: $e');
       if (mounted) {
         setState(() => _isLoading = false);
       }
     }
+  }
+  
+  Map<String, Map<String, dynamic>> _buildFallbackPrices(Map<String, double> prices) {
+    return prices.map((symbol, price) => MapEntry(symbol, {
+      'price': price,
+      'change24h': 0.0,
+      'source': 'Fallback',
+    }));
   }
 
   Future<void> _refreshData() async {
@@ -1587,6 +1645,194 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
       size: 24,
     );
   }
+}
+
+// Animated chart widget for coin detail sheet
+class _AnimatedChartWidget extends StatefulWidget {
+  final Color color;
+  final bool isPositive;
+  final double price;
+  final double change;
+
+  const _AnimatedChartWidget({
+    required this.color,
+    required this.isPositive,
+    required this.price,
+    required this.change,
+  });
+
+  @override
+  State<_AnimatedChartWidget> createState() => _AnimatedChartWidgetState();
+}
+
+class _AnimatedChartWidgetState extends State<_AnimatedChartWidget>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animationController;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 2000),
+      vsync: this,
+    );
+    _animation = Tween<double>(begin: 0, end: 1).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
+    _animationController.forward();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        return CustomPaint(
+          size: const Size(double.infinity, 120),
+          painter: _AnimatedChartPainter(
+            color: widget.color,
+            isPositive: widget.isPositive,
+            animationValue: _animation.value,
+            price: widget.price,
+            change: widget.change,
+          ),
+        );
+      },
+    );
+  }
+}
+
+// Animated chart painter for smooth transitions
+class _AnimatedChartPainter extends CustomPainter {
+  final Color color;
+  final bool isPositive;
+  final double animationValue;
+  final double price;
+  final double change;
+
+  _AnimatedChartPainter({
+    required this.color,
+    required this.isPositive,
+    required this.animationValue,
+    required this.price,
+    required this.change,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    // Generate chart data points based on price and change
+    final random = math.Random(42);
+    final points = <Offset>[];
+    final baseY = size.height * 0.5;
+    final amplitude = size.height * 0.3;
+    final priceVariation = (change / 100.0).clamp(-0.5, 0.5);
+
+    for (int i = 0; i <= 50; i++) {
+      final x = (i / 50) * size.width;
+      double y;
+
+      if (isPositive) {
+        // Upward trend
+        y = baseY -
+            (i / 50) * amplitude * (1 + priceVariation) +
+            random.nextDouble() * 15 -
+            7.5;
+      } else {
+        // Downward trend
+        y = baseY +
+            (i / 50) * amplitude * (1 + priceVariation.abs()) +
+            random.nextDouble() * 15 -
+            7.5;
+      }
+
+      y = y.clamp(10.0, size.height - 10);
+      points.add(Offset(x, y));
+    }
+
+    // Apply animation to points
+    final animatedPoints = points
+        .asMap()
+        .entries
+        .map((entry) {
+          final idx = entry.key;
+          final point = entry.value;
+          final progress = idx / points.length;
+          if (progress <= animationValue) {
+            return point;
+          } else {
+            // Interpolate between starting and ending position
+            final startY = size.height * 0.5;
+            final ratio = (animationValue / progress).clamp(0, 1);
+            return Offset(point.dx, startY + (point.dy - startY) * ratio);
+          }
+        })
+        .toList();
+
+    // Draw the animated line
+    final path = Path();
+    for (int i = 0; i < animatedPoints.length; i++) {
+      if (i == 0) {
+        path.moveTo(animatedPoints[i].dx, animatedPoints[i].dy);
+      } else {
+        final prev = animatedPoints[i - 1];
+        final curr = animatedPoints[i];
+        final controlX = (prev.dx + curr.dx) / 2;
+        path.quadraticBezierTo(controlX, prev.dy, curr.dx, curr.dy);
+      }
+    }
+    canvas.drawPath(path, paint);
+
+    // Draw gradient fill
+    final fillPath = Path.from(path);
+    fillPath.lineTo(size.width, size.height);
+    fillPath.lineTo(0, size.height);
+    fillPath.close();
+
+    final gradient = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        color.withOpacity(0.3 * animationValue),
+        color.withOpacity(0.0),
+      ],
+    );
+
+    final fillPaint = Paint()
+      ..shader =
+          gradient.createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+    canvas.drawPath(fillPath, fillPaint);
+
+    // Draw animated current price dot
+    if (animatedPoints.isNotEmpty) {
+      final lastPoint = animatedPoints.last;
+      final dotPaint = Paint()
+        ..color = color
+        ..style = PaintingStyle.fill;
+
+      canvas.drawCircle(lastPoint, 4 * animationValue, dotPaint);
+
+      final glowPaint = Paint()
+        ..color = color.withOpacity(0.3 * animationValue)
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(lastPoint, 8 * animationValue, glowPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
 // Simple chart painter for coin detail sheet

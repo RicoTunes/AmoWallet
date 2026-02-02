@@ -24,26 +24,29 @@ class ApiConfig {
   static const Duration receiveTimeout = Duration(seconds: 30);
   static const Duration sendTimeout = Duration(seconds: 30);
   
-  /// HTTPS Certificate fingerprints for certificate pinning
-  /// Generate fingerprint using:
-  /// openssl x509 -in cert.pem -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
+  /// HTTPS Certificate fingerprints for certificate pinning (SHA-256)
+  /// Railway uses Let's Encrypt certificates - these are the ISRG Root X1 fingerprints
+  /// Generate fingerprint: openssl x509 -in cert.pem -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
   static const Map<String, List<String>> certificateFingerprints = {
-    // Development (self-signed certificate)
-    'localhost:3000': [
-      'YOUR_DEV_CERTIFICATE_FINGERPRINT_HERE',
-    ],
+    // Development - disabled pinning for local testing
+    'localhost:3000': [],
     
-    // Production (Let's Encrypt certificate)
-    'api.yourdomain.com': [
-      'YOUR_PROD_CERTIFICATE_FINGERPRINT_HERE',
-      // Include backup fingerprint for certificate rotation
-      'YOUR_BACKUP_CERTIFICATE_FINGERPRINT_HERE',
+    // Railway Production - Let's Encrypt ISRG Root X1 and X2 fingerprints
+    'amowallet-backend-production.up.railway.app': [
+      // ISRG Root X1 (primary)
+      'C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=',
+      // ISRG Root X2 (backup - ECDSA)
+      'diGVwiVYbubAI3RW4hB9xU8e/CH2GnkuvVFZE8zmgzI=',
+      // Let's Encrypt E1 intermediate
+      'J2/oqMTsdhFWW/n85tys6b4yDBtb6idZayIEBx7QTxA=',
+      // Let's Encrypt R3 intermediate (backup)
+      'jQJTbIh0grw0/1TkHSumWb+Fs0Ggogr621gT3PvPKG0=',
     ],
   };
   
   /// Enable/disable certificate pinning
-  /// IMPORTANT: Only enable when you have valid fingerprints configured
-  static const bool enableCertificatePinning = false;
+  /// ENABLED for production beta - validates SSL certificates against known fingerprints
+  static const bool enableCertificatePinning = true;
   
   /// Get full URL for an endpoint
   static String getUrl(String endpoint) {

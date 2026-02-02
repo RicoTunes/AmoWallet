@@ -4,6 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 import 'services/confirmation_tracker_service.dart';
+import 'services/anti_debug_service.dart';
+import 'services/hsm_security_service.dart';
+import 'services/remote_wipe_service.dart';
+import 'services/behavioral_biometrics_service.dart';
 import 'core/config/environment.dart';
 import 'core/services/security_service.dart';
 
@@ -12,6 +16,35 @@ void main() async {
   
   // MILITARY-GRADE: Set environment to production (uses Railway backend with HTTPS)
   EnvironmentConfig.setEnvironment(Environment.production);
+  
+  // MILITARY-GRADE: Initialize HSM security (hardware-backed encryption)
+  final hsmService = HsmSecurityService();
+  final hsmStatus = await hsmService.initialize();
+  debugPrint('🔐 HSM Status: ${hsmStatus.name}');
+  
+  // MILITARY-GRADE: Initialize remote wipe capability
+  final remoteWipe = RemoteWipeService();
+  await remoteWipe.initialize();
+  await remoteWipe.enableRemoteWipe();
+  debugPrint('🗑️ Remote wipe enabled');
+  
+  // MILITARY-GRADE: Initialize behavioral biometrics
+  final behavioralBiometrics = BehavioralBiometricsService();
+  await behavioralBiometrics.initialize();
+  await behavioralBiometrics.enable();
+  debugPrint('🧬 Behavioral biometrics enabled');
+  
+  // MILITARY-GRADE: Anti-debugging detection (release builds only)
+  if (!kDebugMode) {
+    final antiDebug = AntiDebugService();
+    final isSecure = await antiDebug.isEnvironmentSecure();
+    
+    if (!isSecure) {
+      debugPrint('🚨 Anti-debug: Compromised environment detected!');
+      // In production, you might want to show a warning or exit
+      // antiDebug.handleCompromisedEnvironment(exitApp: true);
+    }
+  }
   
   // MILITARY-GRADE: Security checks (non-blocking in release)
   if (!kDebugMode) {

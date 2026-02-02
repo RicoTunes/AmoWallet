@@ -8,6 +8,7 @@ import 'dart:typed_data';
 
 import '../../../services/wallet_service.dart';
 import '../../../services/blockchain_service.dart';
+import '../../../services/secure_clipboard_service.dart';
 
 class ReceivePageEnhanced extends ConsumerStatefulWidget {
   final String? initialCoin;
@@ -350,7 +351,27 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
   Future<void> _copyAddress() async {
     if (_address == null) return;
     
-    await Clipboard.setData(ClipboardData(text: _address!));
+    // Use secure clipboard with auto-clear after 60 seconds
+    await SecureClipboardService().copyAddress(_address!, onCleared: () {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.security, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                const Text('Clipboard auto-cleared for security'),
+              ],
+            ),
+            backgroundColor: Colors.grey[700],
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            margin: const EdgeInsets.all(16),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    });
     HapticFeedback.mediumImpact();
     
     setState(() => _copied = true);
@@ -361,7 +382,7 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
           children: [
             Icon(Icons.check_circle, color: Colors.white, size: 20),
             const SizedBox(width: 8),
-            const Text('Address copied to clipboard'),
+            const Text('Address copied (auto-clears in 60s)'),
           ],
         ),
         backgroundColor: _currentHeaderColor,
@@ -384,12 +405,13 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
     final coinData = _getCoinData(_selectedCoin);
     final shareText = 'My ${coinData.name} (${_selectedCoin.split('-').first}) address:\n$_address';
     
-    await Clipboard.setData(ClipboardData(text: shareText));
+    // Use secure clipboard with auto-clear
+    await SecureClipboardService().copyWithAutoClear(shareText);
     HapticFeedback.mediumImpact();
     
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text('Address ready to share'),
+        content: const Text('Address ready to share (auto-clears in 60s)'),
         backgroundColor: _currentHeaderColor,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),

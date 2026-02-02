@@ -7,6 +7,7 @@ import 'dart:math';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/providers/fake_wallet_provider.dart';
 import '../../../services/wallet_service.dart';
 import '../../../services/transaction_service.dart';
 import '../../../services/blockchain_service.dart';
@@ -17,6 +18,7 @@ import '../../../services/spending_limit_service.dart';
 import '../../../services/confirmation_tracker_service.dart';
 import '../../../services/qr_scanner_service.dart';
 import '../../../utils/input_validator.dart';
+import '../wallet/fake_send_page.dart';
 
 class SendPageEnhanced extends ConsumerStatefulWidget {
   const SendPageEnhanced({super.key, this.initialCoin, this.initialAddress});
@@ -122,8 +124,58 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
       curve: Curves.easeInOut,
     ));
 
+    // Load current coin balance first, then preload others in background
     _loadBalance();
     _loadCryptoPrice();
+    _preloadAllBalancesInBackground();
+  }
+
+  /// Preload balances for all coins in parallel for instant switching
+  Future<void> _preloadAllBalancesInBackground() async {
+    // Load balances for all coins in parallel (except current one)
+    final futures = <Future<void>>[];
+    for (final coin in _coins) {
+      if (coin.symbol != _selectedCoin && !_cachedBalances.containsKey(coin.symbol)) {
+        futures.add(_loadBalanceForCoin(coin.symbol));
+      }
+    }
+    // Run all in parallel - don't await, this is background loading
+    Future.wait(futures).catchError((e) {
+      print('⚠️ Background balance preload error: $e');
+    });
+  }
+
+  /// Load balance for a specific coin (for background preloading)
+  Future<void> _loadBalanceForCoin(String coin) async {
+    try {
+      // Use wallet service for consistency with dashboard
+      final allBalances = await _walletService.getBalances();
+      final balance = allBalances[coin] ?? 0.0;
+      final fee = await _blockchainService.getFeeEstimate(coin).catchError((_) => _getDefaultFee(coin));
+      _cachedBalances[coin] = balance;
+      _cachedFees[coin] = fee;
+      print('✅ Preloaded $coin balance: $balance');
+    } catch (e) {
+      print('⚠️ Failed to preload $coin balance: $e');
+      _cachedBalances[coin] = 0.0;
+      _cachedFees[coin] = _getDefaultFee(coin);
+    }
+  }
+
+  /// Get default fee for a coin
+  double _getDefaultFee(String coin) {
+    switch (coin) {
+      case 'BTC':
+        return 0.0001;
+      case 'ETH':
+      case 'BNB':
+        return 0.001;
+      case 'USDT-ERC20':
+      case 'USDT-BEP20':
+        return 0.005;
+      default:
+        return 0.001;
+    }
   }
 
   @override
@@ -184,31 +236,22 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
     }
 
     try {
-      final addresses = await _walletService.getStoredAddresses(_selectedCoin);
-      if (addresses.isNotEmpty) {
-        _myAddress = addresses.first;
-        final balance =
-            await _blockchainService.getBalance(_selectedCoin, _myAddress!);
-        final fee = await _calculateRealFee();
+      // Use wallet service to get all balances consistently with dashboard
+      final allBalances = await _walletService.getBalances();
+      final balance = allBalances[_selectedCoin] ?? 0.0;
+      final fee = await _calculateRealFee();
 
-        setState(() {
-          _availableBalance = balance;
-          _fee = fee;
-          _cachedBalances[_selectedCoin] = balance;
-          _cachedFees[_selectedCoin] = fee;
-          _balanceLoaded = true;
-        });
-      } else {
-        final fee = await _calculateRealFee();
-        setState(() {
-          _availableBalance = 0.0;
-          _fee = fee;
-          _cachedBalances[_selectedCoin] = 0.0;
-          _cachedFees[_selectedCoin] = fee;
-          _balanceLoaded = true;
-        });
-      }
+      setState(() {
+        _availableBalance = balance;
+        _fee = fee;
+        _cachedBalances[_selectedCoin] = balance;
+        _cachedFees[_selectedCoin] = fee;
+        _balanceLoaded = true;
+      });
+      
+      print('📊 Send page loaded balance for $_selectedCoin: $balance');
     } catch (e) {
+      print('❌ Error loading balance: $e');
       final fee = await _calculateRealFee();
       setState(() {
         _availableBalance = 0.0;
@@ -328,7 +371,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
     }
   }
 
-  void _onContinuePressed() {
+  Future<void> _onContinuePressed() async {
     if (!_isFormValid) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -339,6 +382,43 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
       return;
     }
 
+    // Check if PIN is set - REQUIRED for transactions
+    final pinIsSet = await _pinAuthService.isPinSet();
+    
+    if (!pinIsSet) {
+      // PIN not set - show dialog to set PIN first
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: const Text('Security Required'),
+            content: const Text(
+              'You must set up a PIN to send transactions. This adds an extra layer of security to your wallet.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  // Navigate to settings to set PIN
+                  if (mounted) {
+                    Navigator.pushNamed(context, '/settings/security');
+                  }
+                },
+                child: const Text('Set PIN Now'),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
+
+    // PIN is set - show PIN entry
     setState(() {
       _showPinEntry = true;
       _enteredPin = '';
@@ -368,7 +448,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
   }
 
   Future<void> _verifyPin() async {
-    final isValid = await _pinAuthService.verifyPin(_enteredPin);
+    final isValid = await _pinAuthService.verifyPin(_enteredPin, ref: ref);
 
     if (isValid) {
       HapticFeedback.mediumImpact();
@@ -377,16 +457,31 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
         _showSlideToSend = true;
       });
     } else {
-      HapticFeedback.heavyImpact();
-      setState(() {
-        _enteredPin = '';
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Invalid PIN. Please try again.'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      // Check if fake wallet was activated (duress PIN)
+      final fakeWalletState = ref.read(fakeWalletProvider);
+      if (fakeWalletState.isActive && fakeWalletState.isDuressMode) {
+        print('🎭 Fake wallet activated - showing decoy send page');
+        HapticFeedback.mediumImpact();
+        
+        // Navigate to fake send page
+        if (mounted) {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const FakeSendPage()),
+          );
+        }
+      } else {
+        // Regular invalid PIN
+        HapticFeedback.heavyImpact();
+        setState(() {
+          _enteredPin = '';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Invalid PIN. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -1781,16 +1876,16 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
 
             // Number Pad - Fixed size to prevent overflow
             SizedBox(
-              height: 260,
+              height: 220,
               child: GridView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 24),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 3,
-                  childAspectRatio: 1.5,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 8,
+                  childAspectRatio: 1.2,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 6,
                 ),
                 itemCount: 12,
                 itemBuilder: (context, index) {
@@ -1828,7 +1923,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
           child: Text(
             digit,
             style: TextStyle(
-              fontSize: 26,
+              fontSize: 22,
               fontWeight: FontWeight.w600,
               color: Colors.grey[800],
             ),

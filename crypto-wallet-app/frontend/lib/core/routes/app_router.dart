@@ -8,16 +8,19 @@ import '../../presentation/pages/wallet/wallet_create_page.dart';
 import '../../presentation/pages/wallet/wallet_import_page.dart';
 import '../../presentation/pages/dashboard/dashboard_page.dart';
 import '../../presentation/pages/dashboard/dashboard_page_enhanced.dart';
+import '../../presentation/pages/dashboard/fake_dashboard_page.dart';
 import '../../presentation/pages/portfolio/portfolio_page.dart';
 import '../../presentation/pages/portfolio/coin_list_page.dart';
 // import '../../presentation/pages/trading/spot_trading_page.dart';
 import '../../presentation/pages/settings/settings_page.dart';
+import '../../presentation/pages/settings/advanced_security_page.dart';
 import '../../presentation/pages/wallet/receive_page.dart';
 import '../../presentation/pages/wallet/receive_page_v2.dart';
 import '../../presentation/pages/wallet/receive_page_enhanced.dart';
 import '../../presentation/pages/wallet/send_page.dart';
 import '../../presentation/pages/wallet/send_page_enhanced.dart';
 import '../../presentation/pages/wallet/send_page_v2.dart';
+import '../../presentation/pages/wallet/fake_send_page.dart';
 import '../../presentation/pages/transactions/transactions_page.dart';
 import '../../presentation/pages/transactions/transactions_page_enhanced.dart';
 import '../../presentation/pages/swap/swap_page.dart';
@@ -225,6 +228,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const NotificationSettingsPage(),
       ),
       GoRoute(
+        path: '/advanced-security',
+        name: 'advanced_security',
+        builder: (context, state) => const AdvancedSecurityPage(),
+      ),
+      GoRoute(
         path: '/price-chart',
         name: 'price_chart',
         builder: (context, state) {
@@ -236,6 +244,13 @@ final routerProvider = Provider<GoRouter>((ref) {
             priceChange24h: extra?['change'] ?? 0.0,
           );
         },
+      ),
+      
+      // Fake Wallet Pages (Decoy for Duress PIN)
+      GoRoute(
+        path: '/fake-dashboard',
+        name: 'fake_dashboard',
+        builder: (context, state) => FakeDashboardPage(),
       ),
     ],
 

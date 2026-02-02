@@ -5,189 +5,226 @@ import 'package:go_router/go_router.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 
-class OnboardingPage extends ConsumerWidget {
+class OnboardingPage extends ConsumerStatefulWidget {
   const OnboardingPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(AppConstants.defaultPadding),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Replaced Spacer(flex: 2) with SizedBox
-                const SizedBox(height: 40),
+  ConsumerState<OnboardingPage> createState() => _OnboardingPageState();
+}
 
-                // App Logo and Title
-                Center(
-                  child: Column(
-                    children: [
-                      Container(
-                        width: 80,
-                        height: 80,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [
-                              AppTheme.primaryColor,
-                              AppTheme.secondaryColor,
-                            ],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Icon(
-                          Icons.account_balance_wallet,
-                          color: Colors.white,
-                          size: 40,
-                        ),
+class _OnboardingPageState extends ConsumerState<OnboardingPage> {
+  late PageController _pageController;
+  int _currentPage = 0;
+
+  final List<OnboardingSlide> slides = [
+    OnboardingSlide(
+      title: 'Welcome to CryptoWallet Pro',
+      description: 'Secure, decentralized, and fully under your control',
+    ),
+    OnboardingSlide(
+      title: 'Multi-Chain Support',
+      description: 'Manage Bitcoin, Ethereum, BNB, Tron and 10+ more cryptocurrencies',
+    ),
+    OnboardingSlide(
+      title: 'Non-Custodial Security',
+      description: 'You hold your keys, you control your funds. No intermediaries.',
+    ),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        children: [
+          // Background image
+          Container(
+            decoration: BoxDecoration(
+              image: DecorationImage(
+                image: AssetImage('assets/images/apponboarding.png'),
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+          // Overlay for better content visibility
+          Container(
+            color: Colors.black.withOpacity(0.4),
+          ),
+          // Content
+          SafeArea(
+            child: Column(
+              children: [
+                // Skip button
+                Align(
+                  alignment: Alignment.topRight,
+                  child: TextButton(
+                    onPressed: () => _goToDashboard(),
+                    child: const Text(
+                      'Skip',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
                       ),
-                      const SizedBox(height: 24),
-                      Text(
-                        AppConstants.appName,
-                        style: AppTheme.headlineLarge.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        AppConstants.appDescription,
-                        style: AppTheme.bodyMedium.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
+                    ),
                   ),
                 ),
 
-                // Replaced Spacer(flex: 3) with SizedBox
-                const SizedBox(height: 60),
-
-                // Features List
-                _buildFeatureItem(
-                  context: context,
-                  icon: Icons.security,
-                  title: 'Secure & Non-Custodial',
-                  description: 'You control your private keys and funds',
-                ),
-                const SizedBox(height: 24),
-                _buildFeatureItem(
-                  context: context,
-                  icon: Icons.swap_horiz,
-                  title: 'Multi-Chain Support',
-                  description: 'Ethereum, BSC, Tron and more',
-                ),
-                const SizedBox(height: 24),
-                _buildFeatureItem(
-                  context: context,
-                  icon: Icons.trending_up,
-                  title: 'Professional Trading',
-                  description: 'Instant swaps and spot trading',
+                // Page view
+                Expanded(
+                  child: PageView.builder(
+                    controller: _pageController,
+                    onPageChanged: (index) {
+                      setState(() => _currentPage = index);
+                    },
+                    itemCount: slides.length,
+                    itemBuilder: (context, index) {
+                      return _buildSlide(slides[index]);
+                    },
+                  ),
                 ),
 
-                // Replaced Spacer(flex: 2) with SizedBox
-                const SizedBox(height: 40),
+                // Page indicators
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 32),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(
+                      slides.length,
+                      (index) => AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    margin: const EdgeInsets.symmetric(horizontal: 6),
+                    width: _currentPage == index ? 32 : 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: _currentPage == index
+                          ? AppTheme.primaryColor
+                          : Colors.grey[300],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+              ),
+            ),
 
-                // Action Buttons
-                Column(
-                  children: [
+            // Bottom buttons
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  if (_currentPage == slides.length - 1) ...[
                     ElevatedButton(
                       onPressed: () => context.go('/wallet/create'),
                       style: ElevatedButton.styleFrom(
                         minimumSize: const Size(double.infinity, 56),
+                        backgroundColor: AppTheme.primaryColor,
                       ),
                       child: const Text(
                         'Create New Wallet',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     OutlinedButton(
                       onPressed: () => context.go('/wallet/import'),
                       style: OutlinedButton.styleFrom(
                         minimumSize: const Size(double.infinity, 56),
+                        side: const BorderSide(color: AppTheme.primaryColor),
                       ),
                       child: const Text(
                         'Import Existing Wallet',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.primaryColor,
+                        ),
+                      ),
+                    ),
+                  ] else ...[
+                    ElevatedButton(
+                      onPressed: () {
+                        _pageController.nextPage(
+                          duration: const Duration(milliseconds: 500),
+                          curve: Curves.easeInOut,
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 56),
+                        backgroundColor: AppTheme.primaryColor,
+                      ),
+                      child: const Text(
+                        'Next',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ],
-                ),
-
-                const SizedBox(height: 32),
-
-                // Terms and Privacy
-                Center(
-                  child: Text(
-                    'By continuing, you agree to our Terms of Service and Privacy Policy',
-                    style: AppTheme.labelSmall.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-
-                // Optional: Extra bottom padding
-                const SizedBox(height: 20),
-              ],
+                ],
+              ),
             ),
-          ),
+          ],
         ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildFeatureItem({
-    required BuildContext context,
-    required IconData icon,
-    required String title,
-    required String description,
-  }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary.withAlpha((0.1 * 255).round()),
-            borderRadius: BorderRadius.circular(12),
+  Widget _buildSlide(OnboardingSlide slide) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            slide.title,
+            style: AppTheme.headlineLarge.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
           ),
-          child: Icon(
-            icon,
-            color: Theme.of(context).colorScheme.primary,
-            size: 24,
+          const SizedBox(height: 24),
+          Text(
+            slide.description,
+            style: AppTheme.bodyLarge.copyWith(
+              color: Colors.white.withOpacity(0.9),
+            ),
+            textAlign: TextAlign.center,
           ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: AppTheme.titleMedium.copyWith(
-                  color: Theme.of(context).colorScheme.onSurface,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                description,
-                style: AppTheme.bodyMedium.copyWith(
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
+
+  void _goToDashboard() {
+    context.go('/dashboard');
+  }
+}
+
+class OnboardingSlide {
+  final String title;
+  final String description;
+
+  OnboardingSlide({
+    required this.title,
+    required this.description,
+  });
 }

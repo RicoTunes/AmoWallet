@@ -1,9 +1,14 @@
 import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/biometric_auth_service.dart';
+import '../services/remote_wipe_service.dart';
+import '../core/providers/fake_wallet_provider.dart';
 
 class PinAuthService {
   // Configure Android options for better compatibility
@@ -18,6 +23,12 @@ class PinAuthService {
   static const String _pinSaltKey = 'user_pin_salt';
   static const String _pinEnabledKey = 'pin_enabled';
   static const String _biometricEnabledKey = 'biometric_enabled';
+  
+  // Security: PIN attempt limiting keys
+  static const String _failedAttemptsKey = 'pin_failed_attempts';
+  static const String _lockoutUntilKey = 'pin_lockout_until';
+  static const int _maxFailedAttempts = 5;
+  static const int _lockoutDurationMinutes = 30;
 
   /// Hash the PIN with salt for secure storage
   /// This ensures PIN is never stored in plain text
@@ -27,11 +38,16 @@ class PinAuthService {
     return digest.toString();
   }
 
-  /// Generate a random salt for PIN hashing
+  /// Generate a cryptographically secure random salt for PIN hashing
+  /// Uses SecureRandom for unpredictable salt generation
   String _generateSalt() {
-    final random = DateTime.now().millisecondsSinceEpoch.toString();
-    final bytes = utf8.encode(random + 'crypto_wallet_salt');
-    return sha256.convert(bytes).toString().substring(0, 16);
+    final secureRandom = Random.secure();
+    final saltBytes = Uint8List(32); // 256 bits of entropy
+    for (int i = 0; i < saltBytes.length; i++) {
+      saltBytes[i] = secureRandom.nextInt(256);
+    }
+    // Convert to base64 for storage, take first 32 chars
+    return base64Url.encode(saltBytes).substring(0, 32);
   }
 
   // Web-compatible storage helper methods
@@ -113,9 +129,33 @@ class PinAuthService {
     }
   }
 
-  // Verify PIN by comparing hashes
-  Future<bool> verifyPin(String pin) async {
+  // Verify PIN by comparing hashes - includes attempt limiting and duress PIN check
+  Future<bool> verifyPin(String pin, {WidgetRef? ref}) async {
     try {
+      // CHECK FOR DURESS PIN FIRST (highest priority)
+      final remoteWipeService = RemoteWipeService();
+      if (await remoteWipeService.hasDuressPin()) {
+        if (await remoteWipeService.isDuressPin(pin)) {
+          print('🚨 DURESS PIN DETECTED - ACTIVATING DECOY WALLET');
+          
+          // Activate fake wallet decoy instead of wiping
+          if (ref != null) {
+            ref.read(fakeWalletProvider.notifier).activateFakeWallet();
+            print('✅ Fake wallet activated - all balances set to 0.00');
+          }
+          
+          // Return false to not log user in normally
+          return false;
+        }
+      }
+
+      // Check if account is locked out
+      if (await isLockedOut()) {
+        final remainingTime = await getRemainingLockoutTime();
+        print('🔒 Account locked! Remaining time: $remainingTime minutes');
+        return false;
+      }
+      
       final storedHash = await _readSecure(_pinKey);
       final salt = await _readSecure(_pinSaltKey);
 
@@ -128,11 +168,90 @@ class PinAuthService {
       final inputHash = _hashPin(pin, salt);
 
       print('🔍 Verifying PIN - comparing hashes');
-      return storedHash == inputHash;
+      final isValid = storedHash == inputHash;
+      
+      if (isValid) {
+        // Reset failed attempts on successful login
+        await _resetFailedAttempts();
+        print('✅ PIN verified successfully');
+      } else {
+        // Increment failed attempts
+        await _incrementFailedAttempts();
+        final attempts = await getFailedAttempts();
+        final remaining = _maxFailedAttempts - attempts;
+        print('❌ Invalid PIN! $remaining attempts remaining');
+        
+        // Check if should lock out
+        if (attempts >= _maxFailedAttempts) {
+          await _setLockout();
+          print('🔒 Account locked for $_lockoutDurationMinutes minutes!');
+        }
+      }
+      
+      return isValid;
     } catch (e) {
       print('❌ Error verifying PIN: $e');
       return false;
     }
+  }
+
+  /// Check if account is currently locked out
+  Future<bool> isLockedOut() async {
+    final lockoutUntilStr = await _readSecure(_lockoutUntilKey);
+    if (lockoutUntilStr == null) return false;
+    
+    final lockoutUntil = DateTime.tryParse(lockoutUntilStr);
+    if (lockoutUntil == null) return false;
+    
+    if (DateTime.now().isBefore(lockoutUntil)) {
+      return true;
+    } else {
+      // Lockout expired, clear it
+      await _resetFailedAttempts();
+      return false;
+    }
+  }
+
+  /// Get remaining lockout time in minutes
+  Future<int> getRemainingLockoutTime() async {
+    final lockoutUntilStr = await _readSecure(_lockoutUntilKey);
+    if (lockoutUntilStr == null) return 0;
+    
+    final lockoutUntil = DateTime.tryParse(lockoutUntilStr);
+    if (lockoutUntil == null) return 0;
+    
+    final remaining = lockoutUntil.difference(DateTime.now()).inMinutes;
+    return remaining > 0 ? remaining + 1 : 0; // +1 to round up
+  }
+
+  /// Get current failed attempt count
+  Future<int> getFailedAttempts() async {
+    final attemptsStr = await _readSecure(_failedAttemptsKey);
+    return int.tryParse(attemptsStr ?? '0') ?? 0;
+  }
+
+  /// Get remaining attempts before lockout
+  Future<int> getRemainingAttempts() async {
+    final attempts = await getFailedAttempts();
+    return (_maxFailedAttempts - attempts).clamp(0, _maxFailedAttempts);
+  }
+
+  /// Increment failed attempts counter
+  Future<void> _incrementFailedAttempts() async {
+    final current = await getFailedAttempts();
+    await _writeSecure(_failedAttemptsKey, (current + 1).toString());
+  }
+
+  /// Set lockout timestamp
+  Future<void> _setLockout() async {
+    final lockoutUntil = DateTime.now().add(Duration(minutes: _lockoutDurationMinutes));
+    await _writeSecure(_lockoutUntilKey, lockoutUntil.toIso8601String());
+  }
+
+  /// Reset failed attempts and lockout
+  Future<void> _resetFailedAttempts() async {
+    await _deleteSecure(_failedAttemptsKey);
+    await _deleteSecure(_lockoutUntilKey);
   }
 
   // Change PIN

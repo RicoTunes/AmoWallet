@@ -23,7 +23,7 @@ class _CryptoWalletProAppState extends ConsumerState<CryptoWalletProApp> with Wi
   bool _justAuthenticated = false; // Prevent immediate re-lock after auth
   
   // Minimum time (in seconds) before requiring re-authentication
-  static const int _authCooldownSeconds = 120; // 2 minutes cooldown
+  static const int _authCooldownSeconds = 3; // 3 seconds cooldown - lock quickly after minimize
   
   @override
   void initState() {
@@ -85,10 +85,11 @@ class _CryptoWalletProAppState extends ConsumerState<CryptoWalletProApp> with Wi
         }
       }
       
-      final isPinEnabled = await _pinAuthService.isPinEnabled();
+      // Only check if PIN is set - if user has a PIN, require auth on resume
       final isPinSet = await _pinAuthService.isPinSet();
+      print('🔐 App resume - isPinSet: $isPinSet');
       
-      if (isPinEnabled && isPinSet) {
+      if (isPinSet) {
         // Save current route before navigating to PIN entry
         final router = ref.read(routerProvider);
         final currentLocation = router.routerDelegate.currentConfiguration.uri.toString();
@@ -100,14 +101,20 @@ class _CryptoWalletProAppState extends ConsumerState<CryptoWalletProApp> with Wi
         }
         
         if (!currentLocation.contains('/splash') &&
-            !currentLocation.contains('/onboarding')) {
+            !currentLocation.contains('/onboarding') &&
+            !currentLocation.contains('/pin-setup') &&
+            !currentLocation.contains('/wallet-create') &&
+            !currentLocation.contains('/wallet-import')) {
           await prefs.setString('last_route', currentLocation);
           print('💾 Saved current route: $currentLocation');
         }
         
+        print('🔒 Locking app - navigating to PIN entry');
         // Navigate to PIN entry page
         router.go('/pin-entry');
       }
+    } catch (e) {
+      print('❌ Error checking auth on resume: $e');
     } finally {
       _isCheckingAuth = false;
     }

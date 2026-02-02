@@ -14,6 +14,11 @@ class BiometricAuthService {
   factory BiometricAuthService() => _instance;
   BiometricAuthService._internal();
 
+  // GLOBAL LOCK to prevent double biometric prompts across the entire app
+  static bool _isAuthenticating = false;
+  static DateTime? _lastAuthAttempt;
+  static const int _minAuthIntervalMs = 2000; // Minimum 2 seconds between auth attempts
+
   final LocalAuthentication _localAuth = LocalAuthentication();
   // Configure Android options for better compatibility
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage(
@@ -102,16 +107,35 @@ class BiometricAuthService {
   Future<bool> authenticateWithBiometrics({
     String reason = 'Please authenticate to continue',
   }) async {
+    // Prevent double prompts with strict locking
+    if (_isAuthenticating) {
+      print('🔒 BiometricAuthService: Already authenticating, skipping duplicate call');
+      return false;
+    }
+    
+    // Also check if we just attempted authentication (within minimum interval)
+    if (_lastAuthAttempt != null) {
+      final elapsed = DateTime.now().difference(_lastAuthAttempt!).inMilliseconds;
+      if (elapsed < _minAuthIntervalMs) {
+        print('🔒 BiometricAuthService: Too soon since last attempt (${elapsed}ms), skipping');
+        return false;
+      }
+    }
+    
+    _isAuthenticating = true;
+    _lastAuthAttempt = DateTime.now();
+    
     try {
       final bool canAuthenticate = await isBiometricAvailable();
       if (!canAuthenticate) {
         return false;
       }
 
+      print('🔐 BiometricAuthService: Starting biometric authentication...');
       final bool didAuthenticate = await _localAuth.authenticate(
         localizedReason: reason,
-        biometricOnly: true,
       );
+      print('🔐 BiometricAuthService: Authentication result: $didAuthenticate');
 
       if (didAuthenticate) {
         await _updateLastAuthTime();
@@ -121,6 +145,10 @@ class BiometricAuthService {
     } on PlatformException catch (e) {
       print('Biometric authentication error: $e');
       return false;
+    } finally {
+      // Small delay before clearing the lock to prevent rapid re-calls
+      await Future.delayed(const Duration(milliseconds: 500));
+      _isAuthenticating = false;
     }
   }
 

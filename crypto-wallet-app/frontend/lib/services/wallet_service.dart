@@ -121,29 +121,73 @@ class WalletService {
   }
 
   /// Get the list of stored addresses for a given chain
+  /// Handles token aliases (USDT-ERC20 uses ETH addresses, USDT-BEP20 uses BNB addresses, etc.)
   Future<List<String>> getStoredAddresses(String chain) async {
     try {
       final dynamic rawKeys = await _storage.readAll();
       final addresses = <String>{};
       
+      // Map tokens to their underlying chain
+      String lookupChain = chain;
+      if (chain.startsWith('USDT-') || chain.startsWith('USDC-')) {
+        if (chain.contains('TRC20')) {
+          lookupChain = 'TRX';
+        } else if (chain.contains('BEP20')) {
+          lookupChain = 'BNB';
+        } else if (chain.contains('ERC20')) {
+          lookupChain = 'ETH';
+        }
+      } else if (chain == 'USDT' || chain == 'USDC') {
+        // Default to ETH for plain USDT/USDC
+        lookupChain = 'ETH';
+      }
+      
       // Handle type casting carefully for web compatibility
       if (rawKeys != null && rawKeys is Map) {
         for (final entry in rawKeys.entries) {
           final k = entry.key?.toString() ?? '';
-          if (!k.startsWith('${chain}_')) continue;
-          final parts = k.split('_');
-          if (parts.length < 3) continue;
-          final addr = parts[1];
-          final suffix = parts.sublist(2).join('_');
-          if (suffix == 'private' || suffix == 'meta' || suffix == 'mnemonic') {
-            addresses.add(addr);
+          
+          // First try exact chain match
+          if (k.startsWith('${chain}_')) {
+            _parseAndAddAddress(k, chain, addresses);
+          }
+          
+          // Then try mapped chain if different
+          if (lookupChain != chain && k.startsWith('${lookupChain}_')) {
+            _parseAndAddAddress(k, lookupChain, addresses);
           }
         }
       }
+      
+      print('🔍 getStoredAddresses($chain) → lookup: $lookupChain → found: $addresses');
       return addresses.toList();
     } catch (e) {
       _logger.e('Failed to get stored addresses: $e');
       return [];
+    }
+  }
+  
+  void _parseAndAddAddress(String key, String chain, Set<String> addresses) {
+    if (!key.startsWith('${chain}_')) return;
+    
+    // Key format: CHAIN_ADDRESS_SUFFIX
+    // We need to extract the address carefully because addresses can vary in format
+    final suffixes = ['_private', '_meta', '_mnemonic'];
+    String? suffix;
+    for (final s in suffixes) {
+      if (key.endsWith(s)) {
+        suffix = s;
+        break;
+      }
+    }
+    if (suffix == null) return;
+    
+    // Remove chain prefix and suffix to get address
+    final withoutChain = key.substring(chain.length + 1); // +1 for the underscore
+    final address = withoutChain.substring(0, withoutChain.length - suffix.length);
+    
+    if (address.isNotEmpty) {
+      addresses.add(address);
     }
   }
 
@@ -341,25 +385,52 @@ class WalletService {
       final allKeys = rawKeys is Map ? Map<String, String>.from(rawKeys.map((k, v) => MapEntry(k.toString(), v.toString()))) : <String, String>{};
       print('🔑 Total keys in storage: ${allKeys.length}');
       
-      final addressesByChain = <String, Set<String>>{};
-      
+      // Debug: print all keys to understand storage structure
       for (final k in allKeys.keys) {
-        final parts = k.split('_');
-        if (parts.length >= 3) {
-          final chain = parts[0];
-          final address = parts[1];
-          
-          // Only process valid blockchain chains
-          if (!validChains.contains(chain)) {
-            continue; // Skip non-wallet keys like 'is_logged', 'transaction_tx', etc.
-          }
-          
-          print('📍 Found wallet: $chain - $address');
-          addressesByChain.putIfAbsent(chain, () => {}).add(address);
+        if (k.contains('_private') || k.contains('_meta')) {
+          print('🔑 Key: $k');
         }
       }
       
-      print('💼 Wallets by chain: ${addressesByChain.length} chains');
+      final addressesByChain = <String, Set<String>>{};
+      
+      for (final k in allKeys.keys) {
+        // Keys are stored as: CHAIN_ADDRESS_TYPE (e.g., ETH_0x123..._private)
+        // We need to find keys that end with _private or _meta
+        if (!k.endsWith('_private') && !k.endsWith('_meta') && !k.endsWith('_mnemonic')) {
+          continue;
+        }
+        
+        // Remove the suffix to get CHAIN_ADDRESS
+        String keyWithoutSuffix = k;
+        if (k.endsWith('_private')) {
+          keyWithoutSuffix = k.substring(0, k.length - 8); // Remove '_private'
+        } else if (k.endsWith('_meta')) {
+          keyWithoutSuffix = k.substring(0, k.length - 5); // Remove '_meta'
+        } else if (k.endsWith('_mnemonic')) {
+          keyWithoutSuffix = k.substring(0, k.length - 9); // Remove '_mnemonic'
+        }
+        
+        // Find the first underscore to separate chain from address
+        final firstUnderscore = keyWithoutSuffix.indexOf('_');
+        if (firstUnderscore == -1) continue;
+        
+        final chain = keyWithoutSuffix.substring(0, firstUnderscore);
+        final address = keyWithoutSuffix.substring(firstUnderscore + 1);
+        
+        // Only process valid blockchain chains
+        if (!validChains.contains(chain)) {
+          continue;
+        }
+        
+        // Validate address format
+        if (address.isEmpty) continue;
+        
+        print('📍 Found wallet: $chain - ${address.length > 20 ? "${address.substring(0, 10)}...${address.substring(address.length - 6)}" : address}');
+        addressesByChain.putIfAbsent(chain, () => {}).add(address);
+      }
+      
+      print('💼 Wallets by chain: ${addressesByChain.length} chains - $addressesByChain');
       
       if (addressesByChain.isEmpty) {
         print('⚠️ No wallets found in storage!');

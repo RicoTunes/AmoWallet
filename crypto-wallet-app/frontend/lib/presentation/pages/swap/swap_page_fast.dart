@@ -71,21 +71,25 @@ class _SwapPageFastState extends ConsumerState<SwapPageFast>
   // Header color
   Color _headerColor = const Color(0xFF627EEA); // ETH blue
 
-  // Available coins
+  // Available coins - expanded list with more networks
   static const List<CoinInfo> _coins = [
     CoinInfo('ETH', 'Ethereum', Color(0xFF627EEA), Icons.diamond),
     CoinInfo('BTC', 'Bitcoin', Color(0xFFF7931A), Icons.currency_bitcoin),
-    CoinInfo('BNB', 'BNB', Color(0xFFF0B90B), Icons.hexagon),
+    CoinInfo('BNB', 'BNB Chain', Color(0xFFF0B90B), Icons.hexagon),
     CoinInfo('USDT', 'Tether', Color(0xFF26A17B), Icons.attach_money),
     CoinInfo('SOL', 'Solana', Color(0xFF9945FF), Icons.flash_on),
     CoinInfo('XRP', 'Ripple', Color(0xFF23292F), Icons.water_drop),
     CoinInfo('MATIC', 'Polygon', Color(0xFF8247E5), Icons.auto_awesome),
+    CoinInfo('TRX', 'Tron', Color(0xFFFF0013), Icons.bolt),
+    CoinInfo('DOGE', 'Dogecoin', Color(0xFFC3A634), Icons.pets),
+    CoinInfo('LTC', 'Litecoin', Color(0xFF345D9D), Icons.currency_exchange),
   ];
 
-  // Fallback prices for instant calculation
+  // Updated fallback prices
   static const Map<String, double> _prices = {
-    'BTC': 96000.0, 'ETH': 3600.0, 'BNB': 625.0, 'USDT': 1.0,
-    'SOL': 235.0, 'XRP': 2.45, 'MATIC': 0.95, 'TRX': 0.25,
+    'BTC': 96000.0, 'ETH': 3400.0, 'BNB': 680.0, 'USDT': 1.0,
+    'SOL': 200.0, 'XRP': 2.50, 'MATIC': 0.95, 'TRX': 0.25,
+    'DOGE': 0.35, 'LTC': 120.0,
   };
 
   @override
@@ -622,152 +626,597 @@ class _SwapPageFastState extends ConsumerState<SwapPageFast>
   Widget _buildMainPage() {
     final bal = _balances[_fromCoin] ?? 0.0;
     final usdBal = _getUsdValue(_fromCoin, bal);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? const Color(0xFF0D1421) : const Color(0xFFF5F7FA);
+    final cardColor = isDark ? const Color(0xFF1A1F2E) : Colors.white;
 
-    return CustomScrollView(
-      physics: const BouncingScrollPhysics(),
-      slivers: [
-        // Header
-        SliverAppBar(
-          expandedHeight: 56,
-          floating: false,
-          pinned: true,
-          backgroundColor: _headerColor,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => context.go('/dashboard'),
-          ),
-          title: const Text('Swap', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          actions: [
-            Container(
-              margin: const EdgeInsets.only(right: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                '${bal.toStringAsFixed(6)} $_fromCoin (\$${usdBal.toStringAsFixed(2)})',
-                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-              ),
-            ),
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            _headerColor.withOpacity(0.15),
+            bgColor,
+            bgColor,
           ],
         ),
-
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                // FROM Section
-                _buildFromSection(),
-                
-                // Swap button
-                GestureDetector(
-                  onTap: _swapCoins,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 8),
-                    width: 48, height: 48,
-                    decoration: BoxDecoration(
-                      color: _headerColor,
-                      shape: BoxShape.circle,
-                      boxShadow: [BoxShadow(color: _headerColor.withOpacity(0.4), blurRadius: 12)],
-                    ),
-                    child: const Icon(Icons.swap_vert, color: Colors.white, size: 24),
+      ),
+      child: CustomScrollView(
+        physics: const BouncingScrollPhysics(),
+        slivers: [
+          // Premium Header
+          SliverAppBar(
+            expandedHeight: 100,
+            floating: false,
+            pinned: true,
+            flexibleSpace: FlexibleSpaceBar(
+              background: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [_headerColor, _headerColor.withOpacity(0.8)],
                   ),
                 ),
+              ),
+            ),
+            backgroundColor: _headerColor,
+            leading: IconButton(
+              icon: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18),
+              ),
+              onPressed: () => context.go('/dashboard'),
+            ),
+            title: const Text('Swap', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 22)),
+            actions: [
+              Container(
+                margin: const EdgeInsets.only(right: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withOpacity(0.3)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(_getCoinIcon(_fromCoin), color: Colors.white, size: 16),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${bal.toStringAsFixed(4)} $_fromCoin',
+                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
 
-                // TO Section
-                _buildToSection(),
-
-                const SizedBox(height: 16),
-
-                // Quote or Get Quote button
-                if (_showQuote && _quoteData != null)
-                  _buildQuoteCard()
-                else
-                  _buildGetQuoteButton(),
-
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Text(_error!, style: const TextStyle(color: Colors.red)),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+              child: Column(
+                children: [
+                  // Premium FROM Section
+                  _buildPremiumFromSection(cardColor, isDark),
+                  
+                  // Animated Swap Button
+                  GestureDetector(
+                    onTap: _swapCoins,
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(vertical: 12),
+                      width: 56, height: 56,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [_headerColor, _headerColor.withOpacity(0.7)],
+                        ),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(color: _headerColor.withOpacity(0.4), blurRadius: 16, offset: const Offset(0, 6)),
+                        ],
+                      ),
+                      child: const Icon(Icons.swap_vert_rounded, color: Colors.white, size: 28),
+                    ),
                   ),
 
-                const SizedBox(height: 80),
-              ],
+                  // Premium TO Section
+                  _buildPremiumToSection(cardColor, isDark),
+
+                  const SizedBox(height: 20),
+
+                  // Rate Info Card
+                  if (_amount > 0 && !_showQuote)
+                    _buildRateInfoCard(cardColor, isDark),
+
+                  // Quote or Get Quote button
+                  if (_showQuote && _quoteData != null)
+                    _buildPremiumQuoteCard(cardColor, isDark)
+                  else
+                    _buildPremiumGetQuoteButton(),
+
+                  if (_error != null)
+                    Container(
+                      margin: const EdgeInsets.only(top: 16),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.red.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline, color: Colors.red, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(child: Text(_error!, style: const TextStyle(color: Colors.red))),
+                        ],
+                      ),
+                    ),
+
+                  const SizedBox(height: 100),
+                ],
+              ),
             ),
           ),
-        ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRateInfoCard(Color cardColor, bool isDark) {
+    final rate = _getRate();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey.withOpacity(0.1)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildRateItem('Rate', '1 $_fromCoin = ${rate.toStringAsFixed(rate > 1 ? 2 : 6)} $_toCoin', Icons.swap_horiz),
+          Container(width: 1, height: 30, color: isDark ? Colors.white12 : Colors.grey[300]),
+          _buildRateItem('Fee', '0.3%', Icons.local_offer),
+          Container(width: 1, height: 30, color: isDark ? Colors.white12 : Colors.grey[300]),
+          _buildRateItem('Time', '~30s', Icons.timer),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRateItem(String label, String value, IconData icon) {
+    return Column(
+      children: [
+        Icon(icon, size: 18, color: _headerColor),
+        const SizedBox(height: 4),
+        Text(label, style: TextStyle(color: Colors.grey[500], fontSize: 11)),
+        const SizedBox(height: 2),
+        Text(value, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 12, color: Colors.grey[700])),
       ],
     );
   }
 
-  Widget _buildFromSection() {
+  Widget _buildPremiumFromSection(Color cardColor, bool isDark) {
     final bal = _balances[_fromCoin] ?? 0.0;
+    final textColor = isDark ? Colors.white : const Color(0xFF1E293B);
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.1), blurRadius: 10)],
+        color: cardColor,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: _headerColor.withOpacity(0.2),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: _headerColor.withOpacity(0.1),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Percentage buttons
+          // Header row with label and balance
           Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _buildPctBtn('25%', 0.25),
-              const SizedBox(width: 8),
-              _buildPctBtn('50%', 0.50),
-              const SizedBox(width: 8),
-              _buildPctBtn('75%', 0.75),
-              const SizedBox(width: 8),
-              _buildPctBtn('MAX', 1.0),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _headerColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text('From', style: TextStyle(
+                  color: _headerColor,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                )),
+              ),
+              GestureDetector(
+                onTap: () => _setPercentage('MAX', 1.0),
+                child: Row(
+                  children: [
+                    Icon(Icons.account_balance_wallet_outlined, size: 16, color: Colors.grey[500]),
+                    const SizedBox(width: 4),
+                    Text('${bal.toStringAsFixed(6)}', style: TextStyle(color: Colors.grey[500], fontSize: 13)),
+                  ],
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 16),
 
-          // Amount input
+          // Amount input row
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
                 child: TextField(
                   controller: _amountController,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: textColor),
                   decoration: InputDecoration(
                     hintText: '0.00',
-                    hintStyle: TextStyle(color: Colors.grey[400]),
+                    hintStyle: TextStyle(color: Colors.grey[400], fontSize: 32),
                     border: InputBorder.none,
+                    contentPadding: EdgeInsets.zero,
                   ),
                 ),
               ),
-              _buildCoinSelector(_fromCoin, true),
+              _buildPremiumCoinSelector(_fromCoin, true),
             ],
           ),
 
-          // USD value
+          // USD value display
           if (_amount > 0)
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                '≈ \$${_getUsdValue(_fromCoin, _amount).toStringAsFixed(2)} USD',
-                style: TextStyle(color: Colors.grey[500], fontSize: 13),
+                '≈ \$${_getUsdValue(_fromCoin, _amount).toStringAsFixed(2)}',
+                style: TextStyle(color: Colors.grey[500], fontSize: 14),
               ),
             ),
 
-          // Balance
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              'Balance: ${bal.toStringAsFixed(8)}',
-              style: TextStyle(color: Colors.grey[500], fontSize: 12),
+          const SizedBox(height: 16),
+
+          // Premium Percentage buttons
+          Row(
+            children: [
+              _buildPremiumPctBtn('25%', 0.25),
+              const SizedBox(width: 8),
+              _buildPremiumPctBtn('50%', 0.50),
+              const SizedBox(width: 8),
+              _buildPremiumPctBtn('75%', 0.75),
+              const SizedBox(width: 8),
+              _buildPremiumPctBtn('MAX', 1.0),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPremiumPctBtn(String label, double pct) {
+    final sel = _selectedPercent == label;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => _setPercentage(label, pct),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            gradient: sel ? LinearGradient(
+              colors: [_headerColor, _headerColor.withOpacity(0.8)],
+            ) : null,
+            color: sel ? null : Colors.grey.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: sel ? null : Border.all(color: Colors.grey.withOpacity(0.2)),
+          ),
+          child: Center(
+            child: Text(label, style: TextStyle(
+              color: sel ? Colors.white : Colors.grey[600],
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            )),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPremiumCoinSelector(String coin, bool isFrom) {
+    return GestureDetector(
+      onTap: () => _showCoinPicker(isFrom),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [_getCoinColor(coin).withOpacity(0.15), _getCoinColor(coin).withOpacity(0.05)],
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _getCoinColor(coin).withOpacity(0.3)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 28, height: 28,
+              decoration: BoxDecoration(
+                color: _getCoinColor(coin).withOpacity(0.2),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(_getCoinIcon(coin), color: _getCoinColor(coin), size: 16),
+            ),
+            const SizedBox(width: 8),
+            Text(coin, style: TextStyle(fontWeight: FontWeight.bold, color: _getCoinColor(coin), fontSize: 16)),
+            const SizedBox(width: 6),
+            Icon(Icons.keyboard_arrow_down_rounded, color: _getCoinColor(coin), size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPremiumToSection(Color cardColor, bool isDark) {
+    final est = _getEstimate();
+    final bal = _balances[_toCoin] ?? 0.0;
+    final textColor = isDark ? Colors.white : const Color(0xFF1E293B);
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey.withOpacity(0.1)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _getCoinColor(_toCoin).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text('To', style: TextStyle(
+                  color: _getCoinColor(_toCoin),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                )),
+              ),
+              Row(
+                children: [
+                  Icon(Icons.account_balance_wallet_outlined, size: 16, color: Colors.grey[500]),
+                  const SizedBox(width: 4),
+                  Text('${bal.toStringAsFixed(6)}', style: TextStyle(color: Colors.grey[500], fontSize: 13)),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Coin selector chips
+          SizedBox(
+            height: 44,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: _coins.length,
+              itemBuilder: (ctx, i) {
+                final c = _coins[i];
+                if (c.symbol == _fromCoin) return const SizedBox.shrink();
+                final sel = c.symbol == _toCoin;
+                return GestureDetector(
+                  onTap: () => _selectToCoin(c.symbol),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    margin: const EdgeInsets.only(right: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      gradient: sel ? LinearGradient(colors: [c.color, c.color.withOpacity(0.8)]) : null,
+                      color: sel ? null : (isDark ? Colors.white.withOpacity(0.05) : Colors.grey[100]),
+                      borderRadius: BorderRadius.circular(14),
+                      border: sel ? null : Border.all(color: isDark ? Colors.white12 : Colors.grey[300]!),
+                      boxShadow: sel ? [BoxShadow(color: c.color.withOpacity(0.3), blurRadius: 8)] : null,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(c.icon, size: 18, color: sel ? Colors.white : c.color),
+                        const SizedBox(width: 6),
+                        Text(c.symbol, style: TextStyle(
+                          color: sel ? Colors.white : (isDark ? Colors.white70 : Colors.grey[700]),
+                          fontWeight: sel ? FontWeight.bold : FontWeight.w500,
+                          fontSize: 13,
+                        )),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Estimated receive card
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  _getCoinColor(_toCoin).withOpacity(0.12),
+                  _getCoinColor(_toCoin).withOpacity(0.05),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: _getCoinColor(_toCoin).withOpacity(0.2)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("You'll receive", style: TextStyle(color: Colors.grey[500], fontSize: 13)),
+                      const SizedBox(height: 8),
+                      Text(
+                        est > 0 ? est.toStringAsFixed(6) : '0.00',
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: _getCoinColor(_toCoin),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '≈ \$${_getUsdValue(_toCoin, est).toStringAsFixed(2)}',
+                        style: TextStyle(color: Colors.grey[500], fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  width: 60, height: 60,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [_getCoinColor(_toCoin).withOpacity(0.2), _getCoinColor(_toCoin).withOpacity(0.1)],
+                    ),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(_getCoinIcon(_toCoin), color: _getCoinColor(_toCoin), size: 28),
+                ),
+              ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPremiumQuoteCard(Color cardColor, bool isDark) {
+    final toAmt = _quoteData!['toAmount'] as double;
+    final fee = _quoteData!['fee'] as double;
+    final provider = _quoteData!['provider'] as String;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Colors.green.withOpacity(0.1), Colors.green.withOpacity(0.05)],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.green.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.check_circle, color: Colors.green, size: 24),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Best Quote Found!', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    Text('via $provider', style: TextStyle(color: Colors.grey[500], fontSize: 13)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          _buildQuoteDetailRow('You send', '${_amount.toStringAsFixed(6)} $_fromCoin'),
+          _buildQuoteDetailRow('You receive', '${toAmt.toStringAsFixed(6)} $_toCoin'),
+          _buildQuoteDetailRow('Network fee', '${fee.toStringAsFixed(6)} $_fromCoin'),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: ElevatedButton(
+              onPressed: _isExecuting ? null : _onContinue,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: 8,
+                shadowColor: Colors.green.withOpacity(0.4),
+              ),
+              child: const Text('Continue to Swap', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuoteDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(color: Colors.grey[600])),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPremiumGetQuoteButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 60,
+      child: ElevatedButton(
+        onPressed: _isLoadingQuote ? null : _getQuote,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _headerColor,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          elevation: 12,
+          shadowColor: _headerColor.withOpacity(0.4),
+        ),
+        child: _isLoadingQuote
+            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: const [
+                  Icon(Icons.flash_on, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text('Get Best Quote', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                ],
+              ),
       ),
     );
   }

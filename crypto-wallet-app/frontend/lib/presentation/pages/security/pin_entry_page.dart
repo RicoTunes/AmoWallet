@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../services/pin_auth_service.dart';
 import '../../../core/providers/theme_provider.dart';
+import '../../../core/providers/fake_wallet_provider.dart';
 
 class PinEntryPage extends ConsumerStatefulWidget {
   const PinEntryPage({super.key});
@@ -22,6 +23,9 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
   String? _returnRoute;
   bool _biometricAttempted = false;
   bool _isAuthenticating = false;
+  
+  // Static flag to prevent biometric from being called multiple times globally
+  static bool _globalBiometricInProgress = false;
   
   late AnimationController _shakeController;
   late Animation<double> _shakeAnimation;
@@ -63,7 +67,11 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
   }
   
   Future<void> _checkAuthenticationMethods() async {
-    if (_isAuthenticating || _biometricAttempted) return;
+    // Check all flags including global to prevent double popup
+    if (_isAuthenticating || _biometricAttempted || _globalBiometricInProgress) {
+      print('⏭️ _checkAuthenticationMethods skipped - biometric already in progress');
+      return;
+    }
     
     final isPinSet = await _pinAuthService.isPinSet();
     
@@ -75,14 +83,15 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
     final isBiometricEnabled = await _pinAuthService.isBiometricEnabled();
     final isBiometricAvailable = await _pinAuthService.isBiometricAvailable();
     
-    if (isBiometricEnabled && isBiometricAvailable && !_biometricAttempted) {
+    if (isBiometricEnabled && isBiometricAvailable && !_biometricAttempted && !_globalBiometricInProgress) {
       _authenticateWithBiometric();
     }
   }
   
   Future<void> _authenticateWithBiometric() async {
-    if (_biometricAttempted || _isAuthenticating) {
-      print('⏭️ Skipping biometric - already attempted or authenticating');
+    // Check both local and global flags to prevent double popup
+    if (_biometricAttempted || _isAuthenticating || _globalBiometricInProgress) {
+      print('⏭️ Skipping biometric - already in progress (local: $_biometricAttempted, auth: $_isAuthenticating, global: $_globalBiometricInProgress)');
       return;
     }
     
@@ -90,6 +99,7 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
       _biometricAttempted = true;
       _isAuthenticating = true;
     });
+    _globalBiometricInProgress = true;
     
     try {
       final success = await _pinAuthService.authenticateWithBiometric();
@@ -106,6 +116,9 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
         // Small delay to ensure auth time is saved before navigation
         await Future.delayed(const Duration(milliseconds: 100));
         
+        // Reset global flag before navigation
+        _globalBiometricInProgress = false;
+        
         if (mounted) {
           final targetRoute = _returnRoute ?? '/dashboard';
           print('🚀 Navigating to: $targetRoute');
@@ -113,14 +126,22 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
         }
       } else {
         print('❌ Biometric auth failed or cancelled - please enter PIN');
+        _globalBiometricInProgress = false;
         if (mounted) {
-          setState(() => _isAuthenticating = false);
+          setState(() {
+            _isAuthenticating = false;
+            _biometricAttempted = false; // Allow retry on button press
+          });
         }
       }
     } catch (e) {
       print('❌ Biometric error: $e');
+      _globalBiometricInProgress = false;
       if (mounted) {
-        setState(() => _isAuthenticating = false);
+        setState(() {
+          _isAuthenticating = false;
+          _biometricAttempted = false; // Allow retry on button press
+        });
       }
     }
   }
@@ -128,6 +149,7 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
   void _onNumberPressed(String number) {
     if (_pin.length < 6) {
       HapticFeedback.lightImpact();
+      HapticFeedback.vibrate();
       setState(() {
         _pin += number;
         if (_pin.length == 6) {
@@ -140,6 +162,7 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
   void _onDeletePressed() {
     if (_pin.isNotEmpty) {
       HapticFeedback.lightImpact();
+      HapticFeedback.vibrate();
       setState(() {
         _pin = _pin.substring(0, _pin.length - 1);
       });
@@ -151,7 +174,7 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
       _isLoading = true;
     });
     
-    final isValid = await _pinAuthService.verifyPin(_pin);
+    final isValid = await _pinAuthService.verifyPin(_pin, ref: ref);
     
     if (isValid && mounted) {
       print('✅ PIN verification success - returning to: $_returnRoute');
@@ -168,29 +191,50 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
           Navigator.of(context).pushReplacementNamed(_returnRoute ?? '/dashboard');
         }
       }
-    } else {
-      _attemptCount++;
-      HapticFeedback.heavyImpact();
-      _shakeController.forward();
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.error_outline, color: Colors.white),
-                const SizedBox(width: 8),
-                Text(_attemptCount >= 3 
-                    ? 'Too many failed attempts. Please wait.'
-                    : 'Incorrect PIN. ${5 - _attemptCount} attempts remaining.'),
-              ],
+    } else if (!isValid && mounted) {
+      // Check if fake wallet was activated (duress PIN)
+      final fakeWalletState = ref.read(fakeWalletProvider);
+      if (fakeWalletState.isActive && fakeWalletState.isDuressMode) {
+        print('🎭 Fake wallet activated - showing decoy dashboard');
+        HapticFeedback.mediumImpact();
+        
+        // Navigate to fake dashboard
+        try {
+          context.go('/fake-dashboard');
+        } catch (navError) {
+          print('⚠️ Navigation error to fake dashboard: $navError');
+        }
+      } else {
+        // Regular invalid PIN
+        _attemptCount++;
+        HapticFeedback.heavyImpact();
+        HapticFeedback.vibrate();
+        for (int i = 0; i < 2; i++) {
+          Future.delayed(Duration(milliseconds: i * 200), () {
+            HapticFeedback.heavyImpact();
+          });
+        }
+        _shakeController.forward();
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Text(_attemptCount >= 3 
+                      ? 'Too many failed attempts. Please wait.'
+                      : 'Incorrect PIN. ${5 - _attemptCount} attempts remaining.'),
+                ],
+              ),
+              backgroundColor: Colors.red.shade700,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              margin: const EdgeInsets.all(16),
             ),
-            backgroundColor: Colors.red.shade700,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            margin: const EdgeInsets.all(16),
-          ),
-        );
+          );
+        }
 
         setState(() {
           _pin = '';
@@ -218,71 +262,82 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
     
     return Scaffold(
       backgroundColor: backgroundColor,
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 24.0),
-                  child: Column(
-                    children: [
-                      const SizedBox(height: 40),
-                      
-                      // App Logo with gradient background
-                      Container(
-                        width: 90,
-                        height: 90,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              primaryColor,
-                              primaryColor.withOpacity(0.7),
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(24),
-                          boxShadow: [
-                            BoxShadow(
-                              color: primaryColor.withOpacity(0.4),
-                              blurRadius: 20,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: const Icon(
-                          Icons.account_balance_wallet_rounded,
-                          size: 45,
-                          color: Colors.white,
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 32),
-                      
-                      // Welcome text
-                      Text(
-                        'Welcome Back',
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: textColor,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 8),
-                      
-                      Text(
-                        'Enter your PIN to unlock AmoWallet',
-                        style: TextStyle(
-                          fontSize: 15,
-                          color: subtextColor,
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 48),
+      body: Stack(
+        children: [
+          // Background image
+          Container(
+            decoration: BoxDecoration(
+              image: DecorationImage(
+                image: AssetImage('assets/images/apponboarding.png'),
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+          // Dark overlay for readability
+          Container(
+            color: Colors.black.withOpacity(0.4),
+          ),
+          // Content
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+          child: Column(
+            children: [
+              const SizedBox(height: 16),
+              
+              // App Logo with gradient background - smaller
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      primaryColor,
+                      primaryColor.withOpacity(0.7),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: primaryColor.withOpacity(0.4),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.account_balance_wallet_rounded,
+                  size: 30,
+                  color: Colors.white,
+                ),
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Welcome text - smaller
+              Text(
+                'Welcome Back',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: textColor,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              
+              const SizedBox(height: 4),
+              
+              Text(
+                'Enter your PIN to unlock',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.white,
+                ),
+              ),
+              
+              const SizedBox(height: 24),
               
               // PIN Dots with animation
               AnimatedBuilder(
@@ -295,11 +350,11 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
                 },
                 child: _isLoading
                     ? SizedBox(
-                        height: 50,
+                        height: 40,
                         child: Center(
                           child: CircularProgressIndicator(
                             color: primaryColor,
-                            strokeWidth: 3,
+                            strokeWidth: 2,
                           ),
                         ),
                       )
@@ -310,21 +365,21 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
                           
                           return AnimatedContainer(
                             duration: const Duration(milliseconds: 200),
-                            margin: const EdgeInsets.symmetric(horizontal: 10),
-                            width: isFilled ? 20 : 18,
-                            height: isFilled ? 20 : 18,
+                            margin: const EdgeInsets.symmetric(horizontal: 8),
+                            width: isFilled ? 16 : 14,
+                            height: isFilled ? 16 : 14,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: isFilled ? primaryColor : Colors.transparent,
                               border: Border.all(
                                 color: isFilled ? primaryColor : subtextColor.withOpacity(0.5),
-                                width: 2.5,
+                                width: 2,
                               ),
                               boxShadow: isFilled
                                   ? [
                                       BoxShadow(
                                         color: primaryColor.withOpacity(0.4),
-                                        blurRadius: 8,
+                                        blurRadius: 6,
                                         spreadRadius: 1,
                                       ),
                                     ]
@@ -335,69 +390,68 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
                       ),
               ),
               
-              const SizedBox(height: 40),
+              const SizedBox(height: 20),
               
               // Biometric Button
               FutureBuilder<bool>(
                 future: _pinAuthService.isBiometricEnabled(),
                 builder: (context, snapshot) {
                   if (snapshot.data == true) {
-                    return Column(
-                      children: [
-                        Container(
-                          decoration: BoxDecoration(
-                            color: surfaceColor,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: primaryColor.withOpacity(0.3),
-                              width: 1.5,
-                            ),
-                          ),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: _authenticateWithBiometric,
-                              borderRadius: BorderRadius.circular(16),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.fingerprint,
-                                      size: 28,
-                                      color: primaryColor,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Text(
-                                      'Use Biometric',
-                                      style: TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w600,
-                                        color: primaryColor,
-                                      ),
-                                    ),
-                                  ],
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.white,
+                          width: 2,
+                        ),
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: _authenticateWithBiometric,
+                          borderRadius: BorderRadius.circular(12),
+                          splashColor: Colors.white.withOpacity(0.2),
+                          highlightColor: Colors.white.withOpacity(0.1),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.fingerprint,
+                                  size: 24,
+                                  color: Colors.white,
                                 ),
-                              ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Use Biometric',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
-                        const SizedBox(height: 32),
-                      ],
+                      ),
                     );
                   }
-                  return const SizedBox(height: 16);
+                  return const SizedBox.shrink();
                 },
               ),
               
-              // Number Pad
+              const SizedBox(height: 24),
+              
+              // Number Pad - compact layout
               GridView.count(
                 shrinkWrap: true,
                 crossAxisCount: 3,
-                childAspectRatio: 1.5,
-                mainAxisSpacing: 16,
-                crossAxisSpacing: 16,
+                childAspectRatio: 1.6,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
                 physics: const NeverScrollableScrollPhysics(),
                 children: [
                   ...List.generate(9, (index) {
@@ -410,7 +464,7 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
                 ],
               ),
               
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               
               // Forgot PIN
               TextButton(
@@ -460,44 +514,40 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
                 child: Text(
                   'Forgot PIN?',
                   style: TextStyle(
-                    color: subtextColor,
-                    fontSize: 14,
+                    color: Colors.white,
+                    fontSize: 13,
                   ),
                 ),
               ),
-              
-              const SizedBox(height: 20),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
+            ],
+          ),
+            ),
+          ),
+        ],
       ),
     );
   }
   
   Widget _buildNumberButton(String number) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primaryColor = Theme.of(context).colorScheme.primary;
-    final surfaceColor = isDark ? const Color(0xFF2A2A2A) : Colors.grey.shade100;
-    final textColor = isDark ? Colors.white : Colors.black87;
-    
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: _isLoading ? null : () => _onNumberPressed(number),
         borderRadius: BorderRadius.circular(50),
-        splashColor: primaryColor.withOpacity(0.3),
-        highlightColor: primaryColor.withOpacity(0.1),
+        splashColor: Colors.white.withOpacity(0.2),
+        highlightColor: Colors.white.withOpacity(0.1),
+        onLongPress: null,
         child: Container(
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: surfaceColor,
+            color: Colors.white.withOpacity(0.1),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.5),
+              width: 1.5,
+            ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(isDark ? 0.3 : 0.08),
+                color: Colors.white.withOpacity(0.1),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
               ),
@@ -506,10 +556,10 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
           child: Center(
             child: Text(
               number,
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 30,
                 fontWeight: FontWeight.w600,
-                color: textColor,
+                color: Colors.white,
               ),
             ),
           ),
@@ -519,34 +569,35 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
   }
   
   Widget _buildDeleteButton() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primaryColor = Theme.of(context).colorScheme.primary;
-    final surfaceColor = isDark ? const Color(0xFF2A2A2A) : Colors.grey.shade100;
-    
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: _isLoading ? null : _onDeletePressed,
         borderRadius: BorderRadius.circular(50),
-        splashColor: Colors.red.withOpacity(0.3),
-        highlightColor: Colors.red.withOpacity(0.1),
+        splashColor: Colors.white.withOpacity(0.2),
+        highlightColor: Colors.white.withOpacity(0.1),
+        onLongPress: null,
         child: Container(
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: surfaceColor,
+            color: Colors.white.withOpacity(0.1),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.5),
+              width: 1.5,
+            ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(isDark ? 0.3 : 0.08),
+                color: Colors.white.withOpacity(0.1),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
               ),
             ],
           ),
-          child: Center(
+          child: const Center(
             child: Icon(
               Icons.backspace_outlined,
               size: 26,
-              color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+              color: Colors.white,
             ),
           ),
         ),

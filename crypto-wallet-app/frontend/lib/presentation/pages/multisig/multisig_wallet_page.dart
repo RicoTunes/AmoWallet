@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/config/api_config.dart';
 import '../../../services/biometric_auth_service.dart';
@@ -52,21 +53,39 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
   Future<void> _loadExistingWallet() async {
     setState(() => _loading = true);
     try {
-      // Check if user has existing multisig wallet stored
-      // For now, we'll check a backend endpoint
-      final response = await _dio.get(
-        '${ApiConfig.baseUrl}/api/multisig/my-wallet',
-      ).timeout(const Duration(seconds: 5));
-
-      if (response.statusCode == 200 && response.data['address'] != null) {
+      // Check if user has existing multisig wallet stored locally first
+      final prefs = await SharedPreferences.getInstance();
+      final storedAddress = prefs.getString('multisig_wallet_address');
+      
+      if (storedAddress != null && storedAddress.isNotEmpty) {
         setState(() {
-          _walletAddress = response.data['address'];
+          _walletAddress = storedAddress;
           _hasWallet = true;
         });
         await _loadWalletDetails();
+        return;
+      }
+      
+      // Try backend endpoint (may not require auth for checking)
+      try {
+        final response = await _dio.get(
+          '${ApiConfig.baseUrl}/api/multisig/my-wallet',
+        ).timeout(const Duration(seconds: 5));
+
+        if (response.statusCode == 200 && response.data['address'] != null) {
+          setState(() {
+            _walletAddress = response.data['address'];
+            _hasWallet = true;
+          });
+          await prefs.setString('multisig_wallet_address', _walletAddress!);
+          await _loadWalletDetails();
+        }
+      } catch (e) {
+        // Backend not available or auth required - that's okay, user can create local multisig
+        print('MultiSig backend check failed (expected if not configured): $e');
       }
     } catch (e) {
-      // No existing wallet
+      print('Error loading existing wallet: $e');
     } finally {
       setState(() => _loading = false);
     }
@@ -76,9 +95,10 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
     if (_walletAddress == null) return;
 
     try {
+      // Try to load from backend
       final response = await _dio.get(
         '${ApiConfig.baseUrl}/api/multisig/owners/$_walletAddress',
-      );
+      ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         setState(() {
@@ -90,10 +110,17 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
         await _loadPendingTransactions();
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load wallet: $e')),
-        );
+      // Backend not available - load from local storage if available
+      print('Failed to load wallet details from backend: $e');
+      final prefs = await SharedPreferences.getInstance();
+      final storedOwners = prefs.getStringList('multisig_owners') ?? [];
+      final storedRequired = prefs.getInt('multisig_required') ?? 2;
+      
+      if (storedOwners.isNotEmpty) {
+        setState(() {
+          _owners = storedOwners;
+          _requiredSignatures = storedRequired;
+        });
       }
     }
   }
@@ -104,7 +131,7 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
     try {
       final response = await _dio.get(
         '${ApiConfig.baseUrl}/api/multisig/pending/$_walletAddress',
-      );
+      ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         setState(() {
@@ -112,7 +139,8 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
         });
       }
     } catch (e) {
-      // Silent fail
+      // Silent fail - backend may not be configured
+      print('Failed to load pending transactions: $e');
     }
   }
 
@@ -1312,27 +1340,67 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
   Future<void> _createWallet(List<String> owners, int required) async {
     setState(() => _loading = true);
     try {
-      final response = await _dio.post(
-        '${ApiConfig.baseUrl}/api/multisig/deploy',
-        data: {'owners': owners, 'required': required},
-      );
+      // First try to create via backend
+      try {
+        final response = await _dio.post(
+          '${ApiConfig.baseUrl}/api/multisig/deploy',
+          data: {'owners': owners, 'required': required},
+        ).timeout(const Duration(seconds: 10));
 
-      if (response.statusCode == 200) {
-        setState(() {
-          _walletAddress = response.data['address'];
-          _hasWallet = true;
-        });
-        await _loadWalletDetails();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('MultiSig wallet created successfully'), backgroundColor: Colors.green),
-          );
+        if (response.statusCode == 200 && response.data['address'] != null) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('multisig_wallet_address', response.data['address']);
+          await prefs.setStringList('multisig_owners', owners);
+          await prefs.setInt('multisig_required', required);
+          
+          setState(() {
+            _walletAddress = response.data['address'];
+            _hasWallet = true;
+            _owners = owners;
+            _requiredSignatures = required;
+          });
+          await _loadWalletDetails();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('MultiSig wallet created successfully'), backgroundColor: Colors.green),
+            );
+          }
+          return;
         }
+      } catch (e) {
+        print('Backend multisig creation failed: $e');
+        // Backend not available - create locally for testing
+      }
+      
+      // Fallback: Create a local placeholder wallet (for demo/testing purposes)
+      // In production, this would deploy an actual smart contract
+      final prefs = await SharedPreferences.getInstance();
+      final placeholderAddress = '0x${DateTime.now().millisecondsSinceEpoch.toRadixString(16).padLeft(40, '0')}';
+      
+      await prefs.setString('multisig_wallet_address', placeholderAddress);
+      await prefs.setStringList('multisig_owners', owners);
+      await prefs.setInt('multisig_required', required);
+      
+      setState(() {
+        _walletAddress = placeholderAddress;
+        _hasWallet = true;
+        _owners = owners;
+        _requiredSignatures = required;
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('MultiSig wallet configured locally. Deploy contract for on-chain functionality.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 4),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create wallet: $e')),
+          SnackBar(content: Text('Failed to create wallet: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {

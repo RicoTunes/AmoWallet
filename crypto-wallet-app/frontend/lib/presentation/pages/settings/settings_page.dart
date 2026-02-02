@@ -107,6 +107,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                         ),
                         _buildSettingsItem(
                           context,
+                          icon: Icons.shield,
+                          title: 'Advanced Security',
+                          subtitle: 'HSM, Behavioral, Remote Wipe',
+                          onTap: () {
+                            context.push('/advanced-security');
+                          },
+                        ),
+                        _buildSettingsItem(
+                          context,
                           icon: Icons.backup,
                           title: 'Backup & Recovery',
                           subtitle: 'Manage recovery phrase',
