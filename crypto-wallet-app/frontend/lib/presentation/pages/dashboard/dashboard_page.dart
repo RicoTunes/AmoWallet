@@ -16,6 +16,7 @@ import '../../../services/preload_service.dart';
 import '../../../services/incoming_tx_monitor.dart';
 import '../../../models/transaction_model.dart';
 import '../../widgets/notification_bell.dart';
+import '../../widgets/live_price_chart.dart';
 
 class DashboardPage extends ConsumerStatefulWidget {
   const DashboardPage({super.key});
@@ -776,71 +777,397 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
       formattedBalance = '${balance.toStringAsFixed(4)} $symbol';
     }
     
-    return SizedBox(
-      width: 110,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                symbol,
-                style: AppTheme.bodySmall.copyWith(
-                  color: Theme.of(context).colorScheme.onPrimaryContainer.withOpacity(0.8),
-                  fontWeight: FontWeight.bold,
-                  fontSize: 11,
+    return GestureDetector(
+      onTap: () {
+        _showCoinDetailsBottomSheet(context, symbol);
+      },
+      child: SizedBox(
+        width: 110,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  symbol,
+                  style: AppTheme.bodySmall.copyWith(
+                    color: Theme.of(context).colorScheme.onPrimaryContainer.withOpacity(0.8),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 4),
-              if (change != 0.0)
-                Flexible(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        change > 0 ? Icons.arrow_drop_up : Icons.arrow_drop_down,
-                        color: change > 0 ? Colors.lightGreen : Colors.redAccent,
-                        size: 14,
-                      ),
-                      Flexible(
-                        child: Text(
-                          '${change > 0 ? '+' : ''}${change.toStringAsFixed(1)}%',
-                          style: AppTheme.bodySmall.copyWith(
-                            color: change > 0 ? Colors.lightGreen : Colors.redAccent,
-                            fontWeight: FontWeight.w500,
-                            fontSize: 9,
+                const SizedBox(width: 4),
+                if (change != 0.0)
+                  Flexible(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          change > 0 ? Icons.arrow_drop_up : Icons.arrow_drop_down,
+                          color: change > 0 ? Colors.lightGreen : Colors.redAccent,
+                          size: 14,
+                        ),
+                        Flexible(
+                          child: Text(
+                            '${change > 0 ? '+' : ''}${change.toStringAsFixed(1)}%',
+                            style: AppTheme.bodySmall.copyWith(
+                              color: change > 0 ? Colors.lightGreen : Colors.redAccent,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 9,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text(
+              _formatCurrency(usdValue),
+              style: AppTheme.bodyMedium.copyWith(
+                color: Theme.of(context).colorScheme.onPrimaryContainer,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            Text(
+              formattedBalance,
+              style: AppTheme.bodySmall.copyWith(
+                color: Theme.of(context).colorScheme.onPrimaryContainer.withOpacity(0.6),
+                fontSize: 9,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showCoinDetailsBottomSheet(BuildContext context, String symbol) {
+    // Find the coin in our balances
+    final coinBalance = _balances[symbol] ?? 0.0;
+    final priceInfo = _priceData[symbol];
+    final currentPrice = priceInfo?['price'] ?? 0.0;
+    final change = priceInfo?['change24h'] ?? 0.0;
+    final usdValue = coinBalance * currentPrice;
+
+    // Get coin color based on symbol
+    Color coinColor = _getCoinColor(symbol);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.5,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (BuildContext context, ScrollController scrollController) {
+          return Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF0D1421),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 20,
+                  offset: const Offset(0, -5),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                // Handle
+                Container(
+                  margin: const EdgeInsets.only(top: 8, bottom: 16),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                
+                // Coin header
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: coinColor.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          _getCoinIcon(symbol),
+                          color: coinColor,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _getCoinName(symbol),
+                              style: AppTheme.titleLarge.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              symbol,
+                              style: AppTheme.bodyMedium.copyWith(
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            '\$${currentPrice.toStringAsFixed(2)}',
+                            style: AppTheme.titleLarge.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            '${change > 0 ? '+' : ''}${change.toStringAsFixed(2)}%',
+                            style: AppTheme.bodyMedium.copyWith(
+                              color: change >= 0 ? Colors.lightGreen : Colors.red,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // Balance info
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1A1F2E),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Your Balance',
+                              style: AppTheme.bodyMedium.copyWith(
+                                color: Colors.white70,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${coinBalance.toStringAsFixed(8)} $symbol',
+                              style: AppTheme.titleLarge.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              'USD Value',
+                              style: AppTheme.bodyMedium.copyWith(
+                                color: Colors.white70,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _formatCurrency(usdValue),
+                              style: AppTheme.titleLarge.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // Live chart
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Container(
+                    height: 200,
+                    child: LivePriceChart(
+                      coinSymbol: symbol,
+                      chartColor: coinColor,
+                      initialPrice: currentPrice,
+                      change24h: change,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // Action buttons
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            context.push('/send', extra: {'initialCoin': symbol});
+                          },
+                          icon: const Icon(Icons.send_rounded, size: 18),
+                          label: const Text('Send'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: coinColor,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            context.push('/receive', extra: {'initialCoin': symbol});
+                          },
+                          icon: const Icon(Icons.qr_code_rounded, size: 18),
+                          label: const Text('Receive'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF1A1F2E),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            side: BorderSide(color: coinColor),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            _formatCurrency(usdValue),
-            style: AppTheme.bodyMedium.copyWith(
-              color: Theme.of(context).colorScheme.onPrimaryContainer,
-              fontWeight: FontWeight.w600,
-              fontSize: 12,
+
+                const SizedBox(height: 20),
+              ],
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          Text(
-            formattedBalance,
-            style: AppTheme.bodySmall.copyWith(
-              color: Theme.of(context).colorScheme.onPrimaryContainer.withOpacity(0.6),
-              fontSize: 9,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
+          );
+        },
       ),
     );
+  }
+
+  // Helper methods for coin details
+  Color _getCoinColor(String symbol) {
+    switch (symbol.toUpperCase()) {
+      case 'BTC':
+        return const Color(0xFFF7931A); // Bitcoin orange
+      case 'ETH':
+        return const Color(0xFF627EEA); // Ethereum blue
+      case 'BNB':
+        return const Color(0xFFF3BA2F); // BNB yellow
+      case 'SOL':
+        return const Color(0xFF00FFA3); // Solana green
+      case 'USDT':
+        return const Color(0xFF26A17B); // Tether green
+      case 'XRP':
+        return const Color(0xFF00AAE4); // Ripple blue
+      case 'DOGE':
+        return const Color(0xFFC2A633); // Doge yellow
+      case 'LTC':
+        return const Color(0xFFBFBBBB); // Litecoin gray
+      case 'ADA':
+        return const Color(0xFF0033AD); // Cardano blue
+      case 'DOT':
+        return const Color(0xFFE6007A); // Polkadot pink
+      default:
+        return const Color(0xFF8B5CF6); // Default purple
+    }
+  }
+
+  IconData _getCoinIcon(String symbol) {
+    switch (symbol.toUpperCase()) {
+      case 'BTC':
+        return Icons.currency_bitcoin;
+      case 'ETH':
+        return Icons.diamond_outlined;
+      case 'BNB':
+        return Icons.hexagon_outlined;
+      case 'SOL':
+        return Icons.sunny;
+      case 'USDT':
+      case 'USDC':
+        return Icons.attach_money;
+      case 'XRP':
+        return Icons.water_drop_outlined;
+      case 'DOGE':
+        return Icons.pets;
+      case 'LTC':
+        return Icons.bolt;
+      case 'ADA':
+        return Icons.auto_graph;
+      case 'DOT':
+        return Icons.linear_scale;
+      default:
+        return Icons.circle;
+    }
+  }
+
+  String _getCoinName(String symbol) {
+    switch (symbol.toUpperCase()) {
+      case 'BTC':
+        return 'Bitcoin';
+      case 'ETH':
+        return 'Ethereum';
+      case 'BNB':
+        return 'BNB';
+      case 'SOL':
+        return 'Solana';
+      case 'USDT':
+        return 'Tether';
+      case 'XRP':
+        return 'XRP';
+      case 'DOGE':
+        return 'Dogecoin';
+      case 'LTC':
+        return 'Litecoin';
+      case 'ADA':
+        return 'Cardano';
+      case 'DOT':
+        return 'Polkadot';
+      default:
+        return symbol;
+    }
   }
 
   Widget _buildCoinPriceDisplay(

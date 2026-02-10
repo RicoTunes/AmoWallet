@@ -1212,8 +1212,8 @@ class _SendPageV2State extends ConsumerState<SendPageV2>
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 70,
-        height: 70,
+        width: MediaQuery.of(context).size.width * 0.18, // Responsive width
+        height: MediaQuery.of(context).size.width * 0.18, // Responsive height
         decoration: BoxDecoration(
           color: const Color(0xFF1A1F2E),
           borderRadius: BorderRadius.circular(20),
@@ -1222,16 +1222,16 @@ class _SendPageV2State extends ConsumerState<SendPageV2>
           child: digit != null
               ? Text(
                   digit,
-                  style: const TextStyle(
+                  style: TextStyle(
                     color: Colors.white,
-                    fontSize: 28,
+                    fontSize: MediaQuery.of(context).size.width * 0.06, // Responsive font size
                     fontWeight: FontWeight.w600,
                   ),
                 )
               : Icon(
                   icon,
                   color: Colors.white.withOpacity(0.7),
-                  size: 28,
+                  size: MediaQuery.of(context).size.width * 0.07, // Responsive icon size
                 ),
         ),
       ),
