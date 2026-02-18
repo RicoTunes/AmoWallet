@@ -17,7 +17,7 @@ class MultiSigWalletPage extends ConsumerStatefulWidget {
 }
 
 class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late TabController _tabController;
   final _dio = Dio();
   final _biometricService = BiometricAuthService();
@@ -32,6 +32,15 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
   bool _hasWallet = false;
   double _balance = 0.0;
 
+  // ── Persisted create-wallet form state ────────────────────────────────────
+  // These live at state level so they survive app-lock/PIN-unlock cycles.
+  final TextEditingController _cwOwnersCountCtrl =
+      TextEditingController(text: '3');
+  final TextEditingController _cwRequiredSigsCtrl =
+      TextEditingController(text: '2');
+  List<TextEditingController> _cwOwnerAddressCtrl = List.generate(
+      3, (_) => TextEditingController());
+
   // Theme colors
   static const Color _primaryColor = Color(0xFF6366F1);
   static const Color _secondaryColor = Color(0xFF8B5CF6);
@@ -39,13 +48,58 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _tabController = TabController(length: 3, vsync: this);
+    _restoreCreateWalletForm();
     _loadExistingWallet();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _persistCreateWalletForm();
+    }
+  }
+
+  /// Save create-wallet form values to SharedPreferences so they survive
+  /// app-lock → PIN-entry → resume cycles.
+  Future<void> _persistCreateWalletForm() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('_cw_ownersCount', _cwOwnersCountCtrl.text);
+    await prefs.setString('_cw_requiredSigs', _cwRequiredSigsCtrl.text);
+    final addrs = _cwOwnerAddressCtrl.map((c) => c.text).toList();
+    await prefs.setStringList('_cw_ownerAddresses', addrs);
+  }
+
+  /// Restore previously saved create-wallet form values.
+  Future<void> _restoreCreateWalletForm() async {
+    final prefs = await SharedPreferences.getInstance();
+    final count = prefs.getString('_cw_ownersCount');
+    final required = prefs.getString('_cw_requiredSigs');
+    final addrs = prefs.getStringList('_cw_ownerAddresses');
+    if (count != null) _cwOwnersCountCtrl.text = count;
+    if (required != null) _cwRequiredSigsCtrl.text = required;
+    if (addrs != null && addrs.isNotEmpty) {
+      // Ensure enough controllers exist
+      while (_cwOwnerAddressCtrl.length < addrs.length) {
+        _cwOwnerAddressCtrl.add(TextEditingController());
+      }
+      for (int i = 0; i < addrs.length; i++) {
+        _cwOwnerAddressCtrl[i].text = addrs[i];
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _tabController.dispose();
+    _cwOwnersCountCtrl.dispose();
+    _cwRequiredSigsCtrl.dispose();
+    for (final c in _cwOwnerAddressCtrl) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -1016,13 +1070,15 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
 
   // Dialog methods
   void _showCreateWalletDialog() {
-    final ownersController = TextEditingController(text: '3');
-    final requiredController = TextEditingController(text: '2');
-    final List<TextEditingController> ownerAddresses = [
-      TextEditingController(),
-      TextEditingController(),
-      TextEditingController(),
-    ];
+    // Sync count of address controllers to whatever is in the count field
+    final currentCount = int.tryParse(_cwOwnersCountCtrl.text) ?? 3;
+    while (_cwOwnerAddressCtrl.length < currentCount) {
+      _cwOwnerAddressCtrl.add(TextEditingController());
+    }
+    while (_cwOwnerAddressCtrl.length > currentCount) {
+      _cwOwnerAddressCtrl.last.dispose();
+      _cwOwnerAddressCtrl.removeLast();
+    }
 
     showModalBottomSheet(
       context: context,
@@ -1079,7 +1135,7 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
                                     const Text('Total Owners', style: TextStyle(fontWeight: FontWeight.w600)),
                                     const SizedBox(height: 8),
                                     TextField(
-                                      controller: ownersController,
+                                      controller: _cwOwnersCountCtrl,
                                       keyboardType: TextInputType.number,
                                       decoration: InputDecoration(
                                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -1088,11 +1144,12 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
                                       onChanged: (val) {
                                         final count = int.tryParse(val) ?? 3;
                                         setSheetState(() {
-                                          while (ownerAddresses.length < count) {
-                                            ownerAddresses.add(TextEditingController());
+                                          while (_cwOwnerAddressCtrl.length < count) {
+                                            _cwOwnerAddressCtrl.add(TextEditingController());
                                           }
-                                          while (ownerAddresses.length > count) {
-                                            ownerAddresses.removeLast();
+                                          while (_cwOwnerAddressCtrl.length > count) {
+                                            _cwOwnerAddressCtrl.last.dispose();
+                                            _cwOwnerAddressCtrl.removeLast();
                                           }
                                         });
                                       },
@@ -1108,7 +1165,7 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
                                     const Text('Required Signatures', style: TextStyle(fontWeight: FontWeight.w600)),
                                     const SizedBox(height: 8),
                                     TextField(
-                                      controller: requiredController,
+                                      controller: _cwRequiredSigsCtrl,
                                       keyboardType: TextInputType.number,
                                       decoration: InputDecoration(
                                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -1125,7 +1182,7 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
                           const Text('Owner Addresses', style: TextStyle(fontWeight: FontWeight.w600)),
                           const SizedBox(height: 12),
 
-                          ...ownerAddresses.asMap().entries.map((entry) {
+                          ..._cwOwnerAddressCtrl.asMap().entries.map((entry) {
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 12),
                               child: TextField(
@@ -1149,9 +1206,14 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
                               onPressed: () async {
                                 Navigator.pop(context);
                                 await _createWallet(
-                                  ownerAddresses.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList(),
-                                  int.tryParse(requiredController.text) ?? 2,
+                                  _cwOwnerAddressCtrl.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList(),
+                                  int.tryParse(_cwRequiredSigsCtrl.text) ?? 2,
                                 );
+                                // Clear persisted draft after successful wallet creation
+                                final prefs = await SharedPreferences.getInstance();
+                                await prefs.remove('_cw_ownersCount');
+                                await prefs.remove('_cw_requiredSigs');
+                                await prefs.remove('_cw_ownerAddresses');
                               },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: _primaryColor,
