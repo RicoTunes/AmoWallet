@@ -644,6 +644,30 @@ class WalletService {
           debugPrint('❌ Auto-recovery failed — no mnemonic found anywhere');
           return {};
         }
+      } else {
+        // Some chains exist — fill in any missing ones from mnemonic silently
+        const allChains = ['BTC', 'ETH', 'BNB', 'SOL', 'TRX', 'LTC', 'DOGE', 'XRP'];
+        final missingChains = allChains.where((c) => !addressesByChain.containsKey(c)).toList();
+        if (missingChains.isNotEmpty) {
+          debugPrint('⚙️ ${missingChains.length} chains missing (${missingChains.join(", ")}) — deriving from mnemonic...');
+          final mnemonic = await _recoverMnemonicFromAnyStorage();
+          if (mnemonic != null) {
+            for (final chain in missingChains) {
+              try {
+                final wallet = await Bip39Wallet.restore(mnemonic: mnemonic, chain: chain);
+                final address = wallet['address'];
+                final privateKey = wallet['privateKey'];
+                if (address != null && address.isNotEmpty) {
+                  await storeWalletCredentials(chain, address, privateKey, mnemonic);
+                  addressesByChain.putIfAbsent(chain, () => {}).add(address);
+                  debugPrint('🔄 Derived missing $chain: $address');
+                }
+              } catch (e) {
+                debugPrint('⚠️ Could not derive $chain: $e');
+              }
+            }
+          }
+        }
       }
       
       // Query balance for each address using blockchain service - IN PARALLEL for speed
