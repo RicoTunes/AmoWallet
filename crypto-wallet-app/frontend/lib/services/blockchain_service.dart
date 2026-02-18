@@ -372,43 +372,63 @@ class BlockchainService {
   /// Get ERC20 token balance (USDT, USDC, etc.)
   Future<double> getErc20TokenBalance(
       String address, String contractAddress, int decimals) async {
+    // Try backend proxy first
     try {
       final response = await _dio.get(
-          '${_publicApis['ETH']}?module=account&action=tokenbalance&contractaddress=$contractAddress&address=$address&tag=latest&apikey=YourApiKeyToken');
-      final data = response.data;
+        '${ApiConfig.baseUrl}/api/blockchain/balance/ETH/$address',
+        options: Options(receiveTimeout: const Duration(seconds: 8)),
+      );
+      if (response.data is Map && response.data['success'] == true) {
+        final balance = double.tryParse(response.data['balance']?.toString() ?? '0') ?? 0.0;
+        if (balance > 0) return balance;
+      }
+    } catch (_) {}
 
+    // Fallback: Etherscan free tier (no key needed for low volume)
+    try {
+      final response = await _dio.get(
+          '${_publicApis['ETH']}?module=account&action=tokenbalance&contractaddress=$contractAddress&address=$address&tag=latest');
+      final data = response.data;
       if (data is Map && data['status'] == '1') {
         final balanceWei = BigInt.parse(data['result']);
         final balance = balanceWei / BigInt.from(10).pow(decimals);
         return balance.toDouble();
       }
-
-      return 0.0;
     } catch (e) {
-      print('Error fetching ERC20 token balance: $e');
-      return 0.0;
+      debugPrint('Error fetching ERC20 token balance: $e');
     }
+    return 0.0;
   }
 
   /// Get BEP20 token balance (BSC USDT, etc.)
   Future<double> getBep20TokenBalance(
       String address, String contractAddress, int decimals) async {
+    // Try backend proxy first
     try {
       final response = await _dio.get(
-          '${_publicApis['BNB']}?module=account&action=tokenbalance&contractaddress=$contractAddress&address=$address&tag=latest&apikey=YourApiKeyToken');
-      final data = response.data;
+        '${ApiConfig.baseUrl}/api/blockchain/balance/BNB/$address',
+        options: Options(receiveTimeout: const Duration(seconds: 8)),
+      );
+      if (response.data is Map && response.data['success'] == true) {
+        final balance = double.tryParse(response.data['balance']?.toString() ?? '0') ?? 0.0;
+        if (balance > 0) return balance;
+      }
+    } catch (_) {}
 
+    // Fallback: BscScan free tier
+    try {
+      final response = await _dio.get(
+          '${_publicApis['BNB']}?module=account&action=tokenbalance&contractaddress=$contractAddress&address=$address&tag=latest');
+      final data = response.data;
       if (data is Map && data['status'] == '1') {
         final balanceWei = BigInt.parse(data['result']);
         final balance = balanceWei / BigInt.from(10).pow(decimals);
         return balance.toDouble();
       }
-
-      return 0.0;
     } catch (e) {
-      print('Error fetching BEP20 token balance: $e');
-      return 0.0;
+      debugPrint('Error fetching BEP20 token balance: $e');
     }
+    return 0.0;
   }
 
   /// Get TRC20 token balance (Tron USDT, etc.)
@@ -442,23 +462,36 @@ class BlockchainService {
 
   /// Get BSC balance
   Future<double> _getBscBalance(String address) async {
+    // Try backend proxy first
     try {
       final response = await _dio.get(
-          '${_publicApis['BNB']}?module=account&action=balance&address=$address&tag=latest&apikey=YourApiKeyToken');
+        '${ApiConfig.baseUrl}/api/blockchain/balance/BNB/$address',
+        options: Options(receiveTimeout: const Duration(seconds: 10)),
+      );
       final data = response.data;
+      if (data is Map && data['success'] == true) {
+        final balance = double.tryParse(data['balance']?.toString() ?? '0') ?? 0.0;
+        debugPrint('✅ BNB balance from backend: $balance');
+        return balance;
+      }
+    } catch (e) {
+      debugPrint('⚠️ Backend BNB balance failed: $e');
+    }
 
+    // Fallback: BscScan free tier (no key needed)
+    try {
+      final response = await _dio.get(
+          '${_publicApis['BNB']}?module=account&action=balance&address=$address&tag=latest');
+      final data = response.data;
       if (data is Map && data['status'] == '1') {
         final balanceWei = BigInt.parse(data['result']);
         final balanceBnb = balanceWei / BigInt.from(10).pow(18);
         return balanceBnb.toDouble();
       }
-
-      return 0.0;
     } catch (e) {
-      print('Error fetching BSC balance: $e');
-      // Return 0 on error - only show real balances
-      return 0.0;
+      debugPrint('Error fetching BSC balance: $e');
     }
+    return 0.0;
   }
 
   /// Get Litecoin balance
@@ -789,7 +822,7 @@ class BlockchainService {
   Future<List<Map<String, dynamic>>> _getPolygonTransactions(String address) async {
     try {
       final response = await _dio.get(
-        'https://api.polygonscan.com/api?module=account&action=txlist&address=$address&startblock=0&endblock=99999999&sort=desc&apikey=YourApiKeyToken',
+        'https://api.polygonscan.com/api?module=account&action=txlist&address=$address&startblock=0&endblock=99999999&sort=desc',
       );
       
       if (response.data['status'] == '1' && response.data['result'] != null) {
@@ -844,9 +877,9 @@ class BlockchainService {
         print('Backend API failed, falling back to BscScan: $e');
       }
 
-      // Fallback to BscScan
+      // Fallback to BscScan free tier
       final response = await _dio.get(
-          '${_publicApis['BNB']}?module=account&action=txlist&address=$address&startblock=0&endblock=99999999&sort=desc&apikey=YourApiKeyToken');
+          '${_publicApis['BNB']}?module=account&action=txlist&address=$address&startblock=0&endblock=99999999&sort=desc');
       final data = response.data;
 
       if (data is Map && data['status'] == '1') {
@@ -947,10 +980,10 @@ class BlockchainService {
         print('DEBUG ETH_TX: Backend API failed: $e');
       }
 
-      // Fallback to Etherscan
+      // Fallback to Etherscan free tier
       print('DEBUG ETH_TX: Trying Etherscan fallback');
       final response = await _dio.get(
-          '${_publicApis['ETH']}?module=account&action=txlist&address=$address&startblock=0&endblock=99999999&sort=desc&apikey=YourApiKeyToken');
+          '${_publicApis['ETH']}?module=account&action=txlist&address=$address&startblock=0&endblock=99999999&sort=desc');
       final data = response.data;
       print('DEBUG ETH_TX: Etherscan response status: ${data['status']}, message: ${data['message']}');
 
@@ -988,19 +1021,29 @@ class BlockchainService {
 
   /// Get current gas price for Ethereum
   Future<BigInt> getEthereumGasPrice() async {
+    // Try backend fees endpoint first
     try {
       final response = await _dio.get(
-          '${_publicApis['ETH']}?module=proxy&action=eth_gasPrice&apikey=YourApiKeyToken');
-      final data = response.data;
+        '${ApiConfig.baseUrl}/api/blockchain/fees/ETH',
+        options: Options(receiveTimeout: const Duration(seconds: 6)),
+      );
+      if (response.data is Map && response.data['gasPrice'] != null) {
+        final gasPriceGwei = double.tryParse(response.data['gasPrice'].toString()) ?? 20.0;
+        return BigInt.from((gasPriceGwei * 1e9).toInt());
+      }
+    } catch (_) {}
 
+    // Fallback: Etherscan free tier
+    try {
+      final response = await _dio.get(
+          '${_publicApis['ETH']}?module=proxy&action=eth_gasPrice');
+      final data = response.data;
       if (data is Map && data.containsKey('result')) {
         return BigInt.parse(data['result'].replaceFirst('0x', ''), radix: 16);
       }
+    } catch (_) {}
 
-      return BigInt.from(20000000000); // Default 20 Gwei
-    } catch (e) {
-      return BigInt.from(20000000000);
-    }
+    return BigInt.from(20000000000); // Default 20 Gwei
   }
 
   /// Validate address for a specific coin
