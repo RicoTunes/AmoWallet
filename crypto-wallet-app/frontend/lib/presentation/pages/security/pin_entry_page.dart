@@ -70,8 +70,8 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
     }
 
     final prefs = await SharedPreferences.getInstance();
-    // Only allow main navigation pages as return route
-    final allowedRoutes = ['/dashboard', '/portfolio', '/coins', '/settings'];
+    // Allow all main app pages as return route (including send, swap, receive)
+    final allowedRoutes = ['/dashboard', '/portfolio', '/coins', '/settings', '/send', '/swap', '/receive', '/transactions'];
     final savedRoute = prefs.getString('last_route');
     if (savedRoute != null && allowedRoutes.any((r) => savedRoute.startsWith(r))) {
       setState(() {

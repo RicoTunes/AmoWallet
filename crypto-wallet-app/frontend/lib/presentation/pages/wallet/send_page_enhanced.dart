@@ -146,6 +146,17 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
           _cachedFees[coin.symbol] = _getDefaultFee(coin.symbol);
         }
       }
+      // Load my sending address for the current coin
+      try {
+        final addresses = await _walletService.getStoredAddresses(_selectedCoin);
+        if (addresses.isNotEmpty && mounted) {
+          setState(() => _myAddress = addresses.first);
+          print('📬 Send page: my address = $_myAddress');
+        }
+      } catch (e) {
+        print('⚠️ Could not load address: $e');
+      }
+
       // Update the currently displayed coin
       if (mounted) {
         setState(() {
@@ -237,10 +248,17 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
       setState(() {
         _selectedCoin = coin;
         _balanceLoaded = false;
+        _myAddress = null; // reset — will be reloaded for new coin
       });
       _animateToColor(_getCoinColor(coin));
       _loadBalance();
       _loadCryptoPrice();
+      // Refresh sending address for the newly selected coin
+      _walletService.getStoredAddresses(coin).then((addresses) {
+        if (addresses.isNotEmpty && mounted) {
+          setState(() => _myAddress = addresses.first);
+        }
+      });
     }
   }
 
@@ -543,6 +561,16 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
       }
 
       // Send transaction
+      // If address still not loaded, attempt one more fetch
+      if (_myAddress == null) {
+        final addresses = await _walletService.getStoredAddresses(_selectedCoin);
+        if (addresses.isNotEmpty) {
+          _myAddress = addresses.first;
+        } else {
+          throw Exception('Could not determine your $_selectedCoin address. Please restart the app.');
+        }
+      }
+
       final txHash = await _blockchainService.sendTransaction(
         coin: _selectedCoin,
         fromAddress: _myAddress!,

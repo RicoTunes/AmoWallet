@@ -100,13 +100,13 @@ class _CryptoWalletProAppState extends ConsumerState<CryptoWalletProApp> with Wi
           return;
         }
 
-        // Only save last_route if it's a main navigation page (dashboard, portfolio, settings, etc.)
-        final allowedRoutes = ['/dashboard', '/portfolio', '/coins', '/settings'];
+        // Save last route for all main app pages so user is returned here after unlock
+        final allowedRoutes = ['/dashboard', '/portfolio', '/coins', '/settings', '/send', '/swap', '/receive', '/transactions'];
         if (allowedRoutes.any((r) => currentLocation.startsWith(r))) {
           await prefs.setString('last_route', currentLocation);
           print('💾 Saved current route: $currentLocation');
         } else {
-          // Default to dashboard if not a main page
+          // For PIN setup, splash, etc. default to dashboard
           await prefs.setString('last_route', '/dashboard');
           print('💾 Forced last route to /dashboard');
         }
