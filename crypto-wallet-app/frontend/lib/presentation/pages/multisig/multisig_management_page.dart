@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/config/api_config.dart';
 import '../../../services/biometric_auth_service.dart';
 
@@ -35,8 +36,16 @@ class _MultiSigManagementPageState extends State<MultiSigManagementPage> with Si
   }
 
   Future<void> _loadSavedAddress() async {
-    // In production, load from secure storage
-    // For now, just a placeholder
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString('multisig_wallet_address');
+    if (saved != null && saved.isNotEmpty) {
+      setState(() {
+        _savedContractAddress = saved;
+        _contractAddressController.text = saved;
+      });
+      await _loadContractInfo();
+      await _loadPendingTransactions();
+    }
   }
 
   Future<void> _loadContractInfo() async {
@@ -56,6 +65,8 @@ class _MultiSigManagementPageState extends State<MultiSigManagementPage> with Si
       );
 
       if (response.statusCode == 200) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('multisig_wallet_address', address);
         setState(() {
           _contractInfo = response.data;
           _savedContractAddress = address;

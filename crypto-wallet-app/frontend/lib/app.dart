@@ -20,6 +20,7 @@ class _CryptoWalletProAppState extends ConsumerState<CryptoWalletProApp> with Wi
   bool _isAppInBackground = false;
   DateTime? _lastAuthTime;
   bool _isCheckingAuth = false; // Prevent multiple concurrent auth checks
+  // ignore: unused_field
   bool _justAuthenticated = false; // Prevent immediate re-lock after auth
   
   // Minimum time (in seconds) before requiring re-authentication

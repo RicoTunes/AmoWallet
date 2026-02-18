@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 
 /// Secure clipboard service that auto-clears clipboard after a timeout
@@ -12,7 +13,8 @@ class SecureClipboardService {
   Timer? _clearTimer;
   static const Duration _defaultClearDuration = Duration(seconds: 60);
   
-  // Track what was copied for verification
+  // Track what was copied for verification (write-only sentinel; used on web clear path)
+  // ignore: unused_field
   String? _lastCopiedValue;
 
   /// Copy text to clipboard with auto-clear after timeout
@@ -76,9 +78,16 @@ class SecureClipboardService {
   /// Clear the clipboard
   Future<void> _clearClipboard() async {
     try {
-      // Replace clipboard content with empty string
-      await Clipboard.setData(const ClipboardData(text: ''));
-      _lastCopiedValue = null;
+      if (kIsWeb) {
+        // On web, browsers block clipboard writes from non-user-gesture contexts
+        // (e.g., Timer callbacks). Instead we just forget our stored value so
+        // any future auto-paste attempt returns nothing.
+        _lastCopiedValue = null;
+      } else {
+        // On native platforms, we can safely overwrite the clipboard.
+        await Clipboard.setData(const ClipboardData(text: ''));
+        _lastCopiedValue = null;
+      }
     } catch (e) {
       print('⚠️ Failed to clear clipboard: $e');
     }

@@ -25,7 +25,6 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
 
   // State
   String? _walletAddress;
-  Map<String, dynamic>? _walletInfo;
   List<dynamic> _pendingTransactions = [];
   List<dynamic> _owners = [];
   int _requiredSignatures = 2;
@@ -102,7 +101,6 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
 
       if (response.statusCode == 200) {
         setState(() {
-          _walletInfo = response.data;
           _owners = response.data['owners'] ?? [];
           _requiredSignatures = response.data['required'] ?? 2;
           _balance = (response.data['balance'] ?? 0).toDouble();

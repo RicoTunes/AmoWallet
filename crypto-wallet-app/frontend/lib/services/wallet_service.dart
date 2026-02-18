@@ -301,10 +301,9 @@ class WalletService {
     }
     if (suffix == null) return;
     
-    // Find the actual chain prefix in the key (preserve original case)
+    // Find the first underscore to skip chain prefix
     final firstUnderscore = key.indexOf('_');
     if (firstUnderscore == -1) return;
-    final actualChainPrefix = key.substring(0, firstUnderscore);
     
     // Remove chain prefix and suffix to get address
     final withoutChain = key.substring(firstUnderscore + 1); // +1 for the underscore

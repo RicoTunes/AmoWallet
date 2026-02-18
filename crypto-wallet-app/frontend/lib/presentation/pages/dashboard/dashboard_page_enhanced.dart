@@ -6,11 +6,9 @@ import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
-import '../../../core/constants/app_constants.dart';
 import '../../../core/providers/theme_provider.dart';
 import '../../../services/price_service.dart';
 import '../../../services/wallet_service.dart';
-import '../../../services/notification_service.dart';
 import '../../../services/transaction_service.dart';
 import '../../../services/preload_service.dart';
 import '../../../services/incoming_tx_monitor.dart';
@@ -30,7 +28,6 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
     with TickerProviderStateMixin {
   final PriceService _priceService = PriceService();
   final WalletService _walletService = WalletService();
-  final NotificationService _notificationService = NotificationService();
   final TransactionService _transactionService = TransactionService();
   final PreloadService _preloadService = PreloadService();
   final IncomingTxMonitor _incomingTxMonitor = IncomingTxMonitor();
@@ -45,7 +42,6 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
   double _totalPortfolioValue = 0.0;
   List<Transaction> _recentTransactions = [];
   bool _isLoading = true;
-  bool _refreshing = false;
   bool _isSheetOpen = false; // Prevent multiple bottom sheets
   Set<String> _favorites = {'BTC', 'ETH'}; // Default favorites
   bool _balanceHidden = false; // Toggle to hide/show balance
@@ -238,10 +234,8 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
   
   Future<void> _refreshData() async {
     HapticFeedback.mediumImpact();
-    setState(() => _refreshing = true);
     await _loadDashboardData();
     await _incomingTxMonitor.resetBalances();
-    setState(() => _refreshing = false);
   }
 
   String _formatCurrency(double amount) {
@@ -1226,10 +1220,6 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
     );
   }
 
-  Widget _buildFundSection() {
-    return const SizedBox.shrink(); // Removed - content moved to central card
-  }
-
   Widget _buildActionButtons(bool isDark, Color cardColor, Color textColor) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 32, 20, 32),
@@ -1561,48 +1551,6 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
     });
   }
 
-  Widget _buildSheetActionButton({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          HapticFeedback.lightImpact();
-          onTap();
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1A1F2E),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: color.withOpacity(0.3),
-              width: 1,
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, color: color, size: 24),
-              const SizedBox(height: 6),
-              Text(
-                label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _getCoinIcon(String symbol, Color color) {
     IconData iconData;
     switch (symbol) {
@@ -1828,101 +1776,6 @@ class _AnimatedChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-}
-
-// Simple chart painter for coin detail sheet
-class _SimpleChartPainter extends CustomPainter {
-  final Color color;
-  final bool isPositive;
-
-  _SimpleChartPainter({
-    required this.color,
-    required this.isPositive,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    // Generate mock chart data points
-    final random = math.Random(42);
-    final points = <Offset>[];
-    final baseY = size.height * 0.5;
-    final amplitude = size.height * 0.3;
-
-    for (int i = 0; i <= 50; i++) {
-      final x = (i / 50) * size.width;
-      double y;
-
-      if (isPositive) {
-        // Upward trend
-        y = baseY - (i / 50) * amplitude + random.nextDouble() * 20 - 10;
-      } else {
-        // Downward trend
-        y = baseY + (i / 50) * amplitude + random.nextDouble() * 20 - 10;
-      }
-
-      y = y.clamp(10.0, size.height - 10);
-      points.add(Offset(x, y));
-    }
-
-    // Draw the line
-    final path = Path();
-    for (int i = 0; i < points.length; i++) {
-      if (i == 0) {
-        path.moveTo(points[i].dx, points[i].dy);
-      } else {
-        // Use bezier curves for smooth line
-        final prev = points[i - 1];
-        final curr = points[i];
-        final controlX = (prev.dx + curr.dx) / 2;
-        path.quadraticBezierTo(controlX, prev.dy, curr.dx, curr.dy);
-      }
-    }
-    canvas.drawPath(path, paint);
-
-    // Draw gradient fill below the line
-    final fillPath = Path.from(path);
-    fillPath.lineTo(size.width, size.height);
-    fillPath.lineTo(0, size.height);
-    fillPath.close();
-
-    final gradient = LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: [
-        color.withOpacity(0.3),
-        color.withOpacity(0.0),
-      ],
-    );
-
-    final fillPaint = Paint()
-      ..shader =
-          gradient.createShader(Rect.fromLTWH(0, 0, size.width, size.height));
-
-    canvas.drawPath(fillPath, fillPaint);
-
-    // Draw current price dot at the end
-    final lastPoint = points.last;
-    final dotPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-
-    canvas.drawCircle(lastPoint, 4, dotPaint);
-
-    // Draw glow around the dot
-    final glowPaint = Paint()
-      ..color = color.withOpacity(0.3)
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(lastPoint, 8, glowPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 // Extension method to add transaction details sheet to the dashboard
