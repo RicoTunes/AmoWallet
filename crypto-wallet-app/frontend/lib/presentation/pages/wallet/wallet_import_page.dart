@@ -49,8 +49,8 @@ class _WalletImportPageState extends ConsumerState<WalletImportPage> {
     setState(() => _isLoading = true);
 
     try {
-      // Restore wallet for main chains (BTC, ETH)
-      final chains = ['BTC', 'ETH'];
+      // Restore wallet for ALL chains (same as create page)
+      final chains = ['BTC', 'ETH', 'BNB', 'SOL', 'TRX', 'LTC', 'DOGE', 'XRP'];
       String? primaryAddress;
       
       for (final chain in chains) {

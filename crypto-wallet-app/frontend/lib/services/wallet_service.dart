@@ -498,6 +498,64 @@ class WalletService {
     }
   }
 
+  /// Try every known storage location to find a valid BIP39 mnemonic.
+  /// Order: secure storage chain keys → AuthService 'mnemonic' key → SharedPreferences brute-scan.
+  Future<String?> _recoverMnemonicFromAnyStorage() async {
+    // 1. Try findAnyMnemonic (scans chain-keyed entries)
+    final m1 = await findAnyMnemonic();
+    if (m1 != null) return m1;
+
+    // 2. Try the AuthService plain 'mnemonic' key
+    try {
+      final prefs = await _getPrefs();
+      final m2 = prefs.getString('mnemonic');
+      if (m2 != null && m2.trim().isNotEmpty) {
+        final words = m2.trim().split(RegExp(r'\s+'));
+        if (words.length == 12 || words.length == 24) {
+          debugPrint('✅ Found mnemonic in AuthService SharedPreferences key');
+          return m2.trim();
+        }
+      }
+    } catch (_) {}
+
+    // 3. Secure storage 'mnemonic' key (mobile only)
+    if (!kIsWeb && _storage != null) {
+      try {
+        final m3 = await _storage.read(key: 'mnemonic');
+        if (m3 != null && m3.trim().isNotEmpty) {
+          final words = m3.trim().split(RegExp(r'\s+'));
+          if (words.length == 12 || words.length == 24) {
+            debugPrint('✅ Found mnemonic in secure storage "mnemonic" key');
+            return m3.trim();
+          }
+        }
+      } catch (_) {}
+    }
+
+    return null;
+  }
+
+  /// Derive addresses for all supported chains from a mnemonic, store them,
+  /// and populate [addressesByChain] in-place.
+  Future<void> _deriveAndStoreAllChains(
+      String mnemonic, Map<String, Set<String>> addressesByChain) async {
+    const chains = ['BTC', 'ETH', 'BNB', 'SOL', 'TRX', 'LTC', 'DOGE', 'XRP'];
+    for (final chain in chains) {
+      try {
+        final wallet = await Bip39Wallet.restore(mnemonic: mnemonic, chain: chain);
+        final address = wallet['address'];
+        final privateKey = wallet['privateKey'];
+        if (address != null && address.isNotEmpty) {
+          await storeWalletCredentials(chain, address, privateKey, mnemonic);
+          addressesByChain.putIfAbsent(chain, () => {}).add(address);
+          debugPrint('🔄 Auto-restored $chain: $address');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Could not restore $chain from mnemonic: $e');
+      }
+    }
+  }
+
   /// Get balances for all stored addresses across all chains
   /// Incorporates swap adjustments from local storage
   Future<Map<String, double>> getBalances() async {
@@ -575,8 +633,17 @@ class WalletService {
       debugPrint('💼 Wallets by chain: ${addressesByChain.length} chains - $addressesByChain');
       
       if (addressesByChain.isEmpty) {
-        debugPrint('⚠️ No wallets found in storage!');
-        return {};
+        debugPrint('⚠️ No wallets found in storage — attempting auto-recovery from mnemonic...');
+        // Auto-recovery: derive all chain addresses from stored mnemonic
+        final mnemonic = await _recoverMnemonicFromAnyStorage();
+        if (mnemonic != null) {
+          await _deriveAndStoreAllChains(mnemonic, addressesByChain);
+          debugPrint('✅ Auto-recovered ${addressesByChain.length} chains from mnemonic');
+        }
+        if (addressesByChain.isEmpty) {
+          debugPrint('❌ Auto-recovery failed — no mnemonic found anywhere');
+          return {};
+        }
       }
       
       // Query balance for each address using blockchain service - IN PARALLEL for speed
