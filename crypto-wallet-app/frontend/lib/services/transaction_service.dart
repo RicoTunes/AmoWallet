@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:logger/logger.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/transaction_model.dart';
 import 'blockchain_service.dart';
@@ -23,8 +24,40 @@ class TransactionService {
         _blockchainService = blockchainService ?? BlockchainService(),
         _walletService = walletService ?? WalletService();
 
-  /// Safe wrapper around readAll() that returns empty map on web OperationError
-  /// (thrown when IndexedDB is empty / crypto key not yet seeded on web).
+  // ── SharedPreferences helpers (web-safe, no OperationError) ───────────────
+
+  static const String _txPrefix = 'tx_';
+
+  Future<SharedPreferences> get _prefs => SharedPreferences.getInstance();
+
+  Future<void> _prefsWrite(String key, String value) async {
+    final p = await _prefs;
+    await p.setString('$_txPrefix$key', value);
+  }
+
+  Future<String?> _prefsRead(String key) async {
+    final p = await _prefs;
+    return p.getString('$_txPrefix$key');
+  }
+
+  Future<void> _prefsDelete(String key) async {
+    final p = await _prefs;
+    await p.remove('$_txPrefix$key');
+  }
+
+  Future<Map<String, String>> _prefsReadAll() async {
+    final p = await _prefs;
+    final result = <String, String>{};
+    for (final k in p.getKeys()) {
+      if (k.startsWith(_txPrefix)) {
+        final v = p.getString(k);
+        if (v != null) result[k.substring(_txPrefix.length)] = v;
+      }
+    }
+    return result;
+  }
+
+  /// Safe wrapper around _storage.readAll() — only used for wallet keys (addresses).
   Future<Map<String, String>> _safeReadAll() async {
     try {
       final dynamic raw = await _storage.readAll();
@@ -36,7 +69,6 @@ class TransactionService {
       return {};
     } catch (e) {
       if (kIsWeb) {
-        // flutter_secure_storage_web throws OperationError when storage is empty
         return {};
       }
       rethrow;
@@ -48,11 +80,8 @@ class TransactionService {
   Future<void> storeTransaction(Transaction transaction) async {
     try {
       final key = 'transaction_${transaction.id}';
-      await _storage.write(
-        key: key,
-        value: json.encode(transaction.toJson()),
-      );
-      _logger.i('Stored transaction: ${transaction.id}');
+      await _prefsWrite(key, json.encode(transaction.toJson()));
+      _logger.i('Stored transaction: \${transaction.id}');
     } catch (e) {
       _logger.e('Failed to store transaction: $e');
       rethrow;
@@ -154,7 +183,7 @@ class TransactionService {
 
       // 2. Load locally stored transactions (pending ones without txHash yet)
       try {
-        final allStorage = await _safeReadAll();
+        final allStorage = await _prefsReadAll();
         for (final entry in allStorage.entries) {
           final key = entry.key;
           if (key.startsWith('transaction_')) {
@@ -259,11 +288,9 @@ class TransactionService {
   Future<Transaction?> getTransactionById(String id) async {
     try {
       final key = 'transaction_$id';
-      final value = await _storage.read(key: key);
+      final value = await _prefsRead(key);
       if (value == null) return null;
-      
-      final transactionJson = json.decode(value);
-      return Transaction.fromJson(transactionJson);
+      return Transaction.fromJson(json.decode(value));
     } catch (e) {
       _logger.e('Failed to get transaction $id: $e');
       return null;
@@ -274,7 +301,7 @@ class TransactionService {
   Future<void> deleteTransaction(String id) async {
     try {
       final key = 'transaction_$id';
-      await _storage.delete(key: key);
+      await _prefsDelete(key);
       _logger.i('Deleted transaction: $id');
     } catch (e) {
       _logger.e('Failed to delete transaction $id: $e');
@@ -285,11 +312,10 @@ class TransactionService {
   // Clear all transactions
   Future<void> clearAllTransactions() async {
     try {
-      final dynamic rawKeys = await _storage.readAll();
-      final allKeys = rawKeys is Map ? Map<String, String>.from(rawKeys.map((k, v) => MapEntry(k.toString(), v.toString()))) : <String, String>{};
+      final allKeys = await _prefsReadAll();
       for (final key in allKeys.keys) {
         if (key.startsWith('transaction_')) {
-          await _storage.delete(key: key);
+          await _prefsDelete(key);
         }
       }
       _logger.i('Cleared all transactions');
@@ -419,8 +445,7 @@ class TransactionService {
   // Clear old test transactions (keep only recent ones from last 7 days)
   Future<void> clearOldTestTransactions() async {
     try {
-      final dynamic rawStorage = await _storage.readAll();
-      final allStorage = rawStorage is Map ? Map<String, String>.from(rawStorage.map((k, v) => MapEntry(k.toString(), v.toString()))) : <String, String>{};
+      final allStorage = await _prefsReadAll();
       final sevenDaysAgo = DateTime.now().subtract(const Duration(days: 7));
       
       for (final entry in allStorage.entries) {
@@ -434,11 +459,11 @@ class TransactionService {
             // 1. Older than 7 days (likely test data)
             // 2. Status is 'pending' and older than 1 hour (failed transactions)
             if (tx.timestamp.isBefore(sevenDaysAgo)) {
-              await _storage.delete(key: key);
+              await _prefsDelete(key);
               _logger.i('Deleted old transaction: $key');
             } else if ((tx.status == 'pending' || tx.isPending) && 
                        tx.timestamp.isBefore(DateTime.now().subtract(const Duration(hours: 1)))) {
-              await _storage.delete(key: key);
+              await _prefsDelete(key);
               _logger.i('Deleted stale pending transaction: $key');
             }
           } catch (e) {
