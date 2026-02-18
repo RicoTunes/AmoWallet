@@ -681,6 +681,28 @@ router.get('/transactions/:network/:address', apiLimiter, async (req, res) => {
       case 'ETH':
         transactions = await getEthereumTransactions(address);
         break;
+      case 'BNB':
+        transactions = await getBnbTransactions(address);
+        break;
+      case 'MATIC':
+      case 'POLYGON':
+        transactions = await getPolygonTransactions(address);
+        break;
+      case 'SOL':
+        transactions = await getSolanaTransactions(address);
+        break;
+      case 'TRX':
+        transactions = await getTronTransactions(address);
+        break;
+      case 'XRP':
+        transactions = await getXrpTransactions(address);
+        break;
+      case 'DOGE':
+        transactions = await getDogeTransactions(address);
+        break;
+      case 'LTC':
+        transactions = await getLitecoinTransactions(address);
+        break;
       default:
         transactions = [];
     }
@@ -1041,6 +1063,242 @@ async function getEthereumTransactions(address) {
     return [];
   } catch (error) {
     console.error('❌ Ethereum transactions error:', error.message);
+    return [];
+  }
+}
+
+async function getBnbTransactions(address) {
+  try {
+    const apiKey = process.env.BSCSCAN_API_KEY || 'YourApiKeyToken';
+    const url = `https://api.bscscan.com/api?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&sort=desc&apikey=${apiKey}`;
+    const response = await axios.get(url);
+    if (response.data.status === '1') {
+      return response.data.result.slice(0, 15).map(tx => ({
+        hash: tx.hash,
+        amount: parseInt(tx.value) / 1e18,
+        timestamp: parseInt(tx.timeStamp),
+        confirmations: parseInt(tx.confirmations),
+        type: tx.from.toLowerCase() === address.toLowerCase() ? 'sent' : 'received',
+        fromAddress: tx.from,
+        toAddress: tx.to,
+        isPending: false
+      }));
+    }
+    return [];
+  } catch (error) {
+    console.error('BNB transactions error:', error.message);
+    return [];
+  }
+}
+
+async function getPolygonTransactions(address) {
+  try {
+    const apiKey = process.env.POLYGONSCAN_API_KEY || 'YourApiKeyToken';
+    const url = `https://api.polygonscan.com/api?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&sort=desc&apikey=${apiKey}`;
+    const response = await axios.get(url);
+    if (response.data.status === '1') {
+      return response.data.result.slice(0, 15).map(tx => ({
+        hash: tx.hash,
+        amount: parseInt(tx.value) / 1e18,
+        timestamp: parseInt(tx.timeStamp),
+        confirmations: parseInt(tx.confirmations),
+        type: tx.from.toLowerCase() === address.toLowerCase() ? 'sent' : 'received',
+        fromAddress: tx.from,
+        toAddress: tx.to,
+        isPending: false
+      }));
+    }
+    return [];
+  } catch (error) {
+    console.error('Polygon transactions error:', error.message);
+    return [];
+  }
+}
+
+async function getSolanaTransactions(address) {
+  try {
+    // Get recent signatures
+    const sigResponse = await axios.post(blockchainApis['SOL'], {
+      jsonrpc: '2.0', id: 1,
+      method: 'getSignaturesForAddress',
+      params: [address, { limit: 15 }]
+    });
+    const sigs = sigResponse.data.result || [];
+    if (!sigs.length) return [];
+
+    // Fetch each transaction to determine direction and amount
+    const txs = await Promise.all(sigs.slice(0, 10).map(async (sig) => {
+      try {
+        const txResp = await axios.post(blockchainApis['SOL'], {
+          jsonrpc: '2.0', id: 1,
+          method: 'getTransaction',
+          params: [sig.signature, { encoding: 'json', maxSupportedTransactionVersion: 0 }]
+        });
+        const tx = txResp.data.result;
+        if (!tx) return null;
+
+        const accountKeys = tx.transaction.message.accountKeys || [];
+        const preBalances = tx.meta.preBalances || [];
+        const postBalances = tx.meta.postBalances || [];
+        const myIndex = accountKeys.findIndex(k => (k.pubkey || k) === address);
+        const lamportsDiff = myIndex >= 0 ? (postBalances[myIndex] - preBalances[myIndex]) : 0;
+        const amount = Math.abs(lamportsDiff) / 1e9;
+        const type = lamportsDiff >= 0 ? 'received' : 'sent';
+
+        // Find counter-party
+        let fromAddress = '', toAddress = '';
+        if (type === 'received') {
+          const senderIdx = postBalances.findIndex((b, i) => i !== myIndex && preBalances[i] - b > 0);
+          fromAddress = senderIdx >= 0 ? (accountKeys[senderIdx].pubkey || accountKeys[senderIdx]) : '';
+          toAddress = address;
+        } else {
+          fromAddress = address;
+          const receIdx = postBalances.findIndex((b, i) => i !== myIndex && b - preBalances[i] > 0);
+          toAddress = receIdx >= 0 ? (accountKeys[receIdx].pubkey || accountKeys[receIdx]) : '';
+        }
+
+        return {
+          hash: sig.signature,
+          amount,
+          timestamp: tx.blockTime || Math.floor(Date.now() / 1000),
+          confirmations: sig.confirmationStatus === 'finalized' ? 100 : 0,
+          type,
+          fromAddress,
+          toAddress,
+          isPending: sig.confirmationStatus !== 'finalized'
+        };
+      } catch (e) {
+        return null;
+      }
+    }));
+    return txs.filter(Boolean);
+  } catch (error) {
+    console.error('Solana transactions error:', error.message);
+    return [];
+  }
+}
+
+async function getTronTransactions(address) {
+  try {
+    const headers = {};
+    if (process.env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = process.env.TRONGRID_API_KEY;
+    const response = await axios.get(
+      `${blockchainApis['TRX']}/v1/accounts/${address}/transactions?limit=15`,
+      { headers }
+    );
+    const data = response.data.data || [];
+    return data.slice(0, 15).map(tx => {
+      const contract = tx.raw_data?.contract?.[0];
+      const value = contract?.parameter?.value || {};
+      const amount = (value.amount || 0) / 1e6;
+      const toAddr = value.to_address || '';
+      const fromAddr = value.owner_address || '';
+      return {
+        hash: tx.txID,
+        amount,
+        timestamp: Math.floor((tx.block_timestamp || Date.now()) / 1000),
+        confirmations: 100,
+        type: toAddr === address ? 'received' : 'sent',
+        fromAddress: fromAddr,
+        toAddress: toAddr,
+        isPending: false
+      };
+    });
+  } catch (error) {
+    console.error('Tron transactions error:', error.message);
+    return [];
+  }
+}
+
+async function getXrpTransactions(address) {
+  try {
+    const response = await axios.post(blockchainApis['XRP'], {
+      method: 'account_tx',
+      params: [{ account: address, limit: 15 }]
+    });
+    const items = response.data.result?.transactions || [];
+    return items.slice(0, 15).map(item => {
+      const tx = item.tx || item;
+      const amount = (parseInt(tx.Amount) || 0) / 1e6;
+      return {
+        hash: tx.hash,
+        amount,
+        timestamp: (tx.date || 0) + 946684800,
+        confirmations: 100,
+        type: tx.Destination === address ? 'received' : 'sent',
+        fromAddress: tx.Account || '',
+        toAddress: tx.Destination || '',
+        isPending: false
+      };
+    });
+  } catch (error) {
+    console.error('XRP transactions error:', error.message);
+    return [];
+  }
+}
+
+async function getDogeTransactions(address) {
+  try {
+    // Use blockcypher free tier (no key needed for basic use)
+    const response = await axios.get(
+      `https://api.blockcypher.com/v1/doge/main/addrs/${address}/full?limit=15`
+    );
+    const txs = response.data.txs || [];
+    return txs.slice(0, 15).map(tx => {
+      // Check if any input is from our address
+      const isSender = tx.inputs?.some(i => i.addresses?.includes(address));
+      const amount = tx.outputs
+        ?.filter(o => isSender ? !o.addresses?.includes(address) : o.addresses?.includes(address))
+        ?.reduce((s, o) => s + (o.value || 0), 0) / 1e8 || 0;
+      const fromAddr = isSender ? address : (tx.inputs?.[0]?.addresses?.[0] || '');
+      const toAddr = isSender
+        ? (tx.outputs?.find(o => !o.addresses?.includes(address))?.addresses?.[0] || '')
+        : address;
+      return {
+        hash: tx.hash,
+        amount,
+        timestamp: tx.confirmed ? Math.floor(new Date(tx.confirmed).getTime() / 1000) : Math.floor(Date.now() / 1000),
+        confirmations: tx.confirmations || 0,
+        type: isSender ? 'sent' : 'received',
+        fromAddress: fromAddr,
+        toAddress: toAddr,
+        isPending: !tx.confirmed
+      };
+    });
+  } catch (error) {
+    console.error('Doge transactions error:', error.message);
+    return [];
+  }
+}
+
+async function getLitecoinTransactions(address) {
+  try {
+    const response = await axios.get(
+      `https://api.blockcypher.com/v1/ltc/main/addrs/${address}/full?limit=15`
+    );
+    const txs = response.data.txs || [];
+    return txs.slice(0, 15).map(tx => {
+      const isSender = tx.inputs?.some(i => i.addresses?.includes(address));
+      const amount = tx.outputs
+        ?.filter(o => isSender ? !o.addresses?.includes(address) : o.addresses?.includes(address))
+        ?.reduce((s, o) => s + (o.value || 0), 0) / 1e8 || 0;
+      const fromAddr = isSender ? address : (tx.inputs?.[0]?.addresses?.[0] || '');
+      const toAddr = isSender
+        ? (tx.outputs?.find(o => !o.addresses?.includes(address))?.addresses?.[0] || '')
+        : address;
+      return {
+        hash: tx.hash,
+        amount,
+        timestamp: tx.confirmed ? Math.floor(new Date(tx.confirmed).getTime() / 1000) : Math.floor(Date.now() / 1000),
+        confirmations: tx.confirmations || 0,
+        type: isSender ? 'sent' : 'received',
+        fromAddress: fromAddr,
+        toAddress: toAddr,
+        isPending: !tx.confirmed
+      };
+    });
+  } catch (error) {
+    console.error('Litecoin transactions error:', error.message);
     return [];
   }
 }
