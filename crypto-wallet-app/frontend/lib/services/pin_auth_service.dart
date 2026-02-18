@@ -3,6 +3,10 @@ import 'dart:math';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:pointycastle/digests/sha256.dart' as pc;
+import 'package:pointycastle/key_derivators/api.dart' show Pbkdf2Parameters;
+import 'package:pointycastle/key_derivators/pbkdf2.dart';
+import 'package:pointycastle/macs/hmac.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -30,24 +34,37 @@ class PinAuthService {
   static const int _maxFailedAttempts = 5;
   static const int _lockoutDurationMinutes = 30;
 
-  /// Hash the PIN with salt for secure storage
-  /// This ensures PIN is never stored in plain text
-  String _hashPin(String pin, String salt) {
+  // PBKDF2 parameters — 100k iterations makes brute-force ~100,000x harder than SHA-256
+  static const int _pbkdf2Iterations = 100000;
+  static const int _pbkdf2KeyLength = 32; // 256-bit derived key
+  static const String _hashVersion = 'v2'; // v1 = plain SHA-256 (legacy)
+
+  /// Hash the PIN using PBKDF2-HMAC-SHA256 (100,000 iterations).
+  /// Output is prefixed with 'v2:' to distinguish from legacy SHA-256 hashes.
+  String _hashPinPBKDF2(String pin, String salt) {
+    final pbkdf2 = PBKDF2KeyDerivator(HMac(pc.SHA256Digest(), 64));
+    final saltBytes = Uint8List.fromList(utf8.encode(salt));
+    pbkdf2.init(Pbkdf2Parameters(saltBytes, _pbkdf2Iterations, _pbkdf2KeyLength));
+    final derived = pbkdf2.process(Uint8List.fromList(utf8.encode(pin)));
+    return '$_hashVersion:${base64Url.encode(derived)}';
+  }
+
+  /// Legacy SHA-256 hash — used ONLY for migrating existing stored PINs.
+  /// Do NOT use for new PINs.
+  String _hashPinSHA256Legacy(String pin, String salt) {
     final bytes = utf8.encode(pin + salt);
     final digest = sha256.convert(bytes);
     return digest.toString();
   }
 
-  /// Generate a cryptographically secure random salt for PIN hashing
-  /// Uses SecureRandom for unpredictable salt generation
+  /// Generate a cryptographically secure random salt for PIN hashing.
   String _generateSalt() {
     final secureRandom = Random.secure();
     final saltBytes = Uint8List(32); // 256 bits of entropy
     for (int i = 0; i < saltBytes.length; i++) {
       saltBytes[i] = secureRandom.nextInt(256);
     }
-    // Convert to base64 for storage, take first 32 chars
-    return base64Url.encode(saltBytes).substring(0, 32);
+    return base64Url.encode(saltBytes);
   }
 
   // Web-compatible storage helper methods
@@ -113,15 +130,15 @@ class PinAuthService {
         return false;
       }
 
-      // Generate salt and hash the PIN
+      // Generate salt and hash the PIN with PBKDF2
       final salt = _generateSalt();
-      final hashedPin = _hashPin(pin, salt);
+      final hashedPin = _hashPinPBKDF2(pin, salt);
 
       // Store hash and salt separately
       await _writeSecure(_pinSaltKey, salt);
       await _writeSecure(_pinKey, hashedPin);
       await _writeSecure(_pinEnabledKey, 'true');
-      debugPrint('✅ PIN hash saved successfully in pin_auth_service');
+      debugPrint('✅ PIN PBKDF2 hash saved successfully in pin_auth_service');
       return true;
     } catch (e) {
       debugPrint('❌ Error saving PIN: $e');
@@ -164,11 +181,28 @@ class PinAuthService {
         return false;
       }
 
-      // Hash the input PIN with the stored salt
-      final inputHash = _hashPin(pin, salt);
+      // Determine hash version and verify accordingly
+      bool isValid;
+      if (storedHash.startsWith('$_hashVersion:')) {
+        // Current PBKDF2 path
+        final inputHash = _hashPinPBKDF2(pin, salt);
+        isValid = storedHash == inputHash;
+      } else {
+        // Legacy SHA-256 path — auto-migrate on successful match
+        final legacyHash = _hashPinSHA256Legacy(pin, salt);
+        isValid = storedHash == legacyHash;
+        if (isValid) {
+          // Silently upgrade to PBKDF2 while user is logged in
+          debugPrint('🔄 Migrating PIN from SHA-256 to PBKDF2...');
+          final newSalt = _generateSalt();
+          final newHash = _hashPinPBKDF2(pin, newSalt);
+          await _writeSecure(_pinSaltKey, newSalt);
+          await _writeSecure(_pinKey, newHash);
+          debugPrint('✅ PIN migrated to PBKDF2 (100k iterations)');
+        }
+      }
 
       debugPrint('🔍 Verifying PIN - comparing hashes');
-      final isValid = storedHash == inputHash;
       
       if (isValid) {
         // Reset failed attempts on successful login
