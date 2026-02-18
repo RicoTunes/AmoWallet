@@ -283,7 +283,7 @@ class _PortfolioPageState extends ConsumerState<PortfolioPage>
       child: Row(
         children: [
           _iconBtn(Icons.arrow_back_ios_new_rounded,
-              () => context.go('/dashboard')),
+              () => context.canPop() ? context.pop() : context.go('/dashboard')),
           const SizedBox(width: 12),
           const Expanded(
             child: Text('Portfolio',
