@@ -81,10 +81,19 @@ dependencies:
   bitcoin_base: ^7.0.0
   blockchain_utils: ^5.4.0
 
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/app_icon.png"
+  adaptive_icon_background: "#0D1421"
+  adaptive_icon_foreground: "assets/images/app_icon.png"
+  min_sdk_android: 21
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.3
 
   # Code Generation
   build_runner: ^2.4.6
