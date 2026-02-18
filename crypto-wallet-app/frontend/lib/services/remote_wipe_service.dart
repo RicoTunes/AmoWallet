@@ -44,18 +44,31 @@ class RemoteWipeService {
     if (_isInitialized) return;
 
     try {
-      // Generate or retrieve device ID
-      _deviceId = await _secureStorage.read(key: _deviceIdKey);
-      if (_deviceId == null) {
-        _deviceId = _generateDeviceId();
-        await _secureStorage.write(key: _deviceIdKey, value: _deviceId!);
-      }
-
-      // Generate or retrieve wipe token
-      _wipeToken = await _secureStorage.read(key: _wipeTokenKey);
-      if (_wipeToken == null) {
-        _wipeToken = _generateWipeToken();
-        await _secureStorage.write(key: _wipeTokenKey, value: _wipeToken!);
+      if (kIsWeb) {
+        // Web: use SharedPreferences (FlutterSecureStorage throws OperationError on web)
+        final prefs = await SharedPreferences.getInstance();
+        _deviceId = prefs.getString(_deviceIdKey);
+        if (_deviceId == null) {
+          _deviceId = _generateDeviceId();
+          await prefs.setString(_deviceIdKey, _deviceId!);
+        }
+        _wipeToken = prefs.getString(_wipeTokenKey);
+        if (_wipeToken == null) {
+          _wipeToken = _generateWipeToken();
+          await prefs.setString(_wipeTokenKey, _wipeToken!);
+        }
+      } else {
+        // Native: use FlutterSecureStorage
+        _deviceId = await _secureStorage.read(key: _deviceIdKey);
+        if (_deviceId == null) {
+          _deviceId = _generateDeviceId();
+          await _secureStorage.write(key: _deviceIdKey, value: _deviceId!);
+        }
+        _wipeToken = await _secureStorage.read(key: _wipeTokenKey);
+        if (_wipeToken == null) {
+          _wipeToken = _generateWipeToken();
+          await _secureStorage.write(key: _wipeTokenKey, value: _wipeToken!);
+        }
       }
 
       _isInitialized = true;

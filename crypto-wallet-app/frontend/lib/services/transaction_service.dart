@@ -53,8 +53,22 @@ class TransactionService {
     return result;
   }
 
-  /// Safe wrapper around _storage.readAll() — only used for wallet keys (addresses).
+  /// Safe wrapper for reading wallet keys (addresses).
+  /// On web, wallet keys are stored in SharedPreferences (FlutterSecureStorage
+  /// throws OperationError on web). On native, reads FlutterSecureStorage.
   Future<Map<String, String>> _safeReadAll() async {
+    if (kIsWeb) {
+      // Wallet keys on web are stored directly in SharedPreferences
+      final p = await SharedPreferences.getInstance();
+      final result = <String, String>{};
+      for (final k in p.getKeys()) {
+        // Only include wallet keys (private keys, meta) — skip tx_ prefix keys
+        if (k.startsWith(_txPrefix)) continue;
+        final v = p.getString(k);
+        if (v != null) result[k] = v;
+      }
+      return result;
+    }
     try {
       final dynamic raw = await _storage.readAll();
       if (raw is Map) {
@@ -64,10 +78,7 @@ class TransactionService {
       }
       return {};
     } catch (e) {
-      if (kIsWeb) {
-        return {};
-      }
-      rethrow;
+      return {};
     }
   }
 
