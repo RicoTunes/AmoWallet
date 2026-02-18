@@ -1,6 +1,4 @@
 import 'dart:convert';
-import 'dart:math';
-import 'dart:typed_data';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
@@ -8,7 +6,6 @@ import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logger/logger.dart';
-import 'package:pointycastle/digests/sha256.dart';
 import 'bip39_wallet.dart';
 import 'blockchain_service.dart';
 import '../core/config/api_config.dart';
@@ -466,50 +463,7 @@ class WalletService {
     return await generateAddressFor(c);
   }
 
-  // ------------------ PIN & Audit helpers ------------------
-  String _hashPin(String pin, String salt) {
-    final digest = SHA256Digest();
-    final input = Uint8List.fromList(utf8.encode(salt + pin));
-    final out = digest.process(input);
-    return base64.encode(out);
-  }
-
-  Future<void> setPin(String pin) async {
-    final rnd = Random.secure();
-    final saltBytes = List<int>.generate(16, (_) => rnd.nextInt(256));
-    final salt = base64.encode(saltBytes);
-    final hash = _hashPin(pin, salt);
-    await _safeWrite('wallet_pin', '$salt:$hash');
-  }
-
-  Future<bool> hasPin() async {
-    final v = await _safeRead('wallet_pin');
-    return v != null;
-  }
-
-  Future<bool> verifyPin(String pin) async {
-    try {
-      final v = await _safeRead('wallet_pin');
-      if (v == null) return false;
-      final parts = v.split(':');
-      if (parts.length != 2) return false;
-      final salt = parts[0];
-      final stored = parts[1];
-      final hash = _hashPin(pin, salt);
-      return hash == stored;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// Remove the stored wallet PIN (used for PIN reset/remove flows).
-  Future<void> deletePin() async {
-    try {
-      await _safeDelete('wallet_pin');
-    } catch (e) {
-      _logger.w('Failed to delete PIN: $e');
-    }
-  }
+  // ------------------ Audit helpers ------------------
 
   Future<void> recordRevealEvent(String chain, String address, bool success) async {
     try {

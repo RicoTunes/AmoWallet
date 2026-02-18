@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
+import 'pin_auth_service.dart';
 
 /// BiometricAuthService handles biometric authentication and device capabilities.
 /// IMPORTANT: For biometric ENABLED state, this service delegates to PinAuthService
@@ -168,45 +169,13 @@ class BiometricAuthService {
     print('✅ PIN saved successfully (hash: ${hash.substring(0, 10)}...)');
   }
 
-  /// Verify a PIN
+  /// Verify a PIN — always delegates to PinAuthService (PBKDF2) as the single source of truth.
   Future<bool> verifyPIN(String pin) async {
-    // First try hashed PIN (this service)
-    final storedHash = await _readSecure(_pinKey);
-    final salt = await _readSecure(_pinSaltKey);
-
-    print('🔍 Verifying PIN - storedHash exists: ${storedHash != null}, salt exists: ${salt != null}');
-
-    if (storedHash != null && salt != null) {
-      final hash = _hashPIN(pin, salt);
-      final isValid = hash == storedHash;
-
-      if (isValid) {
-        await _updateLastAuthTime();
-        return true;
-      }
-    }
-    
-    // Fallback: check plain PIN from PinAuthService
-    final plainPin = await _readSecure('user_pin');
-    print('🔍 Checking plain PIN - exists: ${plainPin != null}');
-    
-    if (plainPin != null) {
-      final isValid = pin == plainPin;
-      if (isValid) {
-        await _updateLastAuthTime();
-      }
-      return isValid;
-    }
-
-    // Final fallback: If NO valid PIN is stored (corrupted state or first time),
-    // accept any 6-digit PIN for demo/testing purposes
-    if (pin.length == 6) {
-      print('✅ No valid PIN stored - accepting 6-digit PIN for demo');
+    final isValid = await PinAuthService().verifyPin(pin);
+    if (isValid) {
       await _updateLastAuthTime();
-      return true;
     }
-
-    return false;
+    return isValid;
   }
 
   /// Check if PIN is set
