@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import '../../../core/providers/theme_provider.dart';
@@ -114,7 +116,7 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    _loadDashboardData();
+    _loadCachedBalances().then((_) => _loadDashboardData());
     _preloadService.preloadSwapData();
     _incomingTxMonitor.startMonitoring();
     _loadFavorites();
@@ -125,6 +127,44 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
     _logoAnimationController.dispose();
     _pulseController.dispose();
     super.dispose();
+  }
+
+  /// Load last-known balances instantly from SharedPreferences so the UI
+  /// never shows blank while the network fetch is in progress.
+  Future<void> _loadCachedBalances() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('dashboard_cached_balances');
+      if (raw != null && raw.isNotEmpty) {
+        final Map<String, dynamic> decoded = jsonDecode(raw);
+        final cached = decoded.map((k, v) => MapEntry(k, (v as num).toDouble()));
+        if (mounted && cached.isNotEmpty) {
+          double totalValue = 0.0;
+          cached.forEach((symbol, balance) {
+            final coinPrice = _priceData[symbol];
+            final price = (coinPrice?['price'] as double?) ?? 0.0;
+            if (balance > 0 && price > 0) totalValue += balance * price;
+          });
+          setState(() {
+            _balances = Map.from(cached);
+            if (totalValue > 0) _totalPortfolioValue = totalValue;
+          });
+          debugPrint('📦 Loaded ${cached.length} cached balances from disk');
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Could not load cached balances: $e');
+    }
+  }
+
+  Future<void> _saveCachedBalances(Map<String, double> balances) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode(balances);
+      await prefs.setString('dashboard_cached_balances', encoded);
+    } catch (e) {
+      debugPrint('⚠️ Could not save cached balances: $e');
+    }
   }
 
   Future<void> _loadFavorites() async {
@@ -176,10 +216,10 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
           },
         ),
         _walletService.getBalances().timeout(
-          const Duration(seconds: 12),
+          const Duration(seconds: 20),
           onTimeout: () {
-            print('⏱️ Balance fetch timeout');
-            return <String, double>{};
+            debugPrint('⏱️ Balance fetch timeout - keeping existing balances');
+            return <String, double>{}; // empty => merge will keep existing
           },
         ),
         _transactionService.getAllTransactions().timeout(
@@ -192,37 +232,47 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
       print('⚡ Parallel fetch completed in ${fetchTime}ms');
       
       final prices = results[0] as Map<String, Map<String, dynamic>>;
-      final realBalances = results[1] as Map<String, double>;
+      final freshBalances = results[1] as Map<String, double>;
       final allTx = results[2] as List<Transaction>;
       
-      print('📈 Loaded prices for ${prices.length} symbols');
-      print('💰 Dashboard loaded balances: $realBalances');
+      debugPrint('📈 Loaded prices for ${prices.length} symbols');
+      debugPrint('💰 Fresh balances from network: $freshBalances');
+
+      // MERGE: start with existing cached values, update only coins that returned data.
+      // This means a rate-limited or timed-out coin keeps its last-known value.
+      final mergedBalances = Map<String, double>.from(_balances);
+      if (freshBalances.isNotEmpty) {
+        freshBalances.forEach((coin, balance) {
+          mergedBalances[coin] = balance; // 0.0 is valid (empty wallet)
+        });
+      }
 
       double totalValue = 0.0;
       
-      // Use real prices if available, otherwise fall back to previously cached _priceData
-      // so the balance card never stays at $0.00 after a network blip.
+      // Use real prices if available, otherwise fall back to previously cached _priceData.
       final effectivePrices = prices.isNotEmpty ? prices : _priceData;
 
-      realBalances.forEach((symbol, balance) {
+      mergedBalances.forEach((symbol, balance) {
         final coinPrice = effectivePrices[symbol];
         final price = (coinPrice?['price'] as double?) ?? 0.0;
         if (balance > 0 && price > 0) {
           final value = balance * price;
           totalValue += value;
-          print('💵 $symbol: $balance @ \$${price.toStringAsFixed(2)} = \$${value.toStringAsFixed(2)}');
+          debugPrint('💵 $symbol: $balance @ \$${price.toStringAsFixed(2)} = \$${value.toStringAsFixed(2)}');
         }
       });
 
       if (mounted) {
         setState(() {
-          _priceData = prices;
-          _balances = realBalances;
+          _priceData = prices.isNotEmpty ? prices : _priceData;
+          _balances = mergedBalances;
           _totalPortfolioValue = totalValue;
           _recentTransactions = allTx.take(5).toList();
           _isLoading = false;
         });
-        print('✅ Dashboard state updated: ${_balances.length} balances, total \$${totalValue.toStringAsFixed(2)}');
+        debugPrint('✅ Dashboard updated: ${_balances.length} balances, total \$${totalValue.toStringAsFixed(2)}');
+        // Persist to disk so we restore them instantly next time
+        _saveCachedBalances(mergedBalances);
       }
     } catch (e) {
       print('❌ Dashboard load error: $e');
