@@ -464,16 +464,25 @@ class TransactionService {
             final Map<String, dynamic> jsonData = json.decode(entry.value);
             final tx = Transaction.fromJson(jsonData);
             
-            // Delete if:
-            // 1. Older than 7 days (likely test data)
-            // 2. Status is 'pending' and older than 1 hour (failed transactions)
+            // Delete if older than 7 days
             if (tx.timestamp.isBefore(sevenDaysAgo)) {
               await _prefsDelete(key);
               _logger.i('Deleted old transaction: $key');
-            } else if ((tx.status == 'pending' || tx.isPending) && 
-                       tx.timestamp.isBefore(DateTime.now().subtract(const Duration(hours: 1)))) {
+              continue;
+            }
+
+            // Delete ONLY if pending AND older than 1 hour AND:
+            //   - is a sent transaction with no txHash (never broadcast, i.e. local test data)
+            //   - NOT a received transaction (those come from blockchain and must be kept)
+            final isStale = (tx.status == 'pending' || tx.isPending) &&
+                tx.timestamp.isBefore(
+                    DateTime.now().subtract(const Duration(hours: 1)));
+            final isSentWithoutHash = tx.isSent &&
+                (tx.txHash == null || tx.txHash!.isEmpty);
+
+            if (isStale && isSentWithoutHash) {
               await _prefsDelete(key);
-              _logger.i('Deleted stale pending transaction: $key');
+              _logger.i('Deleted stale pending sent transaction: $key');
             }
           } catch (e) {
             _logger.w('Error processing transaction for cleanup: $e');

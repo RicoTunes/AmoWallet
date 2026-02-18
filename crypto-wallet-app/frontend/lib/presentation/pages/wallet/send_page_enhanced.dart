@@ -2156,104 +2156,116 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
         ),
         const SizedBox(height: 40),
 
-        // Final Slide to Send
+        // Final Slide to Send — entire track is draggable
         Container(
-            margin: const EdgeInsets.symmetric(horizontal: 32),
-            height: 70,
-            child: Stack(
-              children: [
-                // Background fill animation
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 100),
-                  width:
-                      (MediaQuery.of(context).size.width - 64) * _slidePosition,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        headerColor.withOpacity(0.3),
-                        headerColor.withOpacity(0.6),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(33),
-                  ),
-                ),
-
-                // Text - wrapped in IgnorePointer to not block touch events
-                IgnorePointer(
-                  child: Center(
-                    child: AnimatedOpacity(
-                      opacity: _slidePosition < 0.3 ? 1.0 : 0.0,
-                      duration: const Duration(milliseconds: 200),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            'Slide to Confirm',
-                            style: TextStyle(
-                              color: headerColor,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 16,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Icon(Icons.arrow_forward,
-                              color: headerColor, size: 20),
-                        ],
+          margin: const EdgeInsets.symmetric(horizontal: 32),
+          height: 70,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final maxSlide = constraints.maxWidth - 70;
+              return GestureDetector(
+                // Whole track responds to drag, not just the circle
+                onHorizontalDragStart: (_) {
+                  setState(() => _isSliding = true);
+                },
+                onHorizontalDragUpdate: (details) {
+                  final newPosition =
+                      (_slidePosition * maxSlide + details.delta.dx) /
+                          maxSlide;
+                  _onSlideUpdate(newPosition);
+                },
+                onHorizontalDragEnd: (_) {
+                  setState(() => _isSliding = false);
+                  _onSlideComplete();
+                },
+                child: Stack(
+                  children: [
+                    // Track background
+                    Container(
+                      height: 70,
+                      decoration: BoxDecoration(
+                        color: headerColor.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(35),
+                        border: Border.all(
+                          color: headerColor.withOpacity(0.25),
+                        ),
                       ),
                     ),
-                  ),
-                ),
 
-                // Draggable button
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final maxSlide = constraints.maxWidth - 70;
-                    return Positioned(
-                      left: _slidePosition * maxSlide,
-                      top: 0,
-                      bottom: 0,
-                      child: GestureDetector(
-                        onHorizontalDragStart: (_) {
-                          setState(() => _isSliding = true);
-                        },
-                        onHorizontalDragUpdate: (details) {
-                          final newPosition =
-                              (_slidePosition * maxSlide + details.delta.dx) /
-                                  maxSlide;
-                          _onSlideUpdate(newPosition);
-                        },
-                        onHorizontalDragEnd: (_) {
-                          setState(() => _isSliding = false);
-                          _onSlideComplete();
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 100),
-                          width: 70,
-                          height: 70,
-                          decoration: BoxDecoration(
-                            color: headerColor,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: headerColor.withOpacity(0.5),
-                                blurRadius: _isSliding ? 25 : 15,
-                                offset: const Offset(0, 5),
+                    // Fill animation
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 100),
+                      width: 70 + (_slidePosition * maxSlide),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            headerColor.withOpacity(0.3),
+                            headerColor.withOpacity(0.55),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(35),
+                      ),
+                    ),
+
+                    // Label — hidden once circle moves past it
+                    IgnorePointer(
+                      child: Center(
+                        child: AnimatedOpacity(
+                          opacity: _slidePosition < 0.3 ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 200),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                'Slide to Confirm',
+                                style: TextStyle(
+                                  color: headerColor,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 16,
+                                ),
                               ),
+                              const SizedBox(width: 8),
+                              Icon(Icons.arrow_forward,
+                                  color: headerColor, size: 20),
                             ],
-                          ),
-                          child: Icon(
-                            _slidePosition >= 0.85 ? Icons.check : Icons.send,
-                            color: Colors.white,
-                            size: 30,
                           ),
                         ),
                       ),
-                    );
-                  },
+                    ),
+
+                    // Draggable circle (no GestureDetector — parent handles it)
+                    Positioned(
+                      left: (_slidePosition * maxSlide).clamp(0.0, maxSlide),
+                      top: 0,
+                      bottom: 0,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 100),
+                        width: 70,
+                        height: 70,
+                        decoration: BoxDecoration(
+                          color: headerColor,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: headerColor.withOpacity(0.5),
+                              blurRadius: _isSliding ? 25 : 15,
+                              offset: const Offset(0, 5),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          _slidePosition >= 0.85 ? Icons.check : Icons.send,
+                          color: Colors.white,
+                          size: 30,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              );
+            },
           ),
+        ),
 
         const SizedBox(height: 60),
       ],
