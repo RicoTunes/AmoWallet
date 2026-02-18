@@ -56,6 +56,7 @@ const authRoutes = require('./routes/authRoutes');
 const healthRoutes = require('./routes/healthRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const spendingRoutes = require('./routes/spendingRoutes');
+const priceRoutes = require('./routes/priceRoutes');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -127,6 +128,9 @@ app.use('/api/audit', checkAppActive, requireAuth ? authenticate : (req, res, ne
 
 // Auth routes (public - no kill switch)
 app.use('/api/auth', authRoutes);
+
+// Price proxy — public, no auth (server fetches from CoinGecko, no CORS for clients)
+app.use('/api/prices', priceRoutes);
 
 // 404 handler for unmatched routes
 app.use((req, res) => {

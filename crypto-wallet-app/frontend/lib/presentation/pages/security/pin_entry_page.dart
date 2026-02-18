@@ -59,11 +59,31 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
   }
   
   Future<void> _loadReturnRoute() async {
+    // If duress mode is already active (persisted), go straight to fake dashboard
+    final fakeWalletState = ref.read(fakeWalletProvider);
+    if (fakeWalletState.isActive && fakeWalletState.isDuressMode) {
+      print('🎭 Duress mode already active - redirecting to fake dashboard');
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) context.go('/fake-dashboard');
+      });
+      return;
+    }
+
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _returnRoute = prefs.getString('last_route') ?? '/dashboard';
-    });
-    print('📍 Will return to: $_returnRoute after PIN verification');
+    // Only allow main navigation pages as return route
+    final allowedRoutes = ['/dashboard', '/portfolio', '/coins', '/settings'];
+    final savedRoute = prefs.getString('last_route');
+    if (savedRoute != null && allowedRoutes.any((r) => savedRoute.startsWith(r))) {
+      setState(() {
+        _returnRoute = savedRoute;
+      });
+      print('📍 Will return to: $_returnRoute after PIN verification');
+    } else {
+      setState(() {
+        _returnRoute = '/dashboard';
+      });
+      print('📍 Forced return to dashboard after PIN verification');
+    }
   }
   
   Future<void> _checkAuthenticationMethods() async {

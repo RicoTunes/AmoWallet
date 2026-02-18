@@ -88,27 +88,29 @@ class _CryptoWalletProAppState extends ConsumerState<CryptoWalletProApp> with Wi
       // Only check if PIN is set - if user has a PIN, require auth on resume
       final isPinSet = await _pinAuthService.isPinSet();
       print('🔐 App resume - isPinSet: $isPinSet');
-      
+
       if (isPinSet) {
         // Save current route before navigating to PIN entry
         final router = ref.read(routerProvider);
         final currentLocation = router.routerDelegate.currentConfiguration.uri.toString();
-        
-        // Don't save PIN entry or splash routes, and don't redirect if already on PIN entry
+
+        // Don't save PIN entry, splash, or send/receive routes, and don't redirect if already on PIN entry
         if (currentLocation.contains('/pin-entry')) {
           print('⏭️ Already on PIN entry page, skipping redirect');
           return;
         }
-        
-        if (!currentLocation.contains('/splash') &&
-            !currentLocation.contains('/onboarding') &&
-            !currentLocation.contains('/pin-setup') &&
-            !currentLocation.contains('/wallet-create') &&
-            !currentLocation.contains('/wallet-import')) {
+
+        // Only save last_route if it's a main navigation page (dashboard, portfolio, settings, etc.)
+        final allowedRoutes = ['/dashboard', '/portfolio', '/coins', '/settings'];
+        if (allowedRoutes.any((r) => currentLocation.startsWith(r))) {
           await prefs.setString('last_route', currentLocation);
           print('💾 Saved current route: $currentLocation');
+        } else {
+          // Default to dashboard if not a main page
+          await prefs.setString('last_route', '/dashboard');
+          print('💾 Forced last route to /dashboard');
         }
-        
+
         print('🔒 Locking app - navigating to PIN entry');
         // Navigate to PIN entry page
         router.go('/pin-entry');

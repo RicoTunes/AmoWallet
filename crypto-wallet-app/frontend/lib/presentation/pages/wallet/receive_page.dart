@@ -1113,47 +1113,136 @@ class _ReceivePageState extends ConsumerState<ReceivePage> with SingleTickerProv
     await showDialog<void>(
       context: stateCtx,
       builder: (context) {
-        return AlertDialog(
-          title: const Text('Private Key & Mnemonic'),
-          content: SingleChildScrollView(
+        return Dialog(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.9,
+              maxHeight: MediaQuery.of(context).size.height * 0.8,
+            ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                if (privateKey != null) ...[
-                  const Text('Private Key', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 6),
-                  SelectableText(privateKey),
-                  TextButton.icon(
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: privateKey));
-                      Navigator.of(context).pop();
-                      // ignore: use_build_context_synchronously
-                      if (mounted) ScaffoldMessenger.of(stateCtx).showSnackBar(const SnackBar(content: Text('Private key copied')));
-                    },
-                    icon: const Icon(Icons.copy),
-                    label: const Text('Copy private key'),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Private Key & Mnemonic',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 12),
-                ],
-                if (mnemonic != null) ...[
-                  const Text('Mnemonic', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 6),
-                  SelectableText(mnemonic),
-                  TextButton.icon(
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: mnemonic));
-                      Navigator.of(context).pop();
-                      // ignore: use_build_context_synchronously
-                      if (mounted) ScaffoldMessenger.of(stateCtx).showSnackBar(const SnackBar(content: Text('Mnemonic copied')));
-                    },
-                    icon: const Icon(Icons.copy),
-                    label: const Text('Copy mnemonic'),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (privateKey != null) ...[
+                          const Text('Private Key', style: TextStyle(fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.grey[100],
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.grey[300]!),
+                            ),
+                            child: SelectableText(
+                              privateKey,
+                              style: const TextStyle(fontFamily: 'Monospace', fontSize: 12),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                Clipboard.setData(ClipboardData(text: privateKey));
+                                Navigator.of(context).pop();
+                                if (mounted) ScaffoldMessenger.of(stateCtx).showSnackBar(
+                                  const SnackBar(content: Text('Private key copied')),
+                                );
+                              },
+                              icon: const Icon(Icons.copy, size: 18),
+                              label: const Text('Copy Private Key'),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                        ],
+                        if (mnemonic != null) ...[
+                          const Text('Mnemonic (Recovery Phrase)', style: TextStyle(fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.amber[50],
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.amber[300]!),
+                            ),
+                            child: SelectableText(
+                              mnemonic,
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: () {
+                                Clipboard.setData(ClipboardData(text: mnemonic));
+                                Navigator.of(context).pop();
+                                if (mounted) ScaffoldMessenger.of(stateCtx).showSnackBar(
+                                  const SnackBar(content: Text('Mnemonic copied')),
+                                );
+                              },
+                              icon: const Icon(Icons.copy, size: 18),
+                              label: const Text('Copy Mnemonic'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.amber[700],
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.red[50],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.red[200]!),
+                          ),
+                          child: const Text(
+                            '⚠️ Never share these with anyone! Anyone with access can steal your funds.',
+                            style: TextStyle(fontSize: 12, color: Colors.red),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ],
+                ),
+                const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Close'),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
-          actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close'))],
         );
       },
     );

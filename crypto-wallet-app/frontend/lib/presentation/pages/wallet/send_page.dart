@@ -154,6 +154,10 @@ class _SendPageState extends ConsumerState<SendPage> {
 
   void _onCoinChanged(String? coin) {
     if (coin != null) {
+      // Clear any existing snackbars/toasts
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+      }
       setState(() {
         _selectedCoin = coin;
         _balanceLoaded = false;

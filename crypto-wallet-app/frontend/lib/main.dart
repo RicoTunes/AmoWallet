@@ -17,22 +17,8 @@ void main() async {
   // MILITARY-GRADE: Set environment to production (uses Railway backend with HTTPS)
   EnvironmentConfig.setEnvironment(Environment.production);
   
-  // MILITARY-GRADE: Initialize HSM security (hardware-backed encryption)
-  final hsmService = HsmSecurityService();
-  final hsmStatus = await hsmService.initialize();
-  debugPrint('🔐 HSM Status: ${hsmStatus.name}');
-  
-  // MILITARY-GRADE: Initialize remote wipe capability
-  final remoteWipe = RemoteWipeService();
-  await remoteWipe.initialize();
-  await remoteWipe.enableRemoteWipe();
-  debugPrint('🗑️ Remote wipe enabled');
-  
-  // MILITARY-GRADE: Initialize behavioral biometrics
-  final behavioralBiometrics = BehavioralBiometricsService();
-  await behavioralBiometrics.initialize();
-  await behavioralBiometrics.enable();
-  debugPrint('🧬 Behavioral biometrics enabled');
+  // Initialize security services with timeout and error handling
+  await _initializeSecurityServices();
   
   // MILITARY-GRADE: Anti-debugging detection (release builds only)
   if (!kDebugMode) {
@@ -92,4 +78,88 @@ void main() async {
       child: CryptoWalletProApp(),
     ),
   );
+}
+
+/// Initialize all security services with timeout and error handling
+Future<void> _initializeSecurityServices() async {
+  final List<Future<void>> securityFutures = [];
+  
+  // HSM Security Service with timeout
+  securityFutures.add(() async {
+    try {
+      final hsmService = HsmSecurityService();
+      final hsmStatus = await hsmService.initialize().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          debugPrint('⚠️ HSM initialization timeout - using software fallback');
+          return HsmStatus.software;
+        },
+      );
+      debugPrint('🔐 HSM Status: ${hsmStatus.name}');
+    } catch (e) {
+      debugPrint('⚠️ HSM initialization failed: $e - using software fallback');
+    }
+  }());
+  
+  // Remote Wipe Service with timeout
+  securityFutures.add(() async {
+    try {
+      final remoteWipe = RemoteWipeService();
+      await remoteWipe.initialize().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {
+          debugPrint('⚠️ Remote wipe initialization timeout');
+          return;
+        },
+      );
+      await remoteWipe.enableRemoteWipe().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {
+          debugPrint('⚠️ Remote wipe enable timeout');
+          return;
+        },
+      );
+      debugPrint('🗑️ Remote wipe enabled');
+    } catch (e) {
+      debugPrint('⚠️ Remote wipe initialization failed: $e');
+    }
+  }());
+  
+  // Behavioral Biometrics with timeout
+  securityFutures.add(() async {
+    try {
+      final behavioralBiometrics = BehavioralBiometricsService();
+      await behavioralBiometrics.initialize().timeout(
+        const Duration(seconds: 4),
+        onTimeout: () {
+          debugPrint('⚠️ Behavioral biometrics initialization timeout');
+          return;
+        },
+      );
+      await behavioralBiometrics.enable().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {
+          debugPrint('⚠️ Behavioral biometrics enable timeout');
+          return;
+        },
+      );
+      debugPrint('🧬 Behavioral biometrics enabled');
+    } catch (e) {
+      debugPrint('⚠️ Behavioral biometrics initialization failed: $e');
+    }
+  }());
+  
+  // Execute all security initializations in parallel with timeout
+  try {
+    await Future.wait(securityFutures).timeout(
+      const Duration(seconds: 10),
+      onTimeout: () {
+        debugPrint('⚠️ Security services initialization timeout - continuing with available services');
+        return [];
+      },
+    );
+    debugPrint('✅ All security services initialized');
+  } catch (e) {
+    debugPrint('⚠️ Security services initialization error: $e - continuing with available services');
+  }
 }

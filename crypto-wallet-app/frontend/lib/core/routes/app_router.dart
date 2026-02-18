@@ -38,6 +38,7 @@ import '../../presentation/pages/settings/notification_settings_page.dart';
 import '../../presentation/widgets/animated_bottom_nav.dart';
 import '../../presentation/widgets/modern_bottom_nav.dart';
 import '../../presentation/widgets/price_chart_widget.dart';
+import '../../presentation/pages/price_chart_page.dart';
 import '../../services/auth_service.dart';
 import '../../services/qr_scanner_service.dart';
 

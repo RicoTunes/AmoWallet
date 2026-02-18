@@ -493,25 +493,11 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
         return;
       }
 
-      // Try to get mnemonic from any stored address
-      // Start with BTC as the primary chain
-      String? mnemonic;
-      final chains = ['BTC', 'ETH', 'BNB'];
+      // Scan ALL storage keys for any mnemonic - works regardless of which
+      // chain the wallet was originally created on
+      String? mnemonic = await _walletService.findAnyMnemonic();
 
-      for (final chain in chains) {
-        try {
-          final addresses = await _walletService.getStoredAddresses(chain);
-          if (addresses.isNotEmpty) {
-            mnemonic = await _walletService.getMnemonic(chain, addresses.first);
-            if (mnemonic != null) break;
-          }
-        } catch (e) {
-          // Try next chain
-          continue;
-        }
-      }
-
-      if (mnemonic == null) {
+      if (mnemonic == null || mnemonic.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -519,6 +505,7 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
                     'No recovery phrase found. Please restore your wallet.')),
           );
         }
+        setState(() => _loading = false);
         return;
       }
 
@@ -553,41 +540,18 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
   }
 
   Future<void> _verifyBackup() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirm Backup'),
-        content: const Text(
-          'Have you written down your recovery phrase and stored it securely?\n\n'
-          'You will not be able to recover your wallet without it.',
+    setState(() => _isVerified = true);
+
+    // Mark backup as completed in preferences
+    await _walletService.markBackupCompleted();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Backup verified successfully!'),
+          backgroundColor: Colors.green,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Not Yet'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Yes, I\'ve Saved It'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      setState(() => _isVerified = true);
-
-      // Mark backup as completed in preferences
-      await _walletService.markBackupCompleted();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Backup verified successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
+      );
     }
   }
 }

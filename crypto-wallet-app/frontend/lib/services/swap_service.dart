@@ -274,9 +274,10 @@ class SwapService {
               .toList();
         }
       }
+      // Silently handle auth errors and other non-200 responses
       return [];
     } catch (e) {
-      print('Failed to load providers: $e');
+      // Silently fail on network errors
       return [];
     }
   }
@@ -473,9 +474,11 @@ class SwapService {
           return rates;
         }
       }
-      throw Exception('Failed to fetch exchange rates');
+      // Silently handle auth errors and other non-200 responses
+      return {};
     } catch (e) {
-      throw Exception('Network error: $e');
+      // Silently fail on network errors
+      return {};
     }
   }
 

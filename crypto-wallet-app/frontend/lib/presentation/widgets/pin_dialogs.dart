@@ -72,77 +72,94 @@ class _PINSetupDialogState extends State<PINSetupDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (widget.subtitle != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Text(
-                  widget.subtitle!,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
+    return Dialog(
+      insetPadding: const EdgeInsets.all(20),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.5, // Compact height
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.title,
+                style: Theme.of(context).textTheme.titleLarge,
               ),
-            TextField(
-              controller: _pinController,
-              decoration: const InputDecoration(
-                labelText: 'Enter PIN',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.lock),
-              ),
-              keyboardType: TextInputType.number,
-              obscureText: true,
-              maxLength: 6,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _confirmPinController,
-              decoration: const InputDecoration(
-                labelText: 'Confirm PIN',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.lock_outline),
-              ),
-              keyboardType: TextInputType.number,
-              obscureText: true,
-              maxLength: 6,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              onSubmitted: (_) => _setupPIN(),
-            ),
-            if (_errorMessage != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  _errorMessage!,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                    fontSize: 12,
+              if (widget.subtitle != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8, bottom: 16),
+                  child: Text(
+                    widget.subtitle!,
+                    style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ),
+              TextField(
+                controller: _pinController,
+                decoration: const InputDecoration(
+                  labelText: 'Enter PIN',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                ),
+                keyboardType: TextInputType.number,
+                obscureText: true,
+                maxLength: 6,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               ),
-          ],
+              const SizedBox(height: 16),
+              TextField(
+                controller: _confirmPinController,
+                decoration: const InputDecoration(
+                  labelText: 'Confirm PIN',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock_outline),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                ),
+                keyboardType: TextInputType.number,
+                obscureText: true,
+                maxLength: 6,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                onSubmitted: (_) => _setupPIN(),
+              ),
+              if (_errorMessage != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    _errorMessage!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: _isLoading ? null : () => Navigator.of(context).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton(
+                    onPressed: _isLoading ? null : _setupPIN,
+                    child: _isLoading
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Set PIN'),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _isLoading ? null : () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton(
-          onPressed: _isLoading ? null : _setupPIN,
-          child: _isLoading
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('Set PIN'),
-        ),
-      ],
     );
   }
 }
@@ -256,79 +273,105 @@ class _PINVerificationDialogState extends State<PINVerificationDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (widget.subtitle != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Text(
-                widget.subtitle!,
-                style: Theme.of(context).textTheme.bodyMedium,
+    return Dialog(
+      insetPadding: const EdgeInsets.all(16),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.5, // Increased to accommodate keyboard
+          maxWidth: MediaQuery.of(context).size.width * 0.9,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.title,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontSize: 18),
               ),
-            ),
-          TextField(
-            controller: _pinController,
-            decoration: const InputDecoration(
-              labelText: 'Enter PIN',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.lock),
-            ),
-            keyboardType: TextInputType.number,
-            obscureText: true,
-            maxLength: 6,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            autofocus: true,
-            onSubmitted: (_) => _verifyPIN(),
-          ),
-          if (_errorMessage != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                _errorMessage!,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.error,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          const SizedBox(height: 16),
-          FutureBuilder<bool>(
-            future: _pinAuthService.isBiometricAvailable(),
-            builder: (context, snapshot) {
-              if (snapshot.data == true) {
-                return Center(
-                  child: TextButton.icon(
-                    onPressed: _tryBiometric,
-                    icon: const Icon(Icons.fingerprint),
-                    label: const Text('Use Biometric'),
+              if (widget.subtitle != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4, bottom: 12),
+                  child: Text(
+                    widget.subtitle!,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 13),
                   ),
-                );
-              }
-              return const SizedBox.shrink();
-            },
+                ),
+              TextField(
+                controller: _pinController,
+                decoration: const InputDecoration(
+                  labelText: 'Enter PIN',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock, size: 20),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  isDense: true,
+                ),
+                keyboardType: TextInputType.number,
+                obscureText: true,
+                maxLength: 6,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                autofocus: true,
+                onSubmitted: (_) => _verifyPIN(),
+                style: const TextStyle(fontSize: 14),
+              ),
+              if (_errorMessage != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    _errorMessage!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 12),
+              FutureBuilder<bool>(
+                future: _pinAuthService.isBiometricAvailable(),
+                builder: (context, snapshot) {
+                  if (snapshot.data == true) {
+                    return Center(
+                      child: TextButton.icon(
+                        onPressed: _tryBiometric,
+                        icon: const Icon(Icons.fingerprint, size: 18),
+                        label: const Text('Use Biometric', style: TextStyle(fontSize: 13)),
+                      ),
+                    );
+                  }
+                  return const SizedBox.shrink();
+                },
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: _isLoading ? null : () => Navigator.of(context).pop(false),
+                    child: const Text('Cancel', style: TextStyle(fontSize: 14)),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _isLoading ? null : _verifyPIN,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Verify', style: TextStyle(fontSize: 14)),
+                  ),
+                ],
+              ),
+              // Add extra space at bottom for keyboard
+              SizedBox(height: MediaQuery.of(context).viewInsets.bottom > 0 ? 20 : 0),
+            ],
           ),
-        ],
+        ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _isLoading ? null : () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton(
-          onPressed: _isLoading ? null : _verifyPIN,
-          child: _isLoading
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('Verify'),
-        ),
-      ],
     );
   }
 }

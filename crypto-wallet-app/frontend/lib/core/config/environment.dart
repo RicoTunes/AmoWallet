@@ -30,7 +30,7 @@ class EnvironmentConfig {
   
   /// YOUR LOCAL NETWORK IP - Change this to your computer's IP
   /// Find your IP by running: ipconfig (Windows) or ifconfig (Mac/Linux)
-  static const String _localNetworkIP = '172.20.10.6'; // Your current IP
+  static const String _localNetworkIP = '172.20.10.6'; // Your current IP for mobile
   
   /// Railway production URL
   static const String _productionUrl = 'https://amowallet-backend-production.up.railway.app';
@@ -39,7 +39,8 @@ class EnvironmentConfig {
   static String get apiBaseUrl {
     switch (_currentEnvironment) {
       case Environment.development:
-        return 'http://$_localNetworkIP:3000'; // HTTP for local dev testing
+        // Use localhost for web/Chrome testing, network IP for mobile
+        return 'http://localhost:3000'; // HTTP for local dev testing
       case Environment.staging:
         return _productionUrl; // Use Railway for staging
       case Environment.production:
@@ -51,7 +52,7 @@ class EnvironmentConfig {
   static String get wsBaseUrl {
     switch (_currentEnvironment) {
       case Environment.development:
-        return 'ws://$_localNetworkIP:3000';
+        return 'ws://localhost:3000';
       case Environment.staging:
         return 'wss://amowallet-backend-production.up.railway.app';
       case Environment.production:

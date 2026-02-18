@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:logger/logger.dart';
 
@@ -22,6 +23,27 @@ class TransactionService {
         _blockchainService = blockchainService ?? BlockchainService(),
         _walletService = walletService ?? WalletService();
 
+  /// Safe wrapper around readAll() that returns empty map on web OperationError
+  /// (thrown when IndexedDB is empty / crypto key not yet seeded on web).
+  Future<Map<String, String>> _safeReadAll() async {
+    try {
+      final dynamic raw = await _storage.readAll();
+      if (raw is Map) {
+        return Map<String, String>.from(
+          raw.map((k, v) => MapEntry(k.toString(), v.toString())),
+        );
+      }
+      return {};
+    } catch (e) {
+      if (kIsWeb) {
+        // flutter_secure_storage_web throws OperationError when storage is empty
+        return {};
+      }
+      rethrow;
+    }
+  }
+
+
   // Store a transaction
   Future<void> storeTransaction(Transaction transaction) async {
     try {
@@ -44,9 +66,8 @@ class TransactionService {
 
       // 1. Fetch blockchain transactions for all wallet addresses (primary source of truth)
       try {
-        final dynamic rawKeys = await _storage.readAll();
-        final allStorageKeys = rawKeys is Map ? Map<String, String>.from(rawKeys.map((k, v) => MapEntry(k.toString(), v.toString()))) : <String, String>{};
-        final addressesByChain = <String, Set<String>>{};
+        final allStorageKeys = await _safeReadAll();
+        final addressesByChain = <String, Set<String>>{};;
 
         // Group addresses by chain - handle keys like "BTC_address_private" or "USDT-BEP20_address_private"
         for (final k in allStorageKeys.keys) {
@@ -133,8 +154,7 @@ class TransactionService {
 
       // 2. Load locally stored transactions (pending ones without txHash yet)
       try {
-        final dynamic rawStorage = await _storage.readAll();
-        final allStorage = rawStorage is Map ? Map<String, String>.from(rawStorage.map((k, v) => MapEntry(k.toString(), v.toString()))) : <String, String>{};
+        final allStorage = await _safeReadAll();
         for (final entry in allStorage.entries) {
           final key = entry.key;
           if (key.startsWith('transaction_')) {

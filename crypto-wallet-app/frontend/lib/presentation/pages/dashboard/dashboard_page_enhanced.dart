@@ -204,31 +204,25 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
 
       double totalValue = 0.0;
       
-      // Use fallback prices if API failed
-      final fallbackPrices = {
-        'BTC': 96000.0, 'ETH': 3400.0, 'BNB': 680.0, 'SOL': 200.0,
-        'XRP': 2.50, 'DOGE': 0.35, 'LTC': 120.0, 'USDT': 1.0, 'TRX': 0.25,
-      };
+      // Only calculate total if we got real prices — never use fallback prices
+      // for the portfolio total (avoids showing wrong balance before real data)
+      final gotRealPrices = prices.isNotEmpty;
       
-      realBalances.forEach((symbol, balance) {
-        double price = 0.0;
-        final coinPrice = prices[symbol];
-        if (coinPrice != null && coinPrice['price'] != null) {
-          price = (coinPrice['price'] as double?) ?? 0.0;
-        } else {
-          price = fallbackPrices[symbol] ?? 0.0;
-        }
-        
-        if (balance > 0) {
-          final value = balance * price;
-          totalValue += value;
-          print('💵 $symbol: $balance @ \$${price.toStringAsFixed(2)} = \$${value.toStringAsFixed(2)}');
-        }
-      });
+      if (gotRealPrices) {
+        realBalances.forEach((symbol, balance) {
+          final coinPrice = prices[symbol];
+          final price = (coinPrice?['price'] as double?) ?? 0.0;
+          if (balance > 0 && price > 0) {
+            final value = balance * price;
+            totalValue += value;
+            print('💵 $symbol: $balance @ \$${price.toStringAsFixed(2)} = \$${value.toStringAsFixed(2)}');
+          }
+        });
+      }
 
       if (mounted) {
         setState(() {
-          _priceData = prices.isNotEmpty ? prices : _buildFallbackPrices(fallbackPrices);
+          _priceData = prices;
           _balances = realBalances;
           _totalPortfolioValue = totalValue;
           _recentTransactions = allTx.take(5).toList();
@@ -244,14 +238,6 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
     }
   }
   
-  Map<String, Map<String, dynamic>> _buildFallbackPrices(Map<String, double> prices) {
-    return prices.map((symbol, price) => MapEntry(symbol, {
-      'price': price,
-      'change24h': 0.0,
-      'source': 'Fallback',
-    }));
-  }
-
   Future<void> _refreshData() async {
     HapticFeedback.mediumImpact();
     setState(() => _refreshing = true);
@@ -1048,6 +1034,17 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
             AnimatedBuilder(
               animation: _pulseAnimation,
               builder: (context, child) {
+                if (_isLoading) {
+                  // Shimmer skeleton — never show a wrong/mock balance
+                  return Container(
+                    height: 58,
+                    width: 180,
+                    decoration: BoxDecoration(
+                      color: textColor.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  );
+                }
                 return ShaderMask(
                   shaderCallback: (bounds) => LinearGradient(
                     colors: [
@@ -2468,12 +2465,19 @@ class _CoinDetailSheetContent extends StatefulWidget {
 class _CoinDetailSheetContentState extends State<_CoinDetailSheetContent> {
   List<Transaction> _transactions = [];
   bool _isLoadingTransactions = true;
+  double _realBalance = 0.0;
+  double _realUsdValue = 0.0;
+  bool _isLoadingBalance = true;
+  bool _balanceUpdated = false;
 
   @override
   void initState() {
     super.initState();
     _transactions = List.from(widget.localTransactions);
+    _realBalance = widget.balance;
+    _realUsdValue = widget.usdValue;
     _loadBlockchainTransactions();
+    _loadRealBalance();
   }
 
   Future<void> _loadBlockchainTransactions() async {
@@ -2503,8 +2507,8 @@ class _CoinDetailSheetContentState extends State<_CoinDetailSheetContent> {
               coin: widget.symbol,
               type: txType == 'received' ? 'received' : 'sent',
               amount: amount,
-              address: txType == 'received' 
-                  ? (tx['fromAddress'] ?? 'Unknown') 
+              address: txType == 'received'
+                  ? (tx['fromAddress'] ?? 'Unknown')
                   : (tx['toAddress'] ?? 'Unknown'),
               timestamp: DateTime.fromMillisecondsSinceEpoch(
                 ((tx['timestamp'] as int?) ?? 0) * 1000
@@ -2537,6 +2541,57 @@ class _CoinDetailSheetContentState extends State<_CoinDetailSheetContent> {
         });
       }
     }
+  }
+  
+  /// Load real balance from blockchain (like Exodus wallet)
+  Future<void> _loadRealBalance() async {
+    try {
+      final storedAddresses = await widget.walletService.getStoredAddresses(widget.symbol);
+      final address = storedAddresses.isNotEmpty ? storedAddresses.first : null;
+      
+      if (address != null && address.isNotEmpty) {
+        print('DEBUG: Fetching real balance for ${widget.symbol} at $address');
+        final blockchainService = BlockchainService();
+        final realBalance = await blockchainService.getBalance(widget.symbol, address);
+        
+        // Calculate USD value using current price
+        final realUsdValue = realBalance * widget.price;
+        
+        if (mounted) {
+          setState(() {
+            _realBalance = realBalance;
+            _realUsdValue = realUsdValue;
+            _isLoadingBalance = false;
+            _balanceUpdated = true;
+          });
+          
+          // Animate the balance update (like YouTube subscriber counter)
+          _animateBalanceUpdate();
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _isLoadingBalance = false;
+          });
+        }
+      }
+    } catch (e) {
+      print('ERROR: Failed to fetch real balance: $e');
+      // Keep showing cached balance (like Exodus does when offline)
+      if (mounted) {
+        setState(() {
+          _isLoadingBalance = false;
+        });
+      }
+    }
+  }
+  
+  /// Animate balance update like YouTube subscriber counter
+  void _animateBalanceUpdate() {
+    // This would typically use an animation controller
+    // For now, we just update the state which will trigger a rebuild
+    // In a real implementation, you would animate the number change
+    print('DEBUG: Balance updated to ${_realBalance.toStringAsFixed(8)} ${widget.symbol}');
   }
 
   @override
@@ -2674,14 +2729,34 @@ class _CoinDetailSheetContentState extends State<_CoinDetailSheetContent> {
                   children: [
                     Column(
                       children: [
-                        Text(
-                          widget.balance.toStringAsFixed(8),
-                          style: TextStyle(
-                            color: widget.color,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                        _isLoadingBalance
+                            ? SizedBox(
+                                width: 80,
+                                height: 24,
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: widget.color,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : AnimatedDefaultTextStyle(
+                                duration: const Duration(milliseconds: 300),
+                                style: TextStyle(
+                                  color: _balanceUpdated
+                                      ? const Color(0xFF10B981) // Green when updated
+                                      : widget.color,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                child: Text(
+                                  _realBalance.toStringAsFixed(8),
+                                ),
+                              ),
                         const SizedBox(height: 4),
                         Text(
                           widget.symbol,
@@ -2699,14 +2774,34 @@ class _CoinDetailSheetContentState extends State<_CoinDetailSheetContent> {
                     ),
                     Column(
                       children: [
-                        Text(
-                          widget.formatCurrency(widget.usdValue),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                        _isLoadingBalance
+                            ? SizedBox(
+                                width: 80,
+                                height: 24,
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: widget.color,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : AnimatedDefaultTextStyle(
+                                duration: const Duration(milliseconds: 300),
+                                style: TextStyle(
+                                  color: _balanceUpdated
+                                      ? const Color(0xFF10B981) // Green when updated
+                                      : Colors.white,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                child: Text(
+                                  widget.formatCurrency(_realUsdValue),
+                                ),
+                              ),
                         const SizedBox(height: 4),
                         Text(
                           'Value',
@@ -2721,73 +2816,7 @@ class _CoinDetailSheetContentState extends State<_CoinDetailSheetContent> {
                 ),
               ),
 
-              // Chart placeholder
-              Container(
-                margin: const EdgeInsets.all(20),
-                height: 120,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A1F2E),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: CustomPaint(
-                  size: const Size(double.infinity, 120),
-                  painter: _SimpleChartPainter(
-                    color: widget.color,
-                    isPositive: widget.isPositive,
-                  ),
-                ),
-              ),
-
-              // Time period selector
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: ['LIVE', '1D', '7D', '1M', '3M', '6M', '1Y']
-                      .map((period) {
-                    final isSelected = period == 'LIVE';
-                    return GestureDetector(
-                      onTap: () => HapticFeedback.lightImpact(),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? const Color(0xFF1A1F2E)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (isSelected)
-                              Container(
-                                width: 6,
-                                height: 6,
-                                margin: const EdgeInsets.only(right: 4),
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFF10B981),
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                            Text(
-                              period,
-                              style: TextStyle(
-                                color:
-                                    isSelected ? Colors.white : Colors.white54,
-                                fontSize: 12,
-                                fontWeight: isSelected
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
+              // Time period selector - REMOVED (was using mock data)
 
               const SizedBox(height: 20),
 

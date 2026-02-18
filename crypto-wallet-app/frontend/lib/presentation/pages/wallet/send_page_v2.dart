@@ -187,26 +187,17 @@ class _SendPageV2State extends ConsumerState<SendPageV2>
   Future<void> _loadBalance() async {
     setState(() => _loadingBalance = true);
     try {
-      final addresses = await _walletService.getStoredAddresses(_selectedCoin);
-      if (addresses.isNotEmpty) {
-        final balance =
-            await _blockchainService.getBalance(_selectedCoin, addresses.first);
-        final fee = await _blockchainService.getFeeEstimate(_selectedCoin);
-        if (mounted) {
-          setState(() {
-            _availableBalance = balance;
-            _fee = fee;
-            _loadingBalance = false;
-          });
-        }
-      } else {
-        if (mounted) {
-          setState(() {
-            _availableBalance = 0.0;
-            _fee = 0.001;
-            _loadingBalance = false;
-          });
-        }
+      // FIX: Use wallet service balance like dashboard does for consistency
+      final balances = await _walletService.getBalances();
+      final selectedBalance = balances[_selectedCoin] ?? 0.0;
+      final fee = await _blockchainService.getFeeEstimate(_selectedCoin);
+      
+      if (mounted) {
+        setState(() {
+          _availableBalance = selectedBalance;
+          _fee = fee;
+          _loadingBalance = false;
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -1151,7 +1142,7 @@ class _SendPageV2State extends ConsumerState<SendPageV2>
             // Keypad
             _buildPinKeypad(),
 
-            const SizedBox(height: 40),
+            const SizedBox(height: 20),
           ],
         ),
       ),
@@ -1160,12 +1151,12 @@ class _SendPageV2State extends ConsumerState<SendPageV2>
 
   Widget _buildPinKeypad() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 40),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
         children: [
           for (var row = 0; row < 4; row++)
             Padding(
-              padding: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.only(bottom: 12),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
@@ -1212,11 +1203,11 @@ class _SendPageV2State extends ConsumerState<SendPageV2>
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 70,
-        height: 70,
+        width: 64,
+        height: 64,
         decoration: BoxDecoration(
           color: const Color(0xFF1A1F2E),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(16),
         ),
         child: Center(
           child: digit != null
@@ -1224,14 +1215,14 @@ class _SendPageV2State extends ConsumerState<SendPageV2>
                   digit,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 28,
+                    fontSize: 24,
                     fontWeight: FontWeight.w600,
                   ),
                 )
               : Icon(
                   icon,
                   color: Colors.white.withOpacity(0.7),
-                  size: 28,
+                  size: 24,
                 ),
         ),
       ),

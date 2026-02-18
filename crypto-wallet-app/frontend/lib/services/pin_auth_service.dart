@@ -138,10 +138,10 @@ class PinAuthService {
         if (await remoteWipeService.isDuressPin(pin)) {
           print('🚨 DURESS PIN DETECTED - ACTIVATING DECOY WALLET');
           
-          // Activate fake wallet decoy instead of wiping
+          // Activate fake wallet decoy persistently instead of wiping
           if (ref != null) {
-            ref.read(fakeWalletProvider.notifier).activateFakeWallet();
-            print('✅ Fake wallet activated - all balances set to 0.00');
+            await ref.read(fakeWalletProvider.notifier).activateFakeWallet();
+            print('✅ Fake wallet PERSISTENTLY activated - all balances set to 0.00');
           }
           
           // Return false to not log user in normally

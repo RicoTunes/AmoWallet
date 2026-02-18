@@ -17,6 +17,7 @@ import '../../../services/notification_service.dart';
 import '../../../services/spending_limit_service.dart';
 import '../../../services/confirmation_tracker_service.dart';
 import '../../../services/qr_scanner_service.dart';
+import '../../../services/price_service.dart';
 import '../../../utils/input_validator.dart';
 import '../wallet/fake_send_page.dart';
 
@@ -124,57 +125,75 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
       curve: Curves.easeInOut,
     ));
 
-    // Load current coin balance first, then preload others in background
-    _loadBalance();
-    _loadCryptoPrice();
-    _preloadAllBalancesInBackground();
+    // Load current coin balance - single getBalances() call caches ALL coins at once
+    _loadAllBalancesOnce();
   }
 
-  /// Preload balances for all coins in parallel for instant switching
-  Future<void> _preloadAllBalancesInBackground() async {
-    // Load balances for all coins in parallel (except current one)
-    final futures = <Future<void>>[];
-    for (final coin in _coins) {
-      if (coin.symbol != _selectedCoin && !_cachedBalances.containsKey(coin.symbol)) {
-        futures.add(_loadBalanceForCoin(coin.symbol));
+  /// Load ALL coin balances in a single getBalances() call and cache them all.
+  /// This ensures ETH (and all other coins) are always consistent with the dashboard.
+  Future<void> _loadAllBalancesOnce() async {
+    try {
+      final allBalances = await _walletService.getBalances();
+      print('📊 Send page loaded all balances: $allBalances');
+      for (final coin in _coins) {
+        // For USDT variants, look up by their exact key
+        final balance = allBalances[coin.symbol] ?? 0.0;
+        _cachedBalances[coin.symbol] = balance;
+      }
+      // Also populate fees for all coins
+      for (final coin in _coins) {
+        if (!_cachedFees.containsKey(coin.symbol)) {
+          _cachedFees[coin.symbol] = _getDefaultFee(coin.symbol);
+        }
+      }
+      // Update the currently displayed coin
+      if (mounted) {
+        setState(() {
+          _availableBalance = _cachedBalances[_selectedCoin] ?? 0.0;
+          _balanceLoaded = true;
+        });
+      }
+      // Now calculate real fees in background
+      _loadCryptoPrice();
+      _calculateAndCacheRealFee();
+    } catch (e) {
+      print('❌ Error loading all balances: $e');
+      if (mounted) {
+        setState(() {
+          _availableBalance = 0.0;
+          _balanceLoaded = true;
+        });
       }
     }
-    // Run all in parallel - don't await, this is background loading
-    Future.wait(futures).catchError((e) {
-      print('⚠️ Background balance preload error: $e');
-    });
   }
 
-  /// Load balance for a specific coin (for background preloading)
-  Future<void> _loadBalanceForCoin(String coin) async {
+  Future<void> _calculateAndCacheRealFee() async {
     try {
-      // Use wallet service for consistency with dashboard
-      final allBalances = await _walletService.getBalances();
-      final balance = allBalances[coin] ?? 0.0;
-      final fee = await _blockchainService.getFeeEstimate(coin).catchError((_) => _getDefaultFee(coin));
-      _cachedBalances[coin] = balance;
-      _cachedFees[coin] = fee;
-      print('✅ Preloaded $coin balance: $balance');
-    } catch (e) {
-      print('⚠️ Failed to preload $coin balance: $e');
-      _cachedBalances[coin] = 0.0;
-      _cachedFees[coin] = _getDefaultFee(coin);
-    }
+      final fee = await _calculateRealFee();
+      if (mounted) {
+        setState(() {
+          _fee = fee;
+          _cachedFees[_selectedCoin] = fee;
+        });
+      }
+    } catch (_) {}
   }
 
   /// Get default fee for a coin
   double _getDefaultFee(String coin) {
     switch (coin) {
       case 'BTC':
-        return 0.0001;
+        return 0.00005;
       case 'ETH':
+        return 0.00042; // ~21000 gas × 20 gwei
       case 'BNB':
-        return 0.001;
+        return 0.00021;
       case 'USDT-ERC20':
-      case 'USDT-BEP20':
-        return 0.005;
-      default:
         return 0.001;
+      case 'USDT-BEP20':
+        return 0.0002;
+      default:
+        return 0.0005;
     }
   }
 
@@ -267,18 +286,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
     try {
       return await _blockchainService.getFeeEstimate(_selectedCoin);
     } catch (e) {
-      switch (_selectedCoin) {
-        case 'BTC':
-          return 0.0001;
-        case 'ETH':
-        case 'BNB':
-          return 0.001;
-        case 'USDT-ERC20':
-        case 'USDT-BEP20':
-          return 0.005;
-        default:
-          return 0.001;
-      }
+      return _getDefaultFee(_selectedCoin);
     }
   }
 
@@ -290,7 +298,8 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
       return;
     }
 
-    final prices = {
+    // Fallback prices (used until live price arrives)
+    final fallback = {
       'BTC': 96000.0,
       'ETH': 3600.0,
       'BNB': 625.0,
@@ -303,9 +312,24 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
       'USDT-BEP20': 1.0,
     };
 
+    // Set fallback immediately so UI isn't blank
     setState(() {
-      _currentCryptoPrice = prices[_selectedCoin] ?? 0.0;
+      _currentCryptoPrice = fallback[_selectedCoin] ?? 0.0;
       _cachedPrices[_selectedCoin] = _currentCryptoPrice;
+    });
+
+    // Fetch live price and update
+    final coinSymbol = _selectedCoin.contains('-') ? _selectedCoin.split('-')[0] : _selectedCoin;
+    PriceService().getPrices([coinSymbol]).then((prices) {
+      final livePrice = (prices[coinSymbol]?['price'] as num?)?.toDouble();
+      if (livePrice != null && livePrice > 0 && mounted) {
+        setState(() {
+          _currentCryptoPrice = livePrice;
+          _cachedPrices[_selectedCoin] = livePrice;
+        });
+      }
+    }).catchError((_) {
+      // Keep fallback on error
     });
   }
 
@@ -323,7 +347,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
     final address = _addressController.text.trim();
     return inputAmount > 0 &&
         cryptoAmount > 0 &&
-        cryptoAmount <= (_availableBalance - _fee) &&
+        (cryptoAmount + _fee) <= _availableBalance &&
         address.isNotEmpty &&
         _validateAddressFormat(address);
   }
@@ -359,6 +383,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
   }
 
   void _setMaxAmount() {
+    // Max sendable = balance minus fee, must be > 0
     final total = _availableBalance - _fee;
     if (total > 0) {
       if (_useUsdInput && _currentCryptoPrice > 0) {
@@ -1442,8 +1467,10 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
   // Build percentage button helper
   Widget _buildPercentButton(String label, double percent) {
     final isSelected = _selectedPercent == percent;
-    final total = _availableBalance - _fee;
-    final isDisabled = total <= 0 || !_balanceLoaded;
+    // Use the raw balance for percentage — if fee > balance, user can still
+    // type an amount (validation will catch it). Don't lock buttons out.
+    final total = _availableBalance > 0 ? _availableBalance : 0.0;
+    final isDisabled = !_balanceLoaded;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Expanded(
@@ -1656,31 +1683,28 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
   Widget _buildPinEntryPage(Color headerColor) {
     final cryptoAmount = _getActualCryptoAmount();
     final address = _addressController.text.trim();
+    final usdValue = _currentCryptoPrice > 0
+        ? (cryptoAmount * _currentCryptoPrice).toStringAsFixed(2)
+        : '—';
+    final coinName = _coins
+        .firstWhere((c) => c.symbol == _selectedCoin,
+            orElse: () => _coins.first)
+        .name;
 
     return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            headerColor,
-            headerColor.withOpacity(0.9),
-            Colors.white,
-            Colors.white,
-          ],
-          stops: const [0.0, 0.25, 0.25, 1.0],
-        ),
-      ),
+      color: headerColor,
       child: SafeArea(
+        bottom: false,
         child: Column(
           children: [
-            // Header
+            // ── Top bar ──────────────────────────────────────────
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
               child: Row(
                 children: [
                   IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    icon: const Icon(Icons.arrow_back_ios_new,
+                        color: Colors.white, size: 20),
                     onPressed: () {
                       setState(() {
                         _showPinEntry = false;
@@ -1695,8 +1719,9 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                       'Confirm Transaction',
                       style: TextStyle(
                         color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.3,
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -1706,108 +1731,125 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
               ),
             ),
 
-            // Transaction Summary Card
-            Container(
-              margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.15),
-                    blurRadius: 30,
-                    offset: const Offset(0, 15),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  // Coin icon
-                  Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: headerColor.withOpacity(0.1),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      _coins.firstWhere((c) => c.symbol == _selectedCoin).icon,
-                      color: headerColor,
-                      size: 32,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Sending',
-                    style: TextStyle(
-                      color: Colors.grey[600],
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${cryptoAmount.toStringAsFixed(8)} ${_selectedCoin.split('-').first}',
-                    style: TextStyle(
-                      color: headerColor,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  if (_currentCryptoPrice > 0)
-                    Text(
-                      '≈ \$${(cryptoAmount * _currentCryptoPrice).toStringAsFixed(2)} USD',
-                      style: TextStyle(
-                        color: Colors.grey[500],
-                        fontSize: 14,
-                      ),
-                    ),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[50],
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
+            // ── Transaction summary ───────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+              child: Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                      color: Colors.white.withOpacity(0.25), width: 1),
+                ),
+                child: Column(
+                  children: [
+                    // Amount row
+                    Row(
                       children: [
-                        Icon(Icons.account_balance_wallet_outlined,
-                            color: Colors.grey[400], size: 20),
-                        const SizedBox(width: 8),
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            _coins
+                                .firstWhere((c) => c.symbol == _selectedCoin,
+                                    orElse: () => _coins.first)
+                                .icon,
+                            color: Colors.white,
+                            size: 26,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
                         Expanded(
-                          child: Text(
-                            '${address.substring(0, 10)}...${address.substring(address.length - 8)}',
-                            style: TextStyle(
-                              fontFamily: 'monospace',
-                              color: Colors.grey[700],
-                              fontSize: 13,
-                            ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Sending $coinName',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.75),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w400,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${cryptoAmount.toStringAsFixed(6)} ${_selectedCoin.split('-').first}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                              Text(
+                                '≈ \$$usdValue USD',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.75),
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Network Fee',
-                          style: TextStyle(color: Colors.grey[500])),
-                      Text(
-                        '${_fee.toStringAsFixed(6)} ${_selectedCoin.split('-').first}',
-                        style: const TextStyle(fontWeight: FontWeight.w500),
-                      ),
-                    ],
-                  ),
-                ],
+
+                    const SizedBox(height: 14),
+                    Divider(color: Colors.white.withOpacity(0.2), height: 1),
+                    const SizedBox(height: 14),
+
+                    // To address
+                    _summaryRow(
+                      icon: Icons.account_circle_outlined,
+                      label: 'To',
+                      value: address.length > 20
+                          ? '${address.substring(0, 10)}…${address.substring(address.length - 8)}'
+                          : address,
+                      mono: true,
+                    ),
+                    const SizedBox(height: 10),
+                    // Network fee
+                    _summaryRow(
+                      icon: Icons.local_gas_station_outlined,
+                      label: 'Network Fee',
+                      value:
+                          '${_fee.toStringAsFixed(6)} ${_selectedCoin.split('-').first}',
+                    ),
+                    const SizedBox(height: 10),
+                    // Total
+                    _summaryRow(
+                      icon: Icons.summarize_outlined,
+                      label: 'Total Deducted',
+                      value:
+                          '${(cryptoAmount + _fee).toStringAsFixed(6)} ${_selectedCoin.split('-').first}',
+                      bold: true,
+                    ),
+                  ],
+                ),
               ),
             ),
 
-            // PIN Entry or Confirm Send
+            const SizedBox(height: 12),
+
+            // ── White sheet with PIN / slide ──────────────────────
             Expanded(
-              child: _showSlideToSend
-                  ? _buildConfirmSlideToSend(headerColor)
-                  : _buildPinEntry(headerColor),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(30),
+                    topRight: Radius.circular(30),
+                  ),
+                ),
+                child: _showSlideToSend
+                    ? _buildConfirmSlideToSend(headerColor)
+                    : _buildPinEntry(headerColor, null),
+              ),
             ),
           ],
         ),
@@ -1815,117 +1857,175 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
     );
   }
 
-  Widget _buildPinEntry(Color headerColor) {
-    return SingleChildScrollView(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 16),
-            Text(
-              'Enter your PIN',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey[800],
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Enter your 6-digit PIN to confirm',
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey[500],
-              ),
-            ),
-            const SizedBox(height: 24),
+  /// Small helper row for transaction summary
+  Widget _summaryRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    bool mono = false,
+    bool bold = false,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, color: Colors.white.withOpacity(0.7), size: 16),
+        const SizedBox(width: 8),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withOpacity(0.7),
+            fontSize: 12,
+          ),
+        ),
+        const Spacer(),
+        Text(
+          value,
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 13,
+            fontWeight: bold ? FontWeight.bold : FontWeight.w500,
+            fontFamily: mono ? 'monospace' : null,
+          ),
+        ),
+      ],
+    );
+  }
 
-            // PIN Dots
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(6, (index) {
-                final isFilled = index < _enteredPin.length;
-                return AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  margin: const EdgeInsets.symmetric(horizontal: 8),
-                  width: isFilled ? 16 : 14,
-                  height: isFilled ? 16 : 14,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: isFilled ? headerColor : Colors.transparent,
-                    border: Border.all(
-                      color: isFilled ? headerColor : Colors.grey[300]!,
-                      width: 2,
+  Widget _buildPinEntry(Color headerColor, [BoxConstraints? constraints]) {
+    return LayoutBuilder(builder: (context, bc) {
+      final double totalH = bc.maxHeight;
+      final double keypadArea = (totalH - 200).clamp(180.0, 360.0);
+      final double itemH = (keypadArea / 4).clamp(52.0, 80.0);
+      final double itemW = (bc.maxWidth - 80) / 3;
+      final double aspect = (itemW / itemH).clamp(0.9, 1.8);
+
+      return SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(
+            children: [
+              const SizedBox(height: 28),
+
+              // Lock icon
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: headerColor.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.lock_outline_rounded,
+                    color: headerColor, size: 28),
+              ),
+              const SizedBox(height: 14),
+
+              const Text(
+                'Enter your PIN',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1A1A2E),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Enter your 6-digit PIN to confirm the transaction',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey[500],
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // PIN Dots
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(6, (index) {
+                  final filled = index < _enteredPin.length;
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    margin: const EdgeInsets.symmetric(horizontal: 9),
+                    width: filled ? 18 : 15,
+                    height: filled ? 18 : 15,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: filled ? headerColor : Colors.transparent,
+                      border: Border.all(
+                        color: filled ? headerColor : Colors.grey[300]!,
+                        width: 2,
+                      ),
+                      boxShadow: filled
+                          ? [
+                              BoxShadow(
+                                color: headerColor.withOpacity(0.35),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ]
+                          : null,
                     ),
-                    boxShadow: isFilled
-                        ? [
-                            BoxShadow(
-                              color: headerColor.withOpacity(0.3),
-                              blurRadius: 6,
-                              offset: const Offset(0, 2),
-                            ),
-                          ]
-                        : null,
-                  ),
-                );
-              }),
-            ),
+                  );
+                }),
+              ),
 
-            const SizedBox(height: 28),
+              const SizedBox(height: 28),
 
-            // Number Pad - Fixed size to prevent overflow
-            SizedBox(
-              height: 220,
-              child: GridView.builder(
+              // Number Pad
+              GridView.count(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  childAspectRatio: 1.2,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 6,
-                ),
-                itemCount: 12,
-                itemBuilder: (context, index) {
-                  if (index == 9) {
-                    return const SizedBox(); // Empty space
-                  } else if (index == 10) {
-                    return _buildNumberButton('0', headerColor);
-                  } else if (index == 11) {
-                    return _buildBackspaceButton(headerColor);
-                  } else {
-                    return _buildNumberButton('${index + 1}', headerColor);
-                  }
-                },
+                crossAxisCount: 3,
+                childAspectRatio: aspect,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                children: [
+                  ...List.generate(
+                      9, (i) => _buildNumberButton('${i + 1}', headerColor)),
+                  const SizedBox(),
+                  _buildNumberButton('0', headerColor),
+                  _buildBackspaceButton(headerColor),
+                ],
               ),
-            ),
-            const SizedBox(height: 16),
-          ],
+
+              const SizedBox(height: 16),
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 
   Widget _buildNumberButton(String digit, Color color) {
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.lightImpact();
-        _onPinDigitPressed(digit);
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.grey[100],
-          shape: BoxShape.circle,
-        ),
-        child: Center(
-          child: Text(
-            digit,
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey[800],
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.lightImpact();
+          _onPinDigitPressed(digit);
+        },
+        borderRadius: BorderRadius.circular(100),
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFFF5F6FA),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.06),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Center(
+            child: Text(
+              digit,
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1A1A2E),
+              ),
             ),
           ),
         ),
@@ -1934,21 +2034,32 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
   }
 
   Widget _buildBackspaceButton(Color color) {
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.lightImpact();
-        _onPinBackspace();
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.grey[100],
-          shape: BoxShape.circle,
-        ),
-        child: Center(
-          child: Icon(
-            Icons.backspace_outlined,
-            color: Colors.grey[700],
-            size: 26,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.lightImpact();
+          _onPinBackspace();
+        },
+        borderRadius: BorderRadius.circular(100),
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFFF5F6FA),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.06),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Center(
+            child: Icon(
+              Icons.backspace_outlined,
+              color: Colors.grey[600],
+              size: 24,
+            ),
           ),
         ),
       ),
@@ -2017,11 +2128,6 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 32),
             height: 70,
-            decoration: BoxDecoration(
-              color: headerColor.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(35),
-              border: Border.all(color: headerColor.withOpacity(0.3), width: 2),
-            ),
             child: Stack(
               children: [
                 // Background fill animation

@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,6 +17,7 @@ class WalletService {
   final Dio _dio;
   final dynamic _storage;
   final Logger _logger;
+  SharedPreferences? _prefs;
 
   /// WalletService constructor. Optional dependencies may be injected for testing.
   WalletService({Dio? dio, dynamic storage, Logger? logger})
@@ -23,22 +26,116 @@ class WalletService {
           connectTimeout: const Duration(seconds: 10),
           receiveTimeout: const Duration(seconds: 10),
         )),
-        _storage = storage ?? const FlutterSecureStorage(
+        _storage = storage ?? (kIsWeb || !Platform.isAndroid ? null : const FlutterSecureStorage(
           aOptions: AndroidOptions(encryptedSharedPreferences: true),
-        ),
+        )),
         _logger = logger ?? Logger();
+
+  /// Get shared preferences instance for web/fallback storage
+  Future<SharedPreferences> _getPrefs() async {
+    return _prefs ??= await SharedPreferences.getInstance();
+  }
+
+  // --------------- Safe storage wrappers (web = SharedPreferences, mobile = FlutterSecureStorage) ---------------
+
+  Future<Map<String, String>> _safeReadAll() async {
+    if (kIsWeb || _storage == null) {
+      final prefs = await _getPrefs();
+      return prefs.getKeys().fold<Map<String, String>>({}, (map, key) {
+        final v = prefs.get(key);
+        if (v != null) map[key] = v.toString();
+        return map;
+      });
+    }
+    try {
+      final dynamic raw = await _storage.readAll();
+      if (raw is Map) {
+        return Map<String, String>.from(
+          raw.map((k, v) => MapEntry(k.toString(), v.toString())),
+        );
+      }
+      return {};
+    } catch (e) {
+      _logger.w('Secure storage readAll failed, falling back to SharedPreferences: $e');
+      final prefs = await _getPrefs();
+      return prefs.getKeys().fold<Map<String, String>>({}, (map, key) {
+        final v = prefs.get(key);
+        if (v != null) map[key] = v.toString();
+        return map;
+      });
+    }
+  }
+
+  Future<String?> _safeRead(String key) async {
+    if (kIsWeb || _storage == null) {
+      final prefs = await _getPrefs();
+      return prefs.get(key)?.toString();
+    }
+    try {
+      return await _storage.read(key: key);
+    } catch (e) {
+      _logger.w('Secure storage read failed for $key, falling back: $e');
+      final prefs = await _getPrefs();
+      return prefs.get(key)?.toString();
+    }
+  }
+
+  Future<void> _safeWrite(String key, String value) async {
+    if (kIsWeb || _storage == null) {
+      final prefs = await _getPrefs();
+      await prefs.setString(key, value);
+      return;
+    }
+    try {
+      await _storage.write(key: key, value: value);
+    } catch (e) {
+      _logger.w('Secure storage write failed for $key, falling back: $e');
+      final prefs = await _getPrefs();
+      await prefs.setString(key, value);
+    }
+  }
+
+  Future<void> _safeDelete(String key) async {
+    if (kIsWeb || _storage == null) {
+      final prefs = await _getPrefs();
+      await prefs.remove(key);
+      return;
+    }
+    try {
+      await _storage.delete(key: key);
+    } catch (e) {
+      _logger.w('Secure storage delete failed for $key: $e');
+    }
+  }
 
   /// Store wallet credentials in the format expected by getBalances()
   Future<void> storeWalletCredentials(String chain, String address, String? privateKey, String? mnemonic) async {
-    if (privateKey != null) {
-      await _storage.write(key: '${chain}_${address}_private', value: privateKey);
+    try {
+      if (kIsWeb || _storage == null) {
+        // Web platform - use SharedPreferences
+        final prefs = await _getPrefs();
+        if (privateKey != null) {
+          await prefs.setString('${chain}_${address}_private', privateKey);
+        }
+        if (mnemonic != null) {
+          await prefs.setString('${chain}_${address}_mnemonic', mnemonic);
+        }
+        await prefs.setString('${chain}_${address}_meta', DateTime.now().toIso8601String());
+      } else {
+        // Mobile platform - use secure storage
+        if (privateKey != null) {
+          await _safeWrite('${chain}_${address}_private', privateKey);
+        }
+        if (mnemonic != null) {
+          await _safeWrite('${chain}_${address}_mnemonic', mnemonic);
+        }
+        await _safeWrite('${chain}_${address}_meta', DateTime.now().toIso8601String());
+      }
+      _logger.i('✅ Stored credentials for $chain wallet: $address');
+    } catch (e) {
+      _logger.e('❌ Failed to store wallet credentials: $e');
+      rethrow;
     }
-    if (mnemonic != null) {
-      await _storage.write(key: '${chain}_${address}_mnemonic', value: mnemonic);
-    }
-    // Also store a simple marker for this address
-    await _storage.write(key: '${chain}_${address}_meta', value: DateTime.now().toIso8601String());
-    _logger.i('Stored credentials for $chain wallet: $address');
   }
 
   /// Generate a blockchain-specific address for the given chain.
@@ -46,6 +143,7 @@ class WalletService {
   Future<Map<String, String>> generateAddressFor(String chain, {bool preferLocal = true}) async {
     try {
       final uc = chain.toUpperCase();
+      _logger.i('🔧 generateAddressFor called with chain: $chain (uppercase: $uc), preferLocal: $preferLocal');
 
       // Resolve token network aliases. Support USDT/USDC on ERC20, BEP20 (BSC) and TRC20 (Tron).
       String backendChain;
@@ -60,8 +158,10 @@ class WalletService {
         final evmLike = {'USDT', 'USDC', 'BNB', 'MATIC', 'AVAX', 'FTM', 'ONE', 'ARB'};
         backendChain = (evmLike.contains(uc)) ? 'ETH' : uc;
       }
+      _logger.i('🔧 Backend chain resolved to: $backendChain');
 
-  if (preferLocal && (backendChain == 'ETH' || backendChain == 'BTC' || backendChain == 'TRX' || backendChain == 'BNB' || backendChain == 'LTC' || backendChain == 'XRP' || backendChain == 'DOGE' || backendChain == 'SOL')) {
+      if (preferLocal && (backendChain == 'ETH' || backendChain == 'BTC' || backendChain == 'TRX' || backendChain == 'BNB' || backendChain == 'LTC' || backendChain == 'XRP' || backendChain == 'DOGE' || backendChain == 'SOL')) {
+        _logger.i('🔧 Attempting local generation for $backendChain');
         try {
           final local = await Bip39Wallet.generate(chain: backendChain);
 
@@ -69,27 +169,35 @@ class WalletService {
           final privateKey = local['privateKey'];
           final mnemonic = local['mnemonic'];
 
+          _logger.i('🔧 Local generation succeeded: address=$address, privateKey=${privateKey != null ? "present" : "absent"}, mnemonic=${mnemonic != null ? "present" : "absent"}');
+
           // Store generated secrets locally only
           if (privateKey != null) {
-            await _storage.write(key: '${chain}_${address}_private', value: privateKey);
+            await _safeWrite('${chain}_${address}_private', privateKey);
           }
           if (mnemonic != null) {
-            await _storage.write(key: '${chain}_${address}_mnemonic', value: mnemonic);
+            await _safeWrite('${chain}_${address}_mnemonic', mnemonic);
           }
 
           final result = <String, String>{'address': address};
           if (privateKey != null) result['privateKey'] = privateKey;
           if (mnemonic != null) result['mnemonic'] = mnemonic;
+          _logger.i('🔧 Returning local generation result');
           return result;
         } catch (e) {
-          _logger.w('Local generation failed for $chain, falling back to backend: $e');
+          _logger.w('🔧 Local generation failed for $chain, falling back to backend: $e');
         }
+      } else {
+        _logger.i('🔧 Local generation not attempted (preferLocal=$preferLocal, backendChain=$backendChain not in supported list)');
       }
 
+      _logger.i('🔧 Calling backend API at ${_dio.options.baseUrl}/generate with chain: $backendChain');
       final response = await _dio.post('/generate', queryParameters: {'chain': backendChain});
       final data = response.data;
+      _logger.i('🔧 Backend response status: ${response.statusCode}, data type: ${data.runtimeType}');
 
       if (data == null || data is! Map) {
+        _logger.e('🔧 Invalid response from backend: $data');
         throw Exception('Invalid response from backend');
       }
 
@@ -97,25 +205,31 @@ class WalletService {
       final privateKey = data['privateKey']?.toString();
       final mnemonic = data['mnemonic']?.toString();
 
+      _logger.i('🔧 Parsed from backend: address=$address, privateKey=${privateKey != null ? "present" : "absent"}, mnemonic=${mnemonic != null ? "present" : "absent"}');
+
       if (address == null) {
+        _logger.e('🔧 Missing address in backend response');
         throw Exception('Missing address in response');
       }
 
       if (privateKey != null) {
-        await _storage.write(key: '${chain}_${address}_private', value: privateKey);
+        await _safeWrite('${chain}_${address}_private', privateKey);
         if (mnemonic != null) {
-          await _storage.write(key: '${chain}_${address}_mnemonic', value: mnemonic);
+          await _safeWrite('${chain}_${address}_mnemonic', mnemonic);
         }
+        _logger.i('🔧 Stored private key and mnemonic for $chain address $address');
       } else {
-        await _storage.write(key: '${chain}_${address}_meta', value: DateTime.now().toIso8601String());
+        await _safeWrite('${chain}_${address}_meta', DateTime.now().toIso8601String());
+        _logger.i('🔧 Stored meta marker for $chain address $address (no private key)');
       }
 
       final result = <String, String>{'address': address};
       if (privateKey != null) result['privateKey'] = privateKey;
       if (mnemonic != null) result['mnemonic'] = mnemonic;
+      _logger.i('🔧 Returning backend generation result');
       return result;
     } catch (e) {
-      _logger.e('Failed to generate address for $chain: $e');
+      _logger.e('🔧 Failed to generate address for $chain: $e');
       rethrow;
     }
   }
@@ -124,42 +238,46 @@ class WalletService {
   /// Handles token aliases (USDT-ERC20 uses ETH addresses, USDT-BEP20 uses BNB addresses, etc.)
   Future<List<String>> getStoredAddresses(String chain) async {
     try {
-      final dynamic rawKeys = await _storage.readAll();
+      final rawKeys = await _safeReadAll();
       final addresses = <String>{};
       
+      // Normalize chain to uppercase for matching (storage keys use uppercase)
+      final normalizedChain = chain.toUpperCase();
+      
       // Map tokens to their underlying chain
-      String lookupChain = chain;
-      if (chain.startsWith('USDT-') || chain.startsWith('USDC-')) {
-        if (chain.contains('TRC20')) {
+      String lookupChain = normalizedChain;
+      if (normalizedChain.startsWith('USDT-') || normalizedChain.startsWith('USDC-')) {
+        if (normalizedChain.contains('TRC20')) {
           lookupChain = 'TRX';
-        } else if (chain.contains('BEP20')) {
+        } else if (normalizedChain.contains('BEP20')) {
           lookupChain = 'BNB';
-        } else if (chain.contains('ERC20')) {
+        } else if (normalizedChain.contains('ERC20')) {
           lookupChain = 'ETH';
         }
-      } else if (chain == 'USDT' || chain == 'USDC') {
+      } else if (normalizedChain == 'USDT' || normalizedChain == 'USDC') {
         // Default to ETH for plain USDT/USDC
         lookupChain = 'ETH';
       }
       
       // Handle type casting carefully for web compatibility
-      if (rawKeys != null && rawKeys is Map) {
-        for (final entry in rawKeys.entries) {
-          final k = entry.key?.toString() ?? '';
+      for (final entry in rawKeys.entries) {
+        {
+          final k = entry.key;
+          final kUpper = k.toUpperCase();
           
-          // First try exact chain match
-          if (k.startsWith('${chain}_')) {
-            _parseAndAddAddress(k, chain, addresses);
+          // First try exact chain match (case-insensitive)
+          if (kUpper.startsWith('${normalizedChain}_')) {
+            _parseAndAddAddress(k, normalizedChain, addresses);
           }
           
           // Then try mapped chain if different
-          if (lookupChain != chain && k.startsWith('${lookupChain}_')) {
+          if (lookupChain != normalizedChain && kUpper.startsWith('${lookupChain}_')) {
             _parseAndAddAddress(k, lookupChain, addresses);
           }
         }
       }
       
-      print('🔍 getStoredAddresses($chain) → lookup: $lookupChain → found: $addresses');
+      print('🔍 getStoredAddresses($chain) → normalized: $normalizedChain, lookup: $lookupChain → found: $addresses');
       return addresses.toList();
     } catch (e) {
       _logger.e('Failed to get stored addresses: $e');
@@ -168,7 +286,8 @@ class WalletService {
   }
   
   void _parseAndAddAddress(String key, String chain, Set<String> addresses) {
-    if (!key.startsWith('${chain}_')) return;
+    // Case-insensitive check since storage keys might be lowercase
+    if (!key.toUpperCase().startsWith('${chain}_')) return;
     
     // Key format: CHAIN_ADDRESS_SUFFIX
     // We need to extract the address carefully because addresses can vary in format
@@ -182,8 +301,13 @@ class WalletService {
     }
     if (suffix == null) return;
     
+    // Find the actual chain prefix in the key (preserve original case)
+    final firstUnderscore = key.indexOf('_');
+    if (firstUnderscore == -1) return;
+    final actualChainPrefix = key.substring(0, firstUnderscore);
+    
     // Remove chain prefix and suffix to get address
-    final withoutChain = key.substring(chain.length + 1); // +1 for the underscore
+    final withoutChain = key.substring(firstUnderscore + 1); // +1 for the underscore
     final address = withoutChain.substring(0, withoutChain.length - suffix.length);
     
     if (address.isNotEmpty) {
@@ -194,7 +318,7 @@ class WalletService {
   /// Get the private key for a given address
   Future<String?> getPrivateKey(String chain, String address) async {
     try {
-      return await _storage.read(key: '${chain}_${address}_private');
+      return await _safeRead('${chain}_${address}_private');
     } catch (e) {
       _logger.e('Failed to get private key: $e');
       return null;
@@ -204,9 +328,62 @@ class WalletService {
   /// Get the mnemonic phrase for a given address
   Future<String?> getMnemonic(String chain, String address) async {
     try {
-      return await _storage.read(key: '${chain}_${address}_mnemonic');
+      return await _safeRead('${chain}_${address}_mnemonic');
     } catch (e) {
       _logger.e('Failed to get mnemonic: $e');
+      return null;
+    }
+  }
+
+  /// Scan ALL storage locations (secure storage + SharedPreferences) and return
+  /// the first mnemonic found, regardless of which chain it belongs to.
+  /// This is robust against wallets created on any chain.
+  Future<String?> findAnyMnemonic() async {
+    try {
+      // 1. Try secure storage (mobile)
+      try {
+        final rawKeys = await _safeReadAll();
+        if (rawKeys.isNotEmpty) {
+          for (final entry in rawKeys.entries) {
+            final key = entry.key;
+            final value = entry.value;
+            if (key.endsWith('_mnemonic') && value.trim().isNotEmpty) {
+              // Validate it looks like a BIP39 mnemonic (12 or 24 words)
+              final wordCount = value.trim().split(RegExp(r'\s+')).length;
+              if (wordCount == 12 || wordCount == 24) {
+                _logger.i('✅ Found mnemonic in secure storage key: $key ($wordCount words)');
+                return value.trim();
+              }
+            }
+          }
+        }
+      } catch (e) {
+        _logger.w('Secure storage readAll failed in findAnyMnemonic: $e');
+      }
+
+      // 2. Fallback: SharedPreferences (web or if secure storage failed)
+      try {
+        final prefs = await _getPrefs();
+        for (final key in prefs.getKeys()) {
+          if (key.endsWith('_mnemonic')) {
+            final value = prefs.getString(key) ?? '';
+            if (value.trim().isNotEmpty) {
+              final wordCount = value.trim().split(RegExp(r'\s+')).length;
+              if (wordCount == 12 || wordCount == 24) {
+                _logger.i('✅ Found mnemonic in SharedPreferences key: $key ($wordCount words)');
+                return value.trim();
+              }
+            }
+          }
+        }
+      } catch (e) {
+        _logger.w('SharedPreferences scan failed in findAnyMnemonic: $e');
+      }
+
+      _logger.w('⚠️ No mnemonic found in any storage');
+      return null;
+    } catch (e) {
+      _logger.e('findAnyMnemonic error: $e');
       return null;
     }
   }
@@ -214,7 +391,7 @@ class WalletService {
   /// Mark that the user has completed the backup verification process
   Future<void> markBackupCompleted() async {
     try {
-      await _storage.write(key: 'backup_completed', value: 'true');
+      await _safeWrite('backup_completed', 'true');
       _logger.i('Backup marked as completed');
     } catch (e) {
       _logger.e('Failed to mark backup completed: $e');
@@ -225,7 +402,7 @@ class WalletService {
   /// Check if the user has completed backup verification
   Future<bool> isBackupCompleted() async {
     try {
-      final value = await _storage.read(key: 'backup_completed');
+      final value = await _safeRead('backup_completed');
       return value == 'true';
     } catch (e) {
       _logger.e('Failed to check backup status: $e');
@@ -236,8 +413,8 @@ class WalletService {
   /// Delete all stored keys for an address
   Future<void> deleteAddress(String chain, String address) async {
     try {
-      await _storage.delete(key: '${chain}_${address}_private');
-      await _storage.delete(key: '${chain}_${address}_mnemonic');
+      await _safeDelete('${chain}_${address}_private');
+      await _safeDelete('${chain}_${address}_mnemonic');
     } catch (e) {
       _logger.e('Failed to delete address: $e');
       rethrow;
@@ -303,17 +480,17 @@ class WalletService {
     final saltBytes = List<int>.generate(16, (_) => rnd.nextInt(256));
     final salt = base64.encode(saltBytes);
     final hash = _hashPin(pin, salt);
-    await _storage.write(key: 'wallet_pin', value: '$salt:$hash');
+    await _safeWrite('wallet_pin', '$salt:$hash');
   }
 
   Future<bool> hasPin() async {
-    final v = await _storage.read(key: 'wallet_pin');
+    final v = await _safeRead('wallet_pin');
     return v != null;
   }
 
   Future<bool> verifyPin(String pin) async {
     try {
-      final v = await _storage.read(key: 'wallet_pin');
+      final v = await _safeRead('wallet_pin');
       if (v == null) return false;
       final parts = v.split(':');
       if (parts.length != 2) return false;
@@ -329,7 +506,7 @@ class WalletService {
   /// Remove the stored wallet PIN (used for PIN reset/remove flows).
   Future<void> deletePin() async {
     try {
-      await _storage.delete(key: 'wallet_pin');
+      await _safeDelete('wallet_pin');
     } catch (e) {
       _logger.w('Failed to delete PIN: $e');
     }
@@ -337,7 +514,7 @@ class WalletService {
 
   Future<void> recordRevealEvent(String chain, String address, bool success) async {
     try {
-      final raw = await _storage.read(key: 'reveal_audit');
+      final raw = await _safeRead('reveal_audit');
       List entries = [];
       if (raw != null) {
         entries = json.decode(raw) as List;
@@ -350,7 +527,7 @@ class WalletService {
       });
       // keep last 200 events
       if (entries.length > 200) entries = entries.sublist(entries.length - 200);
-      await _storage.write(key: 'reveal_audit', value: json.encode(entries));
+      await _safeWrite('reveal_audit', json.encode(entries));
     } catch (e) {
       _logger.w('Failed to record reveal event: $e');
     }
@@ -358,7 +535,7 @@ class WalletService {
 
   Future<List<Map<String, dynamic>>> getRevealAudit() async {
     try {
-      final raw = await _storage.read(key: 'reveal_audit');
+      final raw = await _safeRead('reveal_audit');
       if (raw == null) return [];
       final parsed = json.decode(raw) as List;
       return parsed.map((e) => Map<String, dynamic>.from(e)).toList();
@@ -374,15 +551,17 @@ class WalletService {
     try {
       final balances = <String, double>{};
       
-      // Define valid blockchain chains
+      // Define valid blockchain chains - expanded to include more chains and tokens
       const validChains = {
         'BTC', 'ETH', 'BNB', 'USDT', 'TRX', 'XRP', 'SOL', 'LTC', 'DOGE',
-        'POLYGON', 'ARBITRUM', 'OPTIMISM', 'AVALANCHE'
+        'POLYGON', 'ARBITRUM', 'OPTIMISM', 'AVALANCHE', 'ONT', 'MATIC',
+        'USDC', 'DAI', 'BUSD', 'WBTC', 'SHIB', 'ADA', 'DOT', 'AVAX', 'FTM',
+        'USDT-ERC20', 'USDT-BEP20', 'USDT-TRC20', 'USDC-ERC20', 'USDC-BEP20'
       };
       
       // Get all stored addresses across all chains
-      final dynamic rawKeys = await _storage.readAll();
-      final allKeys = rawKeys is Map ? Map<String, String>.from(rawKeys.map((k, v) => MapEntry(k.toString(), v.toString()))) : <String, String>{};
+      final allKeys = await _safeReadAll();
+
       print('🔑 Total keys in storage: ${allKeys.length}');
       
       // Debug: print all keys to understand storage structure
@@ -418,16 +597,26 @@ class WalletService {
         final chain = keyWithoutSuffix.substring(0, firstUnderscore);
         final address = keyWithoutSuffix.substring(firstUnderscore + 1);
         
-        // Only process valid blockchain chains
-        if (!validChains.contains(chain)) {
+        // Normalize chain to uppercase for validation
+        final normalizedChain = chain.toUpperCase();
+        
+        // Only process valid blockchain chains (case-insensitive)
+        if (!validChains.contains(normalizedChain)) {
+          print('⚠️ Skipping invalid chain: $chain (normalized: $normalizedChain)');
           continue;
         }
         
-        // Validate address format
-        if (address.isEmpty) continue;
+        // Use normalized chain for further processing
+        final processingChain = normalizedChain;
         
-        print('📍 Found wallet: $chain - ${address.length > 20 ? "${address.substring(0, 10)}...${address.substring(address.length - 6)}" : address}');
-        addressesByChain.putIfAbsent(chain, () => {}).add(address);
+        // Validate address format
+        if (address.isEmpty) {
+          print('⚠️ Empty address for chain: $chain');
+          continue;
+        }
+        
+        print('📍 Found wallet: $processingChain - ${address.length > 20 ? "${address.substring(0, 10)}...${address.substring(address.length - 6)}" : address}');
+        addressesByChain.putIfAbsent(processingChain, () => {}).add(address);
       }
       
       print('💼 Wallets by chain: ${addressesByChain.length} chains - $addressesByChain');
@@ -659,7 +848,7 @@ class WalletService {
   /// Get cached balance for a coin
   Future<double> getCachedBalance(String coin) async {
     try {
-      final cached = await _storage.read(key: 'balance_cache_$coin');
+      final cached = await _safeRead('balance_cache_$coin');
       if (cached != null) {
         return double.tryParse(cached) ?? 0.0;
       }

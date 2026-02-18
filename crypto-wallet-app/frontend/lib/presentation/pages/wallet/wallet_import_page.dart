@@ -6,7 +6,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../services/bip39_wallet.dart';
 import '../../../services/auth_service.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../../services/wallet_service.dart';
 
 class WalletImportPage extends ConsumerStatefulWidget {
   const WalletImportPage({super.key});
@@ -17,7 +17,7 @@ class WalletImportPage extends ConsumerStatefulWidget {
 
 class _WalletImportPageState extends ConsumerState<WalletImportPage> {
   final TextEditingController _mnemonicController = TextEditingController();
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+  final WalletService _walletService = WalletService();
   final AuthService _authService = AuthService();
   bool _isLoading = false;
 
@@ -48,71 +48,6 @@ class _WalletImportPageState extends ConsumerState<WalletImportPage> {
 
     setState(() => _isLoading = true);
 
-    // Show loading dialog
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => WillPopScope(
-        onWillPop: () async => false,
-        child: Center(
-          child: Container(
-            padding: const EdgeInsets.all(32),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 60,
-                  height: 60,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 4,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  'Importing Your Wallet',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Recovering your keys from recovery phrase...',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[600],
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    minHeight: 4,
-                    backgroundColor: Colors.grey[300],
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    // Ensure dialog is visible for at least 500ms
-    await Future.delayed(const Duration(milliseconds: 500));
-
     try {
       // Restore wallet for main chains (BTC, ETH)
       final chains = ['BTC', 'ETH'];
@@ -131,16 +66,10 @@ class _WalletImportPageState extends ConsumerState<WalletImportPage> {
           // Use the first address as the primary wallet address
           primaryAddress ??= address;
           
-          // Store the keys securely
+          // Store the keys securely (web-safe via WalletService)
           if (privateKey != null) {
-            await _storage.write(
-              key: '${chain}_${address}_private',
-              value: privateKey,
-            );
-            await _storage.write(
-              key: '${chain}_${address}_mnemonic',
-              value: mnemonic,
-            );
+            await _walletService.storeWalletCredentials(
+              chain, address, privateKey, mnemonic);
           }
         } catch (e) {
           // Continue with other chains even if one fails
@@ -149,7 +78,7 @@ class _WalletImportPageState extends ConsumerState<WalletImportPage> {
       }
       
       // Mark backup as completed since user already has the mnemonic
-      await _storage.write(key: 'backup_completed', value: 'true');
+      await _walletService.markBackupCompleted();
       
       // IMPORTANT: Set logged in state and save wallet data
       if (primaryAddress != null) {
@@ -163,9 +92,6 @@ class _WalletImportPageState extends ConsumerState<WalletImportPage> {
       }
       
       if (mounted) {
-        // Dismiss loading dialog
-        Navigator.pop(context);
-        
         // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -179,9 +105,6 @@ class _WalletImportPageState extends ConsumerState<WalletImportPage> {
       }
     } catch (e) {
       if (mounted) {
-        // Dismiss loading dialog
-        Navigator.pop(context);
-        
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../services/auth_service.dart';
+import '../../../core/providers/fake_wallet_provider.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -61,6 +62,14 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     await Future.delayed(const Duration(milliseconds: 3000));
 
     if (!mounted) return;
+
+    // Check if duress mode is permanently active - if so always show fake dashboard
+    final fakeWalletState = ref.read(fakeWalletProvider);
+    if (fakeWalletState.isActive && fakeWalletState.isDuressMode) {
+      print('🎭 Duress mode active - redirecting to fake dashboard');
+      if (mounted) context.go('/fake-dashboard');
+      return;
+    }
 
     final authService = AuthService();
     

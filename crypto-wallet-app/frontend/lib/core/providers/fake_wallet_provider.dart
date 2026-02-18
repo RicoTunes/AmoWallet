@@ -1,4 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// Persistent key for duress mode - survives app restarts
+const _kDuressModeActiveKey = 'duress_mode_permanently_active';
 
 /// State for fake wallet mode (decoy wallet for duress PIN)
 class FakeWalletState {
@@ -21,23 +25,50 @@ class FakeWalletState {
 }
 
 /// Notifier for managing fake wallet state
+/// Duress mode is PERSISTENT - once activated, it survives app restarts
+/// until the app is uninstalled and reinstalled.
 class FakeWalletNotifier extends StateNotifier<FakeWalletState> {
-  FakeWalletNotifier() : super(const FakeWalletState());
-
-  /// Activate fake wallet mode (triggered by duress PIN detection)
-  void activateFakeWallet() {
-    state = state.copyWith(
-      isActive: true,
-      isDuressMode: true,
-    );
+  FakeWalletNotifier() : super(const FakeWalletState()) {
+    _restorePersistedState();
   }
 
-  /// Deactivate fake wallet and return to real wallet
-  void deactivateFakeWallet() {
-    state = state.copyWith(
-      isActive: false,
-      isDuressMode: false,
-    );
+  /// Restore persisted duress mode on app restart
+  Future<void> _restorePersistedState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final isActive = prefs.getBool(_kDuressModeActiveKey) ?? false;
+      if (isActive) {
+        state = state.copyWith(isActive: true, isDuressMode: true);
+        print('🎭 Duress mode restored from persistent storage');
+      }
+    } catch (e) {
+      print('⚠️ Failed to restore duress state: $e');
+    }
+  }
+
+  /// Activate fake wallet mode (triggered by duress PIN detection)
+  /// Persists to storage so it survives app restarts.
+  Future<void> activateFakeWallet() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_kDuressModeActiveKey, true);
+      print('🎭 Duress mode PERSISTENTLY activated');
+    } catch (e) {
+      print('⚠️ Failed to persist duress activation: $e');
+    }
+    state = state.copyWith(isActive: true, isDuressMode: true);
+  }
+
+  /// Deactivate fake wallet - only possible by clearing persistent storage
+  /// (i.e., app uninstall/reinstall clears SharedPreferences)
+  Future<void> deactivateFakeWallet() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_kDuressModeActiveKey);
+    } catch (e) {
+      print('⚠️ Failed to clear duress state: $e');
+    }
+    state = state.copyWith(isActive: false, isDuressMode: false);
   }
 
   /// Check if currently in fake wallet mode
