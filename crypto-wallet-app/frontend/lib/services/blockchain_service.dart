@@ -11,9 +11,9 @@ import '../core/config/api_config.dart';
 
 class BlockchainService {
   final Dio _dio = Dio(BaseOptions(
-    connectTimeout: const Duration(seconds: 10),
-    receiveTimeout: const Duration(seconds: 15),
-    sendTimeout: const Duration(seconds: 10),
+    connectTimeout: const Duration(seconds: 30),
+    receiveTimeout: const Duration(seconds: 90),
+    sendTimeout: const Duration(seconds: 30),
   ));
   // Configure Android options for better compatibility
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage(

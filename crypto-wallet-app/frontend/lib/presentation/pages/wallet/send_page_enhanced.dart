@@ -1866,20 +1866,52 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
             const SizedBox(height: 12),
 
             // ── White sheet with PIN / slide ──────────────────────
-            Expanded(
-              child: Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(30),
-                    topRight: Radius.circular(30),
-                  ),
+            // While sending, skip the white sheet — show a transparent
+            // spinner so the colored header fills the whole screen.
+            if (_loading)
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 3,
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Broadcasting transaction...',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'This may take up to 30 seconds',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.65),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
                 ),
-                child: _showSlideToSend
-                    ? _buildConfirmSlideToSend(headerColor)
-                    : _buildPinEntry(headerColor, null),
+              )
+            else
+              Expanded(
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(30),
+                      topRight: Radius.circular(30),
+                    ),
+                  ),
+                  child: _showSlideToSend
+                      ? _buildConfirmSlideToSend(headerColor)
+                      : _buildPinEntry(headerColor, null),
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -2142,19 +2174,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
         const SizedBox(height: 40),
 
         // Final Slide to Send
-        if (_loading)
-          Column(
-            children: [
-              CircularProgressIndicator(color: headerColor),
-              const SizedBox(height: 16),
-              Text(
-                'Sending...',
-                style: TextStyle(color: Colors.grey[600]),
-              ),
-            ],
-          )
-        else
-          Container(
+        Container(
             margin: const EdgeInsets.symmetric(horizontal: 32),
             height: 70,
             child: Stack(
