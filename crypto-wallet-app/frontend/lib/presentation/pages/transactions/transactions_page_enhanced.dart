@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../services/transaction_service.dart';
 import '../../../services/wallet_service.dart';
+import '../../../services/notification_service.dart';
 import '../../../models/transaction_model.dart';
 
 class TransactionsPageEnhanced extends ConsumerStatefulWidget {
@@ -20,6 +21,7 @@ class _TransactionsPageEnhancedState extends ConsumerState<TransactionsPageEnhan
     with SingleTickerProviderStateMixin {
   final TransactionService _transactionService = TransactionService();
   final WalletService _walletService = WalletService();
+  final NotificationService _notificationService = NotificationService();
   
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
@@ -54,14 +56,34 @@ class _TransactionsPageEnhancedState extends ConsumerState<TransactionsPageEnhan
     _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(_onTabChanged);
     _loadTransactions();
+    // Auto-refresh when new notifications arrive (incoming tx, confirmation)
+    _notificationService.addListener(_onNotificationUpdate);
   }
 
   @override
   void dispose() {
+    _notificationService.removeListener(_onNotificationUpdate);
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _onNotificationUpdate(List<AppNotification> _) {
+    // Silently refresh transactions whenever a new notification fires
+    // (covers incoming tx detected + confirmation updates)
+    if (mounted) _silentRefresh();
+  }
+
+  Future<void> _silentRefresh() async {
+    try {
+      final allTransactions = await _transactionService.getAllTransactions();
+      if (mounted) {
+        setState(() {
+          _transactions = allTransactions;
+        });
+      }
+    } catch (_) {}
   }
 
   void _onTabChanged() {

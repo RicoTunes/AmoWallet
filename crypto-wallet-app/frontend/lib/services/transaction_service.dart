@@ -364,6 +364,7 @@ class TransactionService {
     String? toAddress,
     String? txHash,
     String? memo,
+    String status = 'completed',
   }) async {
     // Check if we already have this exact transaction stored (by txHash or combination)
     if (txHash != null && txHash.isNotEmpty) {
@@ -391,7 +392,8 @@ class TransactionService {
       toAddress: toAddress,
       txHash: txHash,
       timestamp: DateTime.now(),
-      status: 'completed',
+      status: status,
+      isPending: status == 'pending',
       memo: memo,
     );
 

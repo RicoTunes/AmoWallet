@@ -511,11 +511,18 @@ class _SendPageState extends ConsumerState<SendPage> {
         chain: _selectedCoin,
         coin: _selectedCoin,
         amount: cryptoAmount,
-        type: 'sent',
+        type: 'send',
       );
 
-      // Note: ConfirmationTrackerService will show notifications as confirmations arrive
-      // so we don't duplicate by showing a notification here
+      // Show outgoing notification in notification centre (pending → confirmed as tracking updates)
+      await _notificationService.showOutgoingTransaction(
+        amount: cryptoAmount.toStringAsFixed(8).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), ''),
+        currency: _selectedCoin,
+        to: address,
+        txHash: txHash,
+      );
+
+      // Note: ConfirmationTrackerService will update notification status as confirmations arrive
 
       // Show success message with transaction hash
       if (mounted) {

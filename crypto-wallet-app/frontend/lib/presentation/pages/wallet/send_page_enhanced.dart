@@ -604,7 +604,15 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
         chain: _selectedCoin,
         coin: _selectedCoin,
         amount: cryptoAmount,
-        type: 'sent',
+        type: 'send',
+      );
+
+      // Show outgoing notification in notification centre (pending → confirmed as tracking updates)
+      await _notificationService.showOutgoingTransaction(
+        amount: cryptoAmount.toStringAsFixed(8).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), ''),
+        currency: _selectedCoin,
+        to: address,
+        txHash: txHash,
       );
 
       // Show success with confetti!
