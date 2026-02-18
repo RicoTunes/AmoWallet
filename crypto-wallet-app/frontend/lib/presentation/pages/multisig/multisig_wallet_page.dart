@@ -23,7 +23,7 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
   final _biometricService = BiometricAuthService();
   final _pinAuthService = PinAuthService();
 
-  // State
+  // ── Wallet state ──────────────────────────────────────────────────────────
   String? _walletAddress;
   List<dynamic> _pendingTransactions = [];
   List<dynamic> _owners = [];
@@ -33,17 +33,26 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
   double _balance = 0.0;
 
   // ── Persisted create-wallet form state ────────────────────────────────────
-  // These live at state level so they survive app-lock/PIN-unlock cycles.
   final TextEditingController _cwOwnersCountCtrl =
       TextEditingController(text: '3');
   final TextEditingController _cwRequiredSigsCtrl =
       TextEditingController(text: '2');
-  List<TextEditingController> _cwOwnerAddressCtrl = List.generate(
-      3, (_) => TextEditingController());
+  List<TextEditingController> _cwOwnerAddressCtrl =
+      List.generate(3, (_) => TextEditingController());
 
-  // Theme colors
-  static const Color _primaryColor = Color(0xFF6366F1);
-  static const Color _secondaryColor = Color(0xFF8B5CF6);
+  // ── Design tokens ─────────────────────────────────────────────────────────
+  static const Color _bg = Color(0xFF0D1421);
+  static const Color _card = Color(0xFF1A2332);
+  static const Color _cardAlt = Color(0xFF1E2A3A);
+  static const Color _accent = Color(0xFF8B5CF6);
+  static const Color _accentLight = Color(0xFFA78BFA);
+  static const Color _accentDark = Color(0xFF6D28D9);
+  static const Color _textPrimary = Colors.white;
+  static const Color _textSecondary = Color(0xFF94A3B8);
+  static const Color _border = Color(0xFF2D3748);
+  static const Color _success = Color(0xFF10B981);
+  static const Color _warning = Color(0xFFF59E0B);
+  static const Color _danger = Color(0xFFEF4444);
 
   @override
   void initState() {
@@ -62,8 +71,6 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
     }
   }
 
-  /// Save create-wallet form values to SharedPreferences so they survive
-  /// app-lock → PIN-entry → resume cycles.
   Future<void> _persistCreateWalletForm() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('_cw_ownersCount', _cwOwnersCountCtrl.text);
@@ -72,7 +79,6 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
     await prefs.setStringList('_cw_ownerAddresses', addrs);
   }
 
-  /// Restore previously saved create-wallet form values.
   Future<void> _restoreCreateWalletForm() async {
     final prefs = await SharedPreferences.getInstance();
     final count = prefs.getString('_cw_ownersCount');
@@ -81,7 +87,6 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
     if (count != null) _cwOwnersCountCtrl.text = count;
     if (required != null) _cwRequiredSigsCtrl.text = required;
     if (addrs != null && addrs.isNotEmpty) {
-      // Ensure enough controllers exist
       while (_cwOwnerAddressCtrl.length < addrs.length) {
         _cwOwnerAddressCtrl.add(TextEditingController());
       }
@@ -103,13 +108,14 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
     super.dispose();
   }
 
+  // ── Data loading ──────────────────────────────────────────────────────────
+
   Future<void> _loadExistingWallet() async {
     setState(() => _loading = true);
     try {
-      // Check if user has existing multisig wallet stored locally first
       final prefs = await SharedPreferences.getInstance();
       final storedAddress = prefs.getString('multisig_wallet_address');
-      
+
       if (storedAddress != null && storedAddress.isNotEmpty) {
         setState(() {
           _walletAddress = storedAddress;
@@ -118,42 +124,43 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
         await _loadWalletDetails();
         return;
       }
-      
-      // Try backend endpoint — silently skip if auth required (401) or unavailable
-      try {
-        final response = await _dio.get(
-          '${ApiConfig.baseUrl}/api/multisig/my-wallet',
-          options: Options(validateStatus: (status) => status != null && status < 500),
-        ).timeout(const Duration(seconds: 5));
 
-        if (response.statusCode == 200 && response.data['address'] != null) {
+      // Try backend — silently handle 401 / no wallet
+      try {
+        final response = await _dio
+            .get(
+              '${ApiConfig.baseUrl}/api/multisig/my-wallet',
+              options: Options(
+                  validateStatus: (s) => s != null && s < 500),
+            )
+            .timeout(const Duration(seconds: 5));
+
+        if (response.statusCode == 200 &&
+            response.data['address'] != null) {
           setState(() {
             _walletAddress = response.data['address'];
             _hasWallet = true;
           });
-          await prefs.setString('multisig_wallet_address', _walletAddress!);
+          await prefs.setString(
+              'multisig_wallet_address', _walletAddress!);
           await _loadWalletDetails();
         }
-        // 401/403 = auth required, 404 = no wallet — all silent, user creates locally
-      } catch (e) {
-        // Timeout or network error — that's fine, user can create local multisig
+      } catch (_) {
+        // Network unavailable — user can create locally
       }
     } catch (e) {
-      print('Error loading existing wallet: $e');
+      debugPrint('MultiSig load error: $e');
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _loadWalletDetails() async {
     if (_walletAddress == null) return;
-
     try {
-      // Try to load from backend
-      final response = await _dio.get(
-        '${ApiConfig.baseUrl}/api/multisig/owners/$_walletAddress',
-      ).timeout(const Duration(seconds: 5));
-
+      final response = await _dio
+          .get('${ApiConfig.baseUrl}/api/multisig/owners/$_walletAddress')
+          .timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
         setState(() {
           _owners = response.data['owners'] ?? [];
@@ -162,13 +169,11 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
         });
         await _loadPendingTransactions();
       }
-    } catch (e) {
-      // Backend not available - load from local storage if available
-      print('Failed to load wallet details from backend: $e');
+    } catch (_) {
+      // Load from local cache
       final prefs = await SharedPreferences.getInstance();
       final storedOwners = prefs.getStringList('multisig_owners') ?? [];
       final storedRequired = prefs.getInt('multisig_required') ?? 2;
-      
       if (storedOwners.isNotEmpty) {
         setState(() {
           _owners = storedOwners;
@@ -180,177 +185,85 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
 
   Future<void> _loadPendingTransactions() async {
     if (_walletAddress == null) return;
-
     try {
-      final response = await _dio.get(
-        '${ApiConfig.baseUrl}/api/multisig/pending/$_walletAddress',
-      ).timeout(const Duration(seconds: 5));
-
+      final response = await _dio
+          .get('${ApiConfig.baseUrl}/api/multisig/pending/$_walletAddress')
+          .timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
         setState(() {
           _pendingTransactions = response.data['pending'] ?? [];
         });
       }
-    } catch (e) {
-      // Silent fail - backend may not be configured
-      print('Failed to load pending transactions: $e');
-    }
+    } catch (_) {}
   }
 
-  Future<bool> _authenticate() async {
-    // Try biometric first
-    final biometricAvailable = await _biometricService.isBiometricAvailable();
-    // Use PinAuthService as single source of truth for biometric enabled
-    final biometricEnabled = await _pinAuthService.isBiometricEnabled();
+  // ── Auth ──────────────────────────────────────────────────────────────────
 
+  Future<bool> _authenticate() async {
+    final biometricAvailable =
+        await _biometricService.isBiometricAvailable();
+    final biometricEnabled = await _pinAuthService.isBiometricEnabled();
     if (biometricAvailable && biometricEnabled) {
       final result = await _biometricService.authenticateWithBiometrics(
         reason: 'Authenticate to access MultiSig wallet',
       );
       if (result) return true;
     }
-
-    // Fall back to PIN
-    return await _showPinDialog();
+    return await _showPinSheet();
   }
 
-  Future<bool> _showPinDialog() async {
-    String enteredPin = '';
-    bool isValid = false;
-
-    await showDialog(
+  /// PIN entry as a bottom sheet — avoids IntrinsicWidth crash from AlertDialog.
+  Future<bool> _showPinSheet() async {
+    bool result = false;
+    await showModalBottomSheet<void>(
       context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              title: const Text('Enter PIN', textAlign: TextAlign.center),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // PIN dots
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(6, (index) {
-                      return Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 8),
-                        width: 16,
-                        height: 16,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: index < enteredPin.length
-                              ? _primaryColor
-                              : Colors.grey[300],
-                        ),
-                      );
-                    }),
-                  ),
-                  const SizedBox(height: 24),
-                  // Number pad
-                  SizedBox(
-                    height: 240,
-                    child: GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        childAspectRatio: 1.5,
-                      ),
-                      itemCount: 12,
-                      itemBuilder: (ctx, index) {
-                        if (index == 9) return const SizedBox();
-                        if (index == 10) {
-                          return _buildPinButton('0', () {
-                            if (enteredPin.length < 6) {
-                              setDialogState(() => enteredPin += '0');
-                              if (enteredPin.length == 6) {
-                                _pinAuthService.verifyPin(enteredPin).then((valid) {
-                                  isValid = valid;
-                                  Navigator.pop(context);
-                                });
-                              }
-                            }
-                          });
-                        }
-                        if (index == 11) {
-                          return IconButton(
-                            icon: const Icon(Icons.backspace_outlined),
-                            onPressed: () {
-                              if (enteredPin.isNotEmpty) {
-                                setDialogState(() {
-                                  enteredPin = enteredPin.substring(0, enteredPin.length - 1);
-                                });
-                              }
-                            },
-                          );
-                        }
-                        return _buildPinButton('${index + 1}', () {
-                          if (enteredPin.length < 6) {
-                            setDialogState(() => enteredPin += '${index + 1}');
-                            if (enteredPin.length == 6) {
-                              _pinAuthService.verifyPin(enteredPin).then((valid) {
-                                isValid = valid;
-                                Navigator.pop(context);
-                              });
-                            }
-                          }
-                        });
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-
-    return isValid;
-  }
-
-  Widget _buildPinButton(String digit, VoidCallback onTap) {
-    return InkWell(
-      onTap: () {
-        HapticFeedback.lightImpact();
-        onTap();
-      },
-      child: Center(
-        child: Text(
-          digit,
-          style: const TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _PinEntrySheet(
+        pinAuthService: _pinAuthService,
+        accent: _accent,
+        onResult: (valid) {
+          result = valid;
+          Navigator.pop(ctx);
+        },
       ),
     );
+    return result;
   }
+
+  // ── Validation ────────────────────────────────────────────────────────────
+
+  bool _isValidEthAddress(String address) {
+    return RegExp(r'^0x[0-9a-fA-F]{40}$').hasMatch(address);
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+      backgroundColor: _bg,
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(
+              child: CircularProgressIndicator(color: _accent))
           : _hasWallet
               ? _buildWalletView()
               : _buildSetupView(),
     );
   }
 
+  // ── Setup screen ──────────────────────────────────────────────────────────
+
   Widget _buildSetupView() {
     return CustomScrollView(
       slivers: [
-        // Header
         SliverAppBar(
-          expandedHeight: 200,
           pinned: true,
-          backgroundColor: _primaryColor,
+          expandedHeight: 180,
+          backgroundColor: _bg,
+          elevation: 0,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            icon: const Icon(Icons.arrow_back, color: _textPrimary),
             onPressed: () => context.go('/dashboard'),
           ),
           flexibleSpace: FlexibleSpaceBar(
@@ -359,35 +272,41 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [_primaryColor, _secondaryColor],
+                  colors: [Color(0xFF1A0533), _bg],
                 ),
               ),
               child: SafeArea(
                 child: Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          shape: BoxShape.circle,
+                          gradient: const LinearGradient(
+                              colors: [_accentDark, _accent]),
+                          borderRadius: BorderRadius.circular(16),
                         ),
-                        child: const Icon(
-                          Icons.security,
-                          color: Colors.white,
-                          size: 48,
-                        ),
+                        child: const Icon(Icons.security,
+                            color: Colors.white, size: 32),
                       ),
                       const SizedBox(height: 16),
                       const Text(
                         'MultiSig Wallet',
                         style: TextStyle(
-                          color: Colors.white,
+                          color: _textPrimary,
                           fontSize: 28,
                           fontWeight: FontWeight.bold,
+                          letterSpacing: -0.5,
                         ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Require multiple approvals for every transaction',
+                        style: TextStyle(
+                            color: _textSecondary, fontSize: 13),
                       ),
                     ],
                   ),
@@ -399,136 +318,30 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
 
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(20),
             child: Column(
               children: [
-                // Info card
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.grey.withOpacity(0.1),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      const Icon(
-                        Icons.shield_outlined,
-                        size: 64,
-                        color: _primaryColor,
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Enhanced Security',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'MultiSig wallets require multiple signatures to authorize transactions, providing an extra layer of security for your assets.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // Features
-                _buildFeatureCard(
-                  Icons.people,
-                  'Multiple Signers',
-                  'Add 2-10 co-signers who must approve transactions',
-                ),
+                _featureTile(Icons.people_alt_outlined, 'Multiple Signers',
+                    'Add 2–10 co-signers who must approve transactions'),
                 const SizedBox(height: 12),
-                _buildFeatureCard(
-                  Icons.verified_user,
-                  'Customizable Threshold',
-                  'Set how many signatures are required (e.g., 2 of 3)',
-                ),
+                _featureTile(Icons.verified_user_outlined,
+                    'Custom Threshold',
+                    'Choose how many signatures are required (e.g. 2 of 3)'),
                 const SizedBox(height: 12),
-                _buildFeatureCard(
-                  Icons.lock_outline,
-                  'Cold Storage Ready',
-                  'Perfect for securing large amounts of crypto',
-                ),
-
+                _featureTile(Icons.lock_outline, 'Cold-Storage Ready',
+                    'Ideal for securing large amounts of crypto'),
                 const SizedBox(height: 32),
-
-                // Create button
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: ElevatedButton(
-                    onPressed: () => _showCreateWalletDialog(),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _primaryColor,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      elevation: 4,
-                      shadowColor: _primaryColor.withOpacity(0.4),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.add_circle_outline),
-                        SizedBox(width: 8),
-                        Text(
-                          'Create MultiSig Wallet',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                _actionButton(
+                  label: 'Create MultiSig Wallet',
+                  icon: Icons.add_circle_outline,
+                  onTap: _showCreateWalletSheet,
                 ),
-
-                const SizedBox(height: 16),
-
-                // Import button
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: OutlinedButton(
-                    onPressed: () => _showImportWalletDialog(),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: _primaryColor,
-                      side: const BorderSide(color: _primaryColor, width: 2),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.download_outlined),
-                        SizedBox(width: 8),
-                        Text(
-                          'Import Existing Wallet',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                const SizedBox(height: 12),
+                _actionButton(
+                  label: 'Import Existing Wallet',
+                  icon: Icons.download_outlined,
+                  onTap: _showImportSheet,
+                  filled: false,
                 ),
               ],
             ),
@@ -538,50 +351,38 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
     );
   }
 
-  Widget _buildFeatureCard(IconData icon, String title, String description) {
+  Widget _featureTile(IconData icon, String title, String desc) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _card,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: _border),
       ),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: _primaryColor.withOpacity(0.1),
+              color: _accent.withOpacity(0.15),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, color: _primaryColor, size: 24),
+            child: Icon(icon, color: _accent, size: 22),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  description,
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 12,
-                  ),
-                ),
+                Text(title,
+                    style: const TextStyle(
+                        color: _textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14)),
+                const SizedBox(height: 3),
+                Text(desc,
+                    style: const TextStyle(
+                        color: _textSecondary, fontSize: 12)),
               ],
             ),
           ),
@@ -590,118 +391,213 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
     );
   }
 
+  Widget _actionButton({
+    required String label,
+    required IconData icon,
+    required VoidCallback onTap,
+    bool filled = true,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      height: 54,
+      child: filled
+          ? DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                    colors: [_accentDark, _accent]),
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                      color: _accent.withOpacity(0.35),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4)),
+                ],
+              ),
+              child: TextButton.icon(
+                onPressed: onTap,
+                icon: Icon(icon, color: Colors.white, size: 20),
+                label: Text(label,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15)),
+                style: TextButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            )
+          : OutlinedButton.icon(
+              onPressed: onTap,
+              icon: Icon(icon, color: _accentLight, size: 20),
+              label: Text(label,
+                  style: const TextStyle(
+                      color: _accentLight,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 15)),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: _accent, width: 1.5),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+    );
+  }
+
+  // ── Wallet view (has wallet) ───────────────────────────────────────────────
+
   Widget _buildWalletView() {
     return NestedScrollView(
-      headerSliverBuilder: (context, innerBoxIsScrolled) {
-        return [
-          SliverAppBar(
-            expandedHeight: 200,
-            pinned: true,
-            backgroundColor: _primaryColor,
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => context.go('/dashboard'),
+      headerSliverBuilder: (context, _) => [
+        SliverAppBar(
+          pinned: true,
+          expandedHeight: 210,
+          backgroundColor: _bg,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: _textPrimary),
+            onPressed: () => context.go('/dashboard'),
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.refresh, color: _textPrimary),
+              onPressed: _loadWalletDetails,
             ),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.refresh, color: Colors.white),
-                onPressed: _loadWalletDetails,
-              ),
-              IconButton(
-                icon: const Icon(Icons.settings, color: Colors.white),
-                onPressed: () => _showSettingsDialog(),
-              ),
-            ],
-            flexibleSpace: FlexibleSpaceBar(
-              background: Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [_primaryColor, _secondaryColor],
-                  ),
+            IconButton(
+              icon: const Icon(Icons.more_vert, color: _textPrimary),
+              onPressed: _showSettingsSheet,
+            ),
+          ],
+          flexibleSpace: FlexibleSpaceBar(
+            background: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF1A0533), _bg],
                 ),
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 60, 24, 24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        const Text(
-                          'MultiSig Wallet',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${_balance.toStringAsFixed(4)} ETH',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 32,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        GestureDetector(
-                          onTap: () {
-                            Clipboard.setData(ClipboardData(text: _walletAddress ?? ''));
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Address copied')),
-                            );
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              ),
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 60, 24, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(20),
+                              gradient: const LinearGradient(
+                                  colors: [_accentDark, _accent]),
+                              borderRadius: BorderRadius.circular(10),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  _formatAddress(_walletAddress ?? ''),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontFamily: 'monospace',
-                                    fontSize: 12,
-                                  ),
+                            child: const Icon(Icons.security,
+                                color: Colors.white, size: 18),
+                          ),
+                          const SizedBox(width: 10),
+                          const Text('MultiSig Wallet',
+                              style: TextStyle(
+                                  color: _textSecondary, fontSize: 13)),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '${_balance.toStringAsFixed(4)} ETH',
+                        style: const TextStyle(
+                          color: _textPrimary,
+                          fontSize: 34,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: -1,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      GestureDetector(
+                        onTap: () {
+                          Clipboard.setData(
+                              ClipboardData(text: _walletAddress ?? ''));
+                          _snack('Address copied', isSuccess: true);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                                color: Colors.white.withOpacity(0.12)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _formatAddress(_walletAddress ?? ''),
+                                style: const TextStyle(
+                                  color: _textSecondary,
+                                  fontFamily: 'monospace',
+                                  fontSize: 11,
                                 ),
-                                const SizedBox(width: 6),
-                                const Icon(Icons.copy, color: Colors.white70, size: 14),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(width: 6),
+                              const Icon(Icons.copy,
+                                  color: _textSecondary, size: 13),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _accent.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                              color: _accent.withOpacity(0.3)),
+                        ),
+                        child: Text(
+                          '$_requiredSignatures of ${_owners.length} required',
+                          style: const TextStyle(
+                              color: _accentLight,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
                   ),
-                ),
-              ),
-            ),
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(48),
-              child: Container(
-                color: _primaryColor.withOpacity(0.9),
-                child: TabBar(
-                  controller: _tabController,
-                  labelColor: Colors.white,
-                  unselectedLabelColor: Colors.white60,
-                  indicatorColor: Colors.white,
-                  indicatorWeight: 3,
-                  tabs: const [
-                    Tab(text: 'Pending'),
-                    Tab(text: 'Owners'),
-                    Tab(text: 'History'),
-                  ],
                 ),
               ),
             ),
           ),
-        ];
-      },
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(46),
+            child: Container(
+              decoration: BoxDecoration(
+                color: _card,
+                border: Border(
+                    bottom:
+                        BorderSide(color: _border.withOpacity(0.5))),
+              ),
+              child: TabBar(
+                controller: _tabController,
+                labelColor: _accentLight,
+                unselectedLabelColor: _textSecondary,
+                indicatorColor: _accent,
+                indicatorWeight: 2.5,
+                labelStyle: const TextStyle(
+                    fontWeight: FontWeight.w600, fontSize: 13),
+                tabs: const [
+                  Tab(text: 'Pending'),
+                  Tab(text: 'Owners'),
+                  Tab(text: 'History'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
       body: TabBarView(
         controller: _tabController,
         children: [
@@ -713,350 +609,356 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
     );
   }
 
+  // ── Pending tab ───────────────────────────────────────────────────────────
+
   Widget _buildPendingTab() {
     return Column(
       children: [
-        // Action buttons
         Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    final authenticated = await _authenticate();
-                    if (authenticated) {
-                      _showSubmitTransactionDialog();
-                    }
-                  },
-                  icon: const Icon(Icons.send),
-                  label: const Text('New Transaction'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _primaryColor,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient:
+                    const LinearGradient(colors: [_accentDark, _accent]),
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                      color: _accent.withOpacity(0.3),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3)),
+                ],
+              ),
+              child: TextButton.icon(
+                onPressed: () async {
+                  if (await _authenticate()) _showNewTxSheet();
+                },
+                icon: const Icon(Icons.send, color: Colors.white, size: 18),
+                label: const Text('New Transaction',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold)),
+                style: TextButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14)),
                 ),
               ),
-            ],
+            ),
           ),
         ),
-
-        // Pending transactions list
         Expanded(
           child: _pendingTransactions.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.hourglass_empty, size: 64, color: Colors.grey[300]),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No pending transactions',
-                        style: TextStyle(color: Colors.grey[500], fontSize: 16),
-                      ),
-                    ],
-                  ),
+              ? _emptyState(
+                  icon: Icons.hourglass_empty_rounded,
+                  message: 'No pending transactions',
+                  sub: 'Submit a new transaction to get started',
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                   itemCount: _pendingTransactions.length,
-                  itemBuilder: (context, index) {
-                    final tx = _pendingTransactions[index];
-                    return _buildPendingTxCard(tx);
-                  },
+                  itemBuilder: (_, i) =>
+                      _pendingTxCard(_pendingTransactions[i]
+                          as Map<String, dynamic>),
                 ),
         ),
       ],
     );
   }
 
-  Widget _buildPendingTxCard(Map<String, dynamic> tx) {
-    final confirmations = tx['confirmations'] ?? 0;
-    final required = _requiredSignatures;
-    final progress = confirmations / required;
+  Widget _pendingTxCard(Map<String, dynamic> tx) {
+    final confirmations = (tx['confirmations'] ?? 0) as int;
+    final progress =
+        _requiredSignatures > 0 ? confirmations / _requiredSignatures : 0.0;
+    final isReady = confirmations >= _requiredSignatures;
+    final valueEth =
+        ((tx['value'] ?? 0) as num).toDouble() / 1e18;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _card,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.08),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(
+            color: isReady ? _success.withOpacity(0.4) : _border),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(Icons.pending_actions, color: Colors.orange, size: 20),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: _warning.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'TX #${tx['txIndex'] ?? (tx['index'] ?? '?')}',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      Text(
-                        _formatAddress(tx['to'] ?? ''),
-                        style: TextStyle(color: Colors.grey[500], fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              Text(
-                '${(tx['value'] ?? 0) / 1e18} ETH',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
+                  child: Icon(Icons.pending_actions,
+                      color: _warning, size: 18),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          
-          // Progress
-          Row(
-            children: [
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    backgroundColor: Colors.grey[200],
-                    valueColor: AlwaysStoppedAnimation(
-                      progress >= 1 ? Colors.green : _primaryColor,
+                const SizedBox(width: 10),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'TX #${tx['txIndex'] ?? tx['index'] ?? '?'}',
+                      style: const TextStyle(
+                          color: _textPrimary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14),
                     ),
-                    minHeight: 8,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                '$confirmations/$required',
-                style: TextStyle(
-                  color: progress >= 1 ? Colors.green : Colors.grey[600],
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          
-          const SizedBox(height: 12),
-          
-          // Actions
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () async {
-                    final authenticated = await _authenticate();
-                    if (authenticated) {
-                      _confirmTransaction(tx['txIndex']);
-                    }
-                  },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.green,
-                    side: const BorderSide(color: Colors.green),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+                    Text(
+                      _formatAddress(tx['to'] as String? ?? ''),
+                      style: const TextStyle(
+                          color: _textSecondary,
+                          fontFamily: 'monospace',
+                          fontSize: 11),
                     ),
-                  ),
-                  child: const Text('Approve'),
+                  ],
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () async {
-                    final authenticated = await _authenticate();
-                    if (authenticated) {
-                      _revokeConfirmation(tx['txIndex']);
-                    }
-                  },
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.red,
-                    side: const BorderSide(color: Colors.red),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  child: const Text('Reject'),
-                ),
-              ),
-              if (progress >= 1) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: () async {
-                      final authenticated = await _authenticate();
-                      if (authenticated) {
-                        _executeTransaction(tx['txIndex']);
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    child: const Text('Execute'),
-                  ),
+                const Spacer(),
+                Text(
+                  '${valueEth.toStringAsFixed(4)} ETH',
+                  style: const TextStyle(
+                      color: _textPrimary,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15),
                 ),
               ],
-            ],
-          ),
-        ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: progress.clamp(0.0, 1.0),
+                      backgroundColor: _border,
+                      valueColor: AlwaysStoppedAnimation(
+                          isReady ? _success : _accent),
+                      minHeight: 6,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  '$confirmations/$_requiredSignatures',
+                  style: TextStyle(
+                      color: isReady ? _success : _textSecondary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 12),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                _txBtn('Approve', Colors.transparent, _success,
+                    BorderSide(color: _success, width: 1.2), () async {
+                  if (await _authenticate()) {
+                    _confirmTransaction(
+                        (tx['txIndex'] as num).toInt());
+                  }
+                }),
+                const SizedBox(width: 8),
+                _txBtn('Reject', Colors.transparent, _danger,
+                    BorderSide(color: _danger, width: 1.2), () async {
+                  if (await _authenticate()) {
+                    _revokeConfirmation(
+                        (tx['txIndex'] as num).toInt());
+                  }
+                }),
+                if (isReady) ...[
+                  const SizedBox(width: 8),
+                  _txBtn(
+                      'Execute',
+                      _success.withOpacity(0.15),
+                      _success,
+                      BorderSide(color: _success, width: 1.2), () async {
+                    if (await _authenticate()) {
+                      _executeTransaction(
+                          (tx['txIndex'] as num).toInt());
+                    }
+                  }),
+                ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
+
+  Widget _txBtn(String label, Color bg, Color fg, BorderSide border,
+      VoidCallback onTap) {
+    return Expanded(
+      child: OutlinedButton(
+        onPressed: onTap,
+        style: OutlinedButton.styleFrom(
+          backgroundColor: bg,
+          foregroundColor: fg,
+          side: border,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10)),
+          minimumSize: const Size(0, 36),
+        ),
+        child: Text(label,
+            style: const TextStyle(
+                fontSize: 12, fontWeight: FontWeight.w600)),
+      ),
+    );
+  }
+
+  // ── Owners tab ────────────────────────────────────────────────────────────
 
   Widget _buildOwnersTab() {
     return Column(
       children: [
-        // Info card
         Container(
           margin: const EdgeInsets.all(16),
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: _primaryColor.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(16),
+            color: _accent.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _accent.withOpacity(0.25)),
           ),
           child: Row(
             children: [
-              Icon(Icons.info_outline, color: _primaryColor),
-              const SizedBox(width: 12),
+              const Icon(Icons.info_outline,
+                  color: _accentLight, size: 18),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'This wallet requires $_requiredSignatures of ${_owners.length} signatures to execute transactions',
-                  style: TextStyle(color: _primaryColor, fontSize: 13),
+                  'Requires $_requiredSignatures of ${_owners.length} owners to execute',
+                  style: const TextStyle(
+                      color: _accentLight, fontSize: 12),
                 ),
               ),
             ],
           ),
         ),
-
-        // Owners list
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: _owners.length,
-            itemBuilder: (context, index) {
-              final owner = _owners[index];
-              final address = owner is String ? owner : owner['address'] ?? '';
-              final name = owner is Map ? owner['name'] ?? 'Owner ${index + 1}' : 'Owner ${index + 1}';
-              
-              return Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withOpacity(0.08),
-                      blurRadius: 10,
-                    ),
-                  ],
+          child: _owners.isEmpty
+              ? _emptyState(
+                  icon: Icons.people_outline,
+                  message: 'No owners configured',
+                  sub: 'Create or import a wallet to see owners',
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                  itemCount: _owners.length,
+                  itemBuilder: (_, i) {
+                    final owner = _owners[i];
+                    final address =
+                        owner is String ? owner : owner['address'] ?? '';
+                    final name = owner is Map
+                        ? (owner['name'] ?? 'Owner ${i + 1}')
+                        : 'Owner ${i + 1}';
+                    return _ownerCard(i, name, address as String);
+                  },
                 ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [_primaryColor.withOpacity(0.8), _secondaryColor],
-                        ),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Center(
-                        child: Text(
-                          '${index + 1}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            name,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _formatAddress(address),
-                            style: TextStyle(
-                              color: Colors.grey[500],
-                              fontFamily: 'monospace',
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.copy, color: Colors.grey[400]),
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: address));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Address copied')),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
         ),
       ],
     );
   }
 
+  Widget _ownerCard(int index, String name, String address) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _border),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                  colors: [_accentDark, _accent],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Center(
+              child: Text('${index + 1}',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16)),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name,
+                    style: const TextStyle(
+                        color: _textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14)),
+                const SizedBox(height: 3),
+                Text(_formatAddress(address),
+                    style: const TextStyle(
+                        color: _textSecondary,
+                        fontFamily: 'monospace',
+                        fontSize: 11)),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.copy,
+                color: _textSecondary, size: 18),
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: address));
+              _snack('Address copied', isSuccess: true);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── History tab ───────────────────────────────────────────────────────────
+
   Widget _buildHistoryTab() {
+    return _emptyState(
+      icon: Icons.history,
+      message: 'No transaction history',
+      sub: 'Completed transactions will appear here',
+    );
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  Widget _emptyState(
+      {required IconData icon,
+      required String message,
+      required String sub}) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.history, size: 64, color: Colors.grey[300]),
-          const SizedBox(height: 16),
-          Text(
-            'Transaction history coming soon',
-            style: TextStyle(color: Colors.grey[500], fontSize: 16),
-          ),
+          Icon(icon, size: 56, color: _textSecondary.withOpacity(0.3)),
+          const SizedBox(height: 14),
+          Text(message,
+              style: const TextStyle(
+                  color: _textPrimary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          Text(sub,
+              style: const TextStyle(
+                  color: _textSecondary, fontSize: 12)),
         ],
       ),
     );
@@ -1064,14 +966,27 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
 
   String _formatAddress(String address) {
     if (address.length > 20) {
-      return '${address.substring(0, 10)}...${address.substring(address.length - 6)}';
+      return '${address.substring(0, 10)}…${address.substring(address.length - 6)}';
     }
     return address;
   }
 
-  // Dialog methods
-  void _showCreateWalletDialog() {
-    // Sync count of address controllers to whatever is in the count field
+  void _snack(String msg,
+      {bool isSuccess = false, bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor:
+          isError ? _danger : isSuccess ? _success : _card,
+      behavior: SnackBarBehavior.floating,
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ));
+  }
+
+  // ── Bottom sheets ─────────────────────────────────────────────────────────
+
+  void _showCreateWalletSheet() {
     final currentCount = int.tryParse(_cwOwnersCountCtrl.text) ?? 3;
     while (_cwOwnerAddressCtrl.length < currentCount) {
       _cwOwnerAddressCtrl.add(TextEditingController());
@@ -1085,335 +1000,348 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            return Container(
-              height: MediaQuery.of(context).size.height * 0.85,
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              child: Column(
+      builder: (ctx) => StatefulBuilder(
+        builder: (_, setSheet) => _DarkSheet(
+          title: 'Create MultiSig Wallet',
+          subtitle:
+              'Set up a wallet with trusted co-signers',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  // Handle
-                  Container(
-                    margin: const EdgeInsets.only(top: 12),
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
                   Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Create MultiSig Wallet',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Set up a new multi-signature wallet with your trusted co-signers',
-                            style: TextStyle(color: Colors.grey[600]),
-                          ),
-                          const SizedBox(height: 24),
-
-                          // Threshold
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('Total Owners', style: TextStyle(fontWeight: FontWeight.w600)),
-                                    const SizedBox(height: 8),
-                                    TextField(
-                                      controller: _cwOwnersCountCtrl,
-                                      keyboardType: TextInputType.number,
-                                      decoration: InputDecoration(
-                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                      ),
-                                      onChanged: (val) {
-                                        final count = int.tryParse(val) ?? 3;
-                                        setSheetState(() {
-                                          while (_cwOwnerAddressCtrl.length < count) {
-                                            _cwOwnerAddressCtrl.add(TextEditingController());
-                                          }
-                                          while (_cwOwnerAddressCtrl.length > count) {
-                                            _cwOwnerAddressCtrl.last.dispose();
-                                            _cwOwnerAddressCtrl.removeLast();
-                                          }
-                                        });
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('Required Signatures', style: TextStyle(fontWeight: FontWeight.w600)),
-                                    const SizedBox(height: 8),
-                                    TextField(
-                                      controller: _cwRequiredSigsCtrl,
-                                      keyboardType: TextInputType.number,
-                                      decoration: InputDecoration(
-                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-
-                          const SizedBox(height: 24),
-                          const Text('Owner Addresses', style: TextStyle(fontWeight: FontWeight.w600)),
-                          const SizedBox(height: 12),
-
-                          ..._cwOwnerAddressCtrl.asMap().entries.map((entry) {
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: TextField(
-                                controller: entry.value,
-                                decoration: InputDecoration(
-                                  labelText: 'Owner ${entry.key + 1}',
-                                  hintText: '0x...',
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                ),
-                              ),
-                            );
-                          }),
-
-                          const SizedBox(height: 24),
-
-                          SizedBox(
-                            width: double.infinity,
-                            height: 56,
-                            child: ElevatedButton(
-                              onPressed: () async {
-                                Navigator.pop(context);
-                                await _createWallet(
-                                  _cwOwnerAddressCtrl.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList(),
-                                  int.tryParse(_cwRequiredSigsCtrl.text) ?? 2,
-                                );
-                                // Clear persisted draft after successful wallet creation
-                                final prefs = await SharedPreferences.getInstance();
-                                await prefs.remove('_cw_ownersCount');
-                                await prefs.remove('_cw_requiredSigs');
-                                await prefs.remove('_cw_ownerAddresses');
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: _primaryColor,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                              ),
-                              child: const Text('Create Wallet', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                      child: _sheetField(
+                          'Total Owners', _cwOwnersCountCtrl,
+                          keyboard: TextInputType.number,
+                          onChanged: (val) {
+                            final n = int.tryParse(val) ?? 3;
+                            setSheet(() {
+                              while (
+                                  _cwOwnerAddressCtrl.length < n) {
+                                _cwOwnerAddressCtrl
+                                    .add(TextEditingController());
+                              }
+                              while (
+                                  _cwOwnerAddressCtrl.length > n) {
+                                _cwOwnerAddressCtrl.last.dispose();
+                                _cwOwnerAddressCtrl.removeLast();
+                              }
+                            });
+                          })),
+                  const SizedBox(width: 12),
+                  Expanded(
+                      child: _sheetField(
+                          'Required Sigs', _cwRequiredSigsCtrl,
+                          keyboard: TextInputType.number)),
                 ],
               ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _showImportWalletDialog() {
-    final addressController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('Import MultiSig Wallet'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: addressController,
-                decoration: InputDecoration(
-                  labelText: 'Contract Address',
-                  hintText: '0x...',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              const SizedBox(height: 20),
+              const Text('Owner Addresses',
+                  style: TextStyle(
+                      color: _textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13)),
+              const SizedBox(height: 10),
+              ..._cwOwnerAddressCtrl.asMap().entries.map((e) =>
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _sheetField(
+                        'Owner ${e.key + 1}', e.value,
+                        hint: '0x…'),
+                  )),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                        colors: [_accentDark, _accent]),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: TextButton(
+                    onPressed: () async {
+                      final owners = _cwOwnerAddressCtrl
+                          .map((c) => c.text.trim())
+                          .where((s) => s.isNotEmpty)
+                          .toList();
+                      final reqSigs =
+                          int.tryParse(_cwRequiredSigsCtrl.text.trim()) ??
+                              2;
+                      if (owners.isEmpty) {
+                        _snack('Add at least one owner address',
+                            isError: true);
+                        return;
+                      }
+                      for (final addr in owners) {
+                        if (!_isValidEthAddress(addr)) {
+                          _snack(
+                              'Invalid ETH address: ${_formatAddress(addr)}',
+                              isError: true);
+                          return;
+                        }
+                      }
+                      if (reqSigs < 1 || reqSigs > owners.length) {
+                        _snack(
+                            'Required sigs must be 1–${owners.length}',
+                            isError: true);
+                        return;
+                      }
+                      Navigator.pop(ctx);
+                      await _createWallet(owners, reqSigs);
+                      final prefs =
+                          await SharedPreferences.getInstance();
+                      await prefs.remove('_cw_ownersCount');
+                      await prefs.remove('_cw_requiredSigs');
+                      await prefs.remove('_cw_ownerAddresses');
+                    },
+                    style: TextButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                    ),
+                    child: const Text('Create Wallet',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15)),
+                  ),
                 ),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                _importWallet(addressController.text.trim());
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: _primaryColor),
-              child: const Text('Import'),
-            ),
-          ],
-        );
-      },
+        ),
+      ),
     );
   }
 
-  void _showSubmitTransactionDialog() {
-    final toController = TextEditingController();
-    final amountController = TextEditingController();
-
+  void _showImportSheet() {
+    final addrCtrl = TextEditingController();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-          child: Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'New Transaction',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+      builder: (ctx) => _DarkSheet(
+        title: 'Import Wallet',
+        subtitle:
+            'Enter the contract address of an existing MultiSig wallet',
+        child: Column(
+          children: [
+            _sheetField('Contract Address', addrCtrl, hint: '0x…'),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                      colors: [_accentDark, _accent]),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: TextButton(
+                  onPressed: () {
+                    final addr = addrCtrl.text.trim();
+                    if (!_isValidEthAddress(addr)) {
+                      _snack('Invalid ETH address', isError: true);
+                      return;
+                    }
+                    Navigator.pop(ctx);
+                    _importWallet(addr);
+                  },
+                  style: TextButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
                   ),
-                  const SizedBox(height: 24),
-                  TextField(
-                    controller: toController,
-                    decoration: InputDecoration(
-                      labelText: 'Recipient Address',
-                      hintText: '0x...',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: amountController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(
-                      labelText: 'Amount (ETH)',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _submitTransaction(toController.text.trim(), amountController.text.trim());
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _primaryColor,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      ),
-                      child: const Text('Submit Transaction', style: TextStyle(fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
+                  child: const Text('Import',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15)),
+                ),
               ),
             ),
-          ),
-        );
-      },
+          ],
+        ),
+      ),
     );
   }
 
-  void _showSettingsDialog() {
+  void _showNewTxSheet() {
+    final toCtrl = TextEditingController();
+    final amountCtrl = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _DarkSheet(
+        title: 'New Transaction',
+        subtitle: 'Submit a transaction for approval by co-signers',
+        child: Column(
+          children: [
+            _sheetField('Recipient Address', toCtrl, hint: '0x…'),
+            const SizedBox(height: 12),
+            _sheetField('Amount (ETH)', amountCtrl,
+                keyboard: const TextInputType.numberWithOptions(
+                    decimal: true)),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                      colors: [_accentDark, _accent]),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: TextButton(
+                  onPressed: () {
+                    final to = toCtrl.text.trim();
+                    final amount = amountCtrl.text.trim();
+                    if (!_isValidEthAddress(to)) {
+                      _snack('Invalid recipient address',
+                          isError: true);
+                      return;
+                    }
+                    final amtVal = double.tryParse(amount);
+                    if (amtVal == null || amtVal <= 0) {
+                      _snack('Enter a valid amount', isError: true);
+                      return;
+                    }
+                    Navigator.pop(ctx);
+                    _submitTransaction(to, amount);
+                  },
+                  style: TextButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                  child: const Text('Submit Transaction',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSettingsSheet() {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.person_add),
-                title: const Text('Add Owner'),
-                onTap: () {
-                  Navigator.pop(context);
-                  // TODO: Implement
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.tune),
-                title: const Text('Change Threshold'),
-                onTap: () {
-                  Navigator.pop(context);
-                  // TODO: Implement
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.logout, color: Colors.red),
-                title: const Text('Disconnect Wallet', style: TextStyle(color: Colors.red)),
-                onTap: () {
-                  Navigator.pop(context);
-                  setState(() {
-                    _hasWallet = false;
-                    _walletAddress = null;
-                  });
-                },
-              ),
-              const SizedBox(height: 24),
-            ],
-          ),
-        );
-      },
+      builder: (ctx) => Container(
+        decoration: const BoxDecoration(
+          color: _card,
+          borderRadius:
+              BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: _border,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            _settingsTile(Icons.person_add_outlined, 'Add Owner',
+                _textPrimary, () => Navigator.pop(ctx)),
+            _settingsTile(Icons.tune, 'Change Threshold',
+                _textPrimary, () => Navigator.pop(ctx)),
+            const Divider(color: _border, height: 1),
+            _settingsTile(Icons.logout, 'Disconnect Wallet', _danger, () {
+              Navigator.pop(ctx);
+              setState(() {
+                _hasWallet = false;
+                _walletAddress = null;
+                _owners = [];
+                _pendingTransactions = [];
+              });
+            }),
+            const SizedBox(height: 24),
+          ],
+        ),
+      ),
     );
   }
 
-  // API methods
+  Widget _settingsTile(IconData icon, String label, Color color,
+      VoidCallback onTap) {
+    return ListTile(
+      leading: Icon(icon, color: color, size: 20),
+      title: Text(label,
+          style: TextStyle(color: color, fontSize: 14)),
+      onTap: onTap,
+    );
+  }
+
+  Widget _sheetField(
+    String label,
+    TextEditingController controller, {
+    String? hint,
+    TextInputType keyboard = TextInputType.text,
+    void Function(String)? onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: const TextStyle(
+                color: _textSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w500)),
+        const SizedBox(height: 6),
+        TextField(
+          controller: controller,
+          keyboardType: keyboard,
+          onChanged: onChanged,
+          style: const TextStyle(color: _textPrimary, fontSize: 14),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: const TextStyle(
+                color: _textSecondary, fontSize: 13),
+            filled: true,
+            fillColor: _cardAlt,
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _border),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+                  const BorderSide(color: _accent, width: 1.5),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14, vertical: 12),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── API methods ───────────────────────────────────────────────────────────
+
   Future<void> _createWallet(List<String> owners, int required) async {
     setState(() => _loading = true);
     try {
-      // First try to create via backend
       try {
         final response = await _dio.post(
           '${ApiConfig.baseUrl}/api/multisig/deploy',
           data: {'owners': owners, 'required': required},
         ).timeout(const Duration(seconds: 10));
 
-        if (response.statusCode == 200 && response.data['address'] != null) {
+        if (response.statusCode == 200 &&
+            response.data['address'] != null) {
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('multisig_wallet_address', response.data['address']);
+          await prefs.setString(
+              'multisig_wallet_address', response.data['address']);
           await prefs.setStringList('multisig_owners', owners);
           await prefs.setInt('multisig_required', required);
-          
           setState(() {
             _walletAddress = response.data['address'];
             _hasWallet = true;
@@ -1421,62 +1349,36 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
             _requiredSignatures = required;
           });
           await _loadWalletDetails();
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('MultiSig wallet created successfully'), backgroundColor: Colors.green),
-            );
-          }
+          _snack('MultiSig wallet created', isSuccess: true);
           return;
         }
-      } catch (e) {
-        print('Backend multisig creation failed: $e');
-        // Backend not available - create locally for testing
-      }
-      
-      // Fallback: Create a local placeholder wallet (for demo/testing purposes)
-      // In production, this would deploy an actual smart contract
+      } catch (_) {}
+
+      // Local placeholder (demo — uses XOR hash of owners, not timestamp)
       final prefs = await SharedPreferences.getInstance();
-      final placeholderAddress = '0x${DateTime.now().millisecondsSinceEpoch.toRadixString(16).padLeft(40, '0')}';
-      
-      await prefs.setString('multisig_wallet_address', placeholderAddress);
+      final hash =
+          owners.join().codeUnits.fold(0, (a, b) => a ^ b);
+      final placeholderAddress =
+          '0xLocalMultiSig${hash.toRadixString(16).padLeft(34, '0')}';
+      await prefs.setString(
+          'multisig_wallet_address', placeholderAddress);
       await prefs.setStringList('multisig_owners', owners);
       await prefs.setInt('multisig_required', required);
-      
       setState(() {
         _walletAddress = placeholderAddress;
         _hasWallet = true;
         _owners = owners;
         _requiredSignatures = required;
       });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('MultiSig wallet configured locally. Deploy contract for on-chain functionality.'),
-            backgroundColor: Colors.orange,
-            duration: Duration(seconds: 4),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create wallet: $e'), backgroundColor: Colors.red),
-        );
-      }
+      _snack('Wallet configured locally. Deploy contract for on-chain use.');
+    } catch (_) {
+      _snack('Failed to create wallet', isError: true);
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _importWallet(String address) async {
-    if (address.isEmpty || !address.startsWith('0x')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Invalid address')),
-      );
-      return;
-    }
-
     setState(() {
       _walletAddress = address;
       _hasWallet = true;
@@ -1485,87 +1387,331 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
   }
 
   Future<void> _submitTransaction(String to, String amount) async {
-    if (to.isEmpty || amount.isEmpty) return;
-
     try {
-      final amountWei = (double.parse(amount) * 1e18).toStringAsFixed(0);
-      
+      final amountWei =
+          (double.parse(amount) * 1e18).toStringAsFixed(0);
       await _dio.post(
-        '${ApiConfig.baseUrl}/api/multisig/submit',
-        data: {
-          'contractAddress': _walletAddress,
-          'to': to,
-          'value': amountWei,
-          'data': '0x',
-        },
-      );
-
+          '${ApiConfig.baseUrl}/api/multisig/submit',
+          data: {
+            'contractAddress': _walletAddress,
+            'to': to,
+            'value': amountWei,
+            'data': '0x',
+          });
       await _loadPendingTransactions();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Transaction submitted'), backgroundColor: Colors.green),
-        );
-      }
+      _snack('Transaction submitted', isSuccess: true);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
+      _snack('Submit failed: $e', isError: true);
     }
   }
 
   Future<void> _confirmTransaction(int txIndex) async {
     try {
       await _dio.post(
-        '${ApiConfig.baseUrl}/api/multisig/confirm',
-        data: {'contractAddress': _walletAddress, 'txIndex': txIndex},
-      );
+          '${ApiConfig.baseUrl}/api/multisig/confirm',
+          data: {
+            'contractAddress': _walletAddress,
+            'txIndex': txIndex
+          });
       await _loadPendingTransactions();
+      _snack('Transaction approved', isSuccess: true);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
+      _snack('Error: $e', isError: true);
     }
   }
 
   Future<void> _revokeConfirmation(int txIndex) async {
     try {
       await _dio.post(
-        '${ApiConfig.baseUrl}/api/multisig/revoke',
-        data: {'contractAddress': _walletAddress, 'txIndex': txIndex},
-      );
+          '${ApiConfig.baseUrl}/api/multisig/revoke',
+          data: {
+            'contractAddress': _walletAddress,
+            'txIndex': txIndex
+          });
       await _loadPendingTransactions();
+      _snack('Confirmation revoked');
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
+      _snack('Error: $e', isError: true);
     }
   }
 
   Future<void> _executeTransaction(int txIndex) async {
     try {
       await _dio.post(
-        '${ApiConfig.baseUrl}/api/multisig/execute',
-        data: {'contractAddress': _walletAddress, 'txIndex': txIndex},
-      );
+          '${ApiConfig.baseUrl}/api/multisig/execute',
+          data: {
+            'contractAddress': _walletAddress,
+            'txIndex': txIndex
+          });
       await _loadPendingTransactions();
       await _loadWalletDetails();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Transaction executed'), backgroundColor: Colors.green),
-        );
-      }
+      _snack('Transaction executed', isSuccess: true);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+      _snack('Execute failed: $e', isError: true);
+    }
+  }
+}
+
+// ── PIN Entry Sheet ───────────────────────────────────────────────────────────
+// Replaces AlertDialog to avoid IntrinsicWidth layout crash (min 280, max 350).
+
+class _PinEntrySheet extends StatefulWidget {
+  const _PinEntrySheet({
+    required this.pinAuthService,
+    required this.accent,
+    required this.onResult,
+  });
+
+  final PinAuthService pinAuthService;
+  final Color accent;
+  final void Function(bool valid) onResult;
+
+  @override
+  State<_PinEntrySheet> createState() => _PinEntrySheetState();
+}
+
+class _PinEntrySheetState extends State<_PinEntrySheet> {
+  String _pin = '';
+  bool _checking = false;
+  bool _error = false;
+
+  static const Color _bg = Color(0xFF1A2332);
+  static const Color _cardAlt2 = Color(0xFF1E2A3A);
+  static const Color _border = Color(0xFF2D3748);
+  static const Color _textPrimary = Colors.white;
+  static const Color _textSecondary = Color(0xFF94A3B8);
+
+  void _append(String digit) async {
+    if (_checking || _pin.length >= 6) return;
+    HapticFeedback.lightImpact();
+    setState(() {
+      _pin += digit;
+      _error = false;
+    });
+    if (_pin.length == 6) {
+      setState(() => _checking = true);
+      final valid = await widget.pinAuthService.verifyPin(_pin);
+      if (!valid && mounted) {
+        setState(() {
+          _pin = '';
+          _checking = false;
+          _error = true;
+        });
+      } else if (mounted) {
+        widget.onResult(valid);
       }
     }
+  }
+
+  void _backspace() {
+    if (_pin.isNotEmpty) {
+      HapticFeedback.lightImpact();
+      setState(() => _pin = _pin.substring(0, _pin.length - 1));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: _bg,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: _border,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            const SizedBox(height: 24),
+            const Text('Enter PIN',
+                style: TextStyle(
+                    color: _textPrimary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            Text(
+              _error ? 'Incorrect PIN. Try again.' : 'Enter your 6-digit PIN',
+              style: TextStyle(
+                  color: _error
+                      ? const Color(0xFFEF4444)
+                      : _textSecondary,
+                  fontSize: 13),
+            ),
+            const SizedBox(height: 24),
+            // PIN dots
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(6, (i) {
+                final filled = i < _pin.length;
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  margin: const EdgeInsets.symmetric(horizontal: 8),
+                  width: 14,
+                  height: 14,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: filled ? widget.accent : Colors.transparent,
+                    border: Border.all(
+                      color: _error
+                          ? const Color(0xFFEF4444)
+                          : filled
+                              ? widget.accent
+                              : _border,
+                      width: 2,
+                    ),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 28),
+            // Number pad – no IntrinsicWidth, pure Row/Column
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 40),
+              child: Column(
+                children: [
+                  for (final row in [
+                    ['1', '2', '3'],
+                    ['4', '5', '6'],
+                    ['7', '8', '9'],
+                    ['', '0', '⌫'],
+                  ])
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        children: row.map((d) {
+                          return Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5),
+                              child: d.isEmpty
+                                  ? const SizedBox(height: 52)
+                                  : _padBtn(
+                                      onTap: d == '⌫'
+                                          ? _backspace
+                                          : () => _append(d),
+                                      child: d == '⌫'
+                                          ? const Icon(
+                                              Icons.backspace_outlined,
+                                              color: _textSecondary,
+                                              size: 20)
+                                          : Text(d,
+                                              style: const TextStyle(
+                                                  color: _textPrimary,
+                                                  fontSize: 22,
+                                                  fontWeight:
+                                                      FontWeight.w500)),
+                                    ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _padBtn({required Widget child, required VoidCallback onTap}) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _checking ? null : onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          height: 52,
+          decoration: BoxDecoration(
+            color: _cardAlt2,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _border),
+          ),
+          alignment: Alignment.center,
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+// ── Dark-themed bottom sheet container ────────────────────────────────────────
+
+class _DarkSheet extends StatelessWidget {
+  const _DarkSheet({
+    required this.title,
+    required this.subtitle,
+    required this.child,
+  });
+
+  final String title;
+  final String subtitle;
+  final Widget child;
+
+  static const Color _bg = Color(0xFF1A2332);
+  static const Color _border = Color(0xFF2D3748);
+  static const Color _textPrimary = Colors.white;
+  static const Color _textSecondary = Color(0xFF94A3B8);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.88,
+        ),
+        decoration: const BoxDecoration(
+          color: _bg,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: _border,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: const TextStyle(
+                            color: _textPrimary,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    Text(subtitle,
+                        style: const TextStyle(
+                            color: _textSecondary, fontSize: 13)),
+                    const SizedBox(height: 20),
+                    child,
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
