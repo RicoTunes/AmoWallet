@@ -126,8 +126,10 @@ app.use('/api/wallet', checkAppActive, checkReadOnly, requireAuth ? authenticate
 app.use('/api/swap', checkAppActive, checkReadOnly, requireAuth ? authenticate : (req, res, next) => next(), validateSignature, swapRoutes);
 app.use('/api/multisig', checkAppActive, checkReadOnly, requireAuth ? authenticate : (req, res, next) => next(), validateSignature, multisigRoutes);
 
-// Read-heavy routes (auth required, no signature needed)
-app.use('/api/blockchain', checkAppActive, checkReadOnly, requireAuth ? authenticate : (req, res, next) => next(), blockchainRoutes);
+// Blockchain routes — no API-key auth required.
+// Security is enforced per-route via rate limiting (transactionLimiter) and the
+// client-provided private key (the server never stores keys).
+app.use('/api/blockchain', checkAppActive, checkReadOnly, blockchainRoutes);
 app.use('/api/spending', checkAppActive, checkReadOnly, requireAuth ? authenticate : (req, res, next) => next(), spendingRoutes);
 app.use('/api/audit', checkAppActive, requireAuth ? authenticate : (req, res, next) => next(), auditRoutes);
 
