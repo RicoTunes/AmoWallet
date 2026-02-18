@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:async';
 import 'dart:convert';
 
 import '../../../core/constants/app_constants.dart';
@@ -32,7 +31,6 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
   final PreloadService _preloadService = PreloadService();
   final IncomingTxMonitor _incomingTxMonitor = IncomingTxMonitor();
   
-  Timer? _debounceTimer;
   DateTime? _lastLoadTime;
   static const _minLoadInterval = Duration(seconds: 5); // Minimum 5 seconds between loads
   
@@ -254,26 +252,6 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
     setState(() {
       _refreshing = false;
     });
-  }
-
-  // Loading skeleton widget
-  Widget _buildLoadingSkeleton({required double height, required double width}) {
-    return Container(
-      height: height,
-      width: width,
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: _ShimmerEffect(
-          child: Container(
-            color: Colors.white.withOpacity(0.2),
-          ),
-        ),
-      ),
-    );
   }
 
   String _formatCurrency(double amount) {

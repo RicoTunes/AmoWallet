@@ -6,23 +6,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/transaction_model.dart';
 import 'blockchain_service.dart';
-import 'wallet_service.dart';
 
 class TransactionService {
   final FlutterSecureStorage _storage;
   final Logger _logger;
   final BlockchainService _blockchainService;
-  final WalletService _walletService;
 
   TransactionService({
     FlutterSecureStorage? storage, 
     Logger? logger,
     BlockchainService? blockchainService,
-    WalletService? walletService,
   })  : _storage = storage ?? const FlutterSecureStorage(),
         _logger = logger ?? Logger(),
-        _blockchainService = blockchainService ?? BlockchainService(),
-        _walletService = walletService ?? WalletService();
+        _blockchainService = blockchainService ?? BlockchainService();
 
   // ── SharedPreferences helpers (web-safe, no OperationError) ───────────────
 

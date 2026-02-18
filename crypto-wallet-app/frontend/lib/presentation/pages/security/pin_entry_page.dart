@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../services/pin_auth_service.dart';
-import '../../../core/providers/theme_provider.dart';
 import '../../../core/providers/fake_wallet_provider.dart';
 
 class PinEntryPage extends ConsumerStatefulWidget {
@@ -276,7 +275,6 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryColor = Theme.of(context).colorScheme.primary;
     final backgroundColor = isDark ? const Color(0xFF121212) : Colors.white;
-    final surfaceColor = isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade50;
     final textColor = isDark ? Colors.white : Colors.black87;
     final subtextColor = isDark ? Colors.grey.shade400 : Colors.grey.shade600;
     

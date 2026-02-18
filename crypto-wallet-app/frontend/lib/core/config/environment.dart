@@ -28,10 +28,6 @@ class EnvironmentConfig {
   /// Check if running in staging
   static bool get isStaging => _currentEnvironment == Environment.staging;
   
-  /// YOUR LOCAL NETWORK IP - Change this to your computer's IP
-  /// Find your IP by running: ipconfig (Windows) or ifconfig (Mac/Linux)
-  static const String _localNetworkIP = '172.20.10.6'; // Your current IP for mobile
-  
   /// Railway production URL
   static const String _productionUrl = 'https://amowallet-backend-production.up.railway.app';
   

@@ -4,11 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'dart:async';
 
-import '../../../core/constants/app_constants.dart';
-import '../../../core/providers/theme_provider.dart';
 import '../../../services/price_service.dart';
 import '../../../core/providers/fake_wallet_provider.dart';
-import '../../../services/fake_wallet_service.dart';
 
 /// Fake dashboard page shown when duress PIN is detected
 /// Same design as real wallet but with $0 balance and fake coins
@@ -21,7 +18,6 @@ class FakeDashboardPage extends ConsumerStatefulWidget {
 
 class _FakeDashboardPageState extends ConsumerState<FakeDashboardPage> {
   final PriceService _priceService = PriceService();
-  final FakeWalletService _fakeWalletService = FakeWalletService();
 
   Map<String, Map<String, dynamic>> _priceData = {};
   bool _isLoading = true;

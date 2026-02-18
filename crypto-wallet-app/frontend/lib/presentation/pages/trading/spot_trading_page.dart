@@ -4,7 +4,6 @@ import 'package:fl_chart/fl_chart.dart';
 import 'dart:async';
 import 'dart:math';
 
-import '../../../core/constants/app_constants.dart';
 import '../../../services/market_service.dart';
 import '../../../services/wallet_service.dart';
 import '../../../core/providers/market_provider.dart';

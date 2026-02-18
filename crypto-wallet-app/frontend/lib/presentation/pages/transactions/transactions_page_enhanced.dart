@@ -6,7 +6,6 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../services/transaction_service.dart';
-import '../../../services/wallet_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../models/transaction_model.dart';
 
@@ -20,7 +19,6 @@ class TransactionsPageEnhanced extends ConsumerStatefulWidget {
 class _TransactionsPageEnhancedState extends ConsumerState<TransactionsPageEnhanced>
     with SingleTickerProviderStateMixin {
   final TransactionService _transactionService = TransactionService();
-  final WalletService _walletService = WalletService();
   final NotificationService _notificationService = NotificationService();
   
   late TabController _tabController;

@@ -7,7 +7,6 @@ import '../../../core/theme/app_theme.dart';
 import '../../../services/wallet_service.dart';
 import '../../../services/biometric_auth_service.dart';
 import '../../../services/pin_auth_service.dart';
-import '../../widgets/pin_dialogs.dart';
 
 class BackupRecoveryPage extends ConsumerStatefulWidget {
   const BackupRecoveryPage({super.key});

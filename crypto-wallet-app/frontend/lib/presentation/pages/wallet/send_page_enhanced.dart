@@ -5,8 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'package:confetti/confetti.dart';
 import 'dart:math';
 
-import '../../../core/constants/app_constants.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../core/providers/fake_wallet_provider.dart';
 import '../../../services/wallet_service.dart';
 import '../../../services/transaction_service.dart';
@@ -14,11 +12,9 @@ import '../../../services/blockchain_service.dart';
 import '../../../services/biometric_auth_service.dart';
 import '../../../services/pin_auth_service.dart';
 import '../../../services/notification_service.dart';
-import '../../../services/spending_limit_service.dart';
 import '../../../services/confirmation_tracker_service.dart';
 import '../../../services/qr_scanner_service.dart';
 import '../../../services/price_service.dart';
-import '../../../utils/input_validator.dart';
 import '../wallet/fake_send_page.dart';
 
 class SendPageEnhanced extends ConsumerStatefulWidget {
@@ -36,10 +32,8 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
   final WalletService _walletService = WalletService();
   final TransactionService _transactionService = TransactionService();
   final BlockchainService _blockchainService = BlockchainService();
-  final BiometricAuthService _biometricService = BiometricAuthService();
   final PinAuthService _pinAuthService = PinAuthService();
   final NotificationService _notificationService = NotificationService();
-  final SpendingLimitService _spendingLimitService = SpendingLimitService();
   final ConfirmationTrackerService _confirmationTracker =
       ConfirmationTrackerService();
 
@@ -58,7 +52,6 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
   // PIN Entry state
   String _enteredPin = '';
   bool _showPinEntry = false;
-  bool _pinVerified = false;
   bool _showSlideToSend = false;
 
   // Slide to send
@@ -397,20 +390,6 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
         return address.startsWith('D') || address.startsWith('A');
       default:
         return address.length >= 26 && address.length <= 64;
-    }
-  }
-
-  void _setMaxAmount() {
-    // Max sendable = balance minus fee, must be > 0
-    final total = _availableBalance - _fee;
-    if (total > 0) {
-      if (_useUsdInput && _currentCryptoPrice > 0) {
-        _amountController.text =
-            (total * _currentCryptoPrice).toStringAsFixed(2);
-      } else {
-        _amountController.text = total.toStringAsFixed(8);
-      }
-      setState(() {});
     }
   }
 

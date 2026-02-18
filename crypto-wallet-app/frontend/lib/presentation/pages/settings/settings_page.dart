@@ -58,7 +58,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     final biometricEnabled = ref.watch(biometricEnabledProvider);
-    final biometricAvailable = ref.watch(biometricAvailableProvider);
     final screenshotAllowed = ref.watch(screenshotAllowedProvider);
     return BackButtonListener(
       onBackButtonPressed: () async {

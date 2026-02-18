@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// MILITARY-GRADE SECURITY SERVICE
@@ -57,22 +56,6 @@ class SecurityService {
       '/system/app/Magisk.apk',
       '/sbin/.magisk',
       '/data/adb/magisk',
-    ];
-
-    // Root management apps
-    final rootApps = [
-      'com.noshufou.android.su',
-      'com.noshufou.android.su.elite',
-      'eu.chainfire.supersu',
-      'com.koushikdutta.superuser',
-      'com.thirdparty.superuser',
-      'com.yellowes.su',
-      'com.topjohnwu.magisk',
-      'com.kingroot.kinguser',
-      'com.kingo.root',
-      'com.smedialink.oneclickroot',
-      'com.zhiqupk.root.global',
-      'com.alephzain.framaroot',
     ];
 
     // Check for root binaries
