@@ -27,8 +27,10 @@ class IncomingTxWatcherService {
 
   static const String _seenTxsKey = 'seen_incoming_txs';
   static const int _pollIntervalSeconds = 45;
+  // USDT/USDC are omitted here: their addresses are the same as ETH/BNB/TRX
+  // and are already covered when we poll those base chains.
   static const List<String> _watchedCoins = [
-    'ETH', 'BTC', 'BNB', 'MATIC', 'SOL', 'USDT', 'USDC',
+    'ETH', 'BTC', 'BNB', 'MATIC', 'SOL',
     'TRX', 'XRP', 'DOGE', 'LTC',
   ];
 
@@ -90,9 +92,16 @@ class IncomingTxWatcherService {
         final hash = (tx['hash'] ?? tx['txHash'] ?? tx['signature'] ?? '').toString();
         if (hash.isEmpty) continue;
 
-        // Only look at received transactions
+        // Only look at received transactions.
+        // Some chains (SOL, DOGE, LTC) don't populate toAddress — fall back to
+        // the 'type' field they do set, or check fromAddress mismatch.
         final toAddr = (tx['to'] ?? tx['toAddress'] ?? tx['recipient'] ?? '').toString().toLowerCase();
-        if (!toAddr.contains(address.toLowerCase())) continue;
+        final txType = (tx['type'] ?? '').toString().toLowerCase();
+        final fromAddr2 = (tx['from'] ?? tx['fromAddress'] ?? tx['sender'] ?? '').toString().toLowerCase();
+        final isReceived = toAddr.contains(address.toLowerCase()) ||
+            (toAddr.isEmpty && txType == 'received') ||
+            (toAddr.isEmpty && txType.isEmpty && fromAddr2.isNotEmpty && !fromAddr2.contains(address.toLowerCase()));
+        if (!isReceived) continue;
 
         // Skip if we have already notified about this tx
         if (_seenTxHashes.contains(hash)) continue;
