@@ -88,7 +88,7 @@ class _CryptoWalletProAppState extends ConsumerState<CryptoWalletProApp> with Wi
       
       // Only check if PIN is set - if user has a PIN, require auth on resume
       final isPinSet = await _pinAuthService.isPinSet();
-      print('🔐 App resume - isPinSet: $isPinSet');
+      debugPrint('🔐 App resume - isPinSet: $isPinSet');
 
       if (isPinSet) {
         // Save current route before navigating to PIN entry

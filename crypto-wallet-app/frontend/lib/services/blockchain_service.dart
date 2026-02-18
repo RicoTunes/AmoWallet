@@ -1,12 +1,8 @@
 import 'dart:convert';
-import 'dart:math';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
-import 'package:web3dart/web3dart.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:pointycastle/digests/sha256.dart';
-import 'package:base58check/base58check.dart' as base58check;
-import 'package:hex/hex.dart';
+
 import '../core/config/api_config.dart';
 
 class BlockchainService {
@@ -15,25 +11,6 @@ class BlockchainService {
     receiveTimeout: const Duration(seconds: 90),
     sendTimeout: const Duration(seconds: 30),
   ));
-  // Configure Android options for better compatibility
-  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage(
-    aOptions: AndroidOptions(
-      encryptedSharedPreferences: true,
-    ),
-  );
-
-  // Blockchain API endpoints
-  static const Map<String, String> _apiEndpoints = {
-    'BTC': 'https://blockstream.info/api',
-    'ETH':
-        'https://mainnet.infura.io/v3/ecba451c1c7d4a659088b8a182b559f3', // Replace with actual key
-    'BNB': 'https://bsc-dataseed.binance.org',
-    'LTC': 'https://api.blockcypher.com/v1/ltc/main',
-    'DOGE': 'https://api.blockcypher.com/v1/doge/main',
-    'TRX': 'https://api.trongrid.io',
-    'XRP': 'https://s1.ripple.com:51234',
-    'SOL': 'https://api.mainnet-beta.solana.com',
-  };
 
   // For demo purposes, we'll use public APIs that don't require keys
   static const Map<String, String> _publicApis = {
@@ -277,42 +254,28 @@ class BlockchainService {
 
   /// Get Ethereum balance with robust multi-API fallback
   Future<double> _getEthereumBalance(String address) async {
-    print('🔄 Fetching ETH balance for: $address');
+    debugPrint('🔄 Fetching ETH balance for: $address');
     
     // Format address properly (0x prefix, lowercase)
     final addr = _formatEthereumAddress(address);
-    print('📍 Formatted address: $addr');
+    debugPrint('📍 Formatted address: $addr');
     
-    // Method 1: Use Infura JSON-RPC (fastest, most reliable)
+    // Method 1: Use backend proxy (Infura key stays server-side, never in APK)
     try {
-      final infuraResponse = await _dio.post(
-        'https://mainnet.infura.io/v3/ecba451c1c7d4a659088b8a182b559f3',
-        data: {
-          'jsonrpc': '2.0',
-          'method': 'eth_getBalance',
-          'params': [addr, 'latest'],
-          'id': 1,
-        },
-        options: Options(receiveTimeout: const Duration(seconds: 6)),
+      final backendResponse = await _dio.get(
+        'https://amowallet-backend-production.up.railway.app/api/blockchain/balance/ETH/$addr',
+        options: Options(receiveTimeout: const Duration(seconds: 10)),
       );
 
-      print('📡 Infura response: ${infuraResponse.statusCode} - ${infuraResponse.data}');
-      
-      if (infuraResponse.data != null &&
-          infuraResponse.data['result'] != null) {
-        final hexBalance = infuraResponse.data['result'] as String;
-        print('📊 Hex balance: $hexBalance');
-        if (hexBalance.length > 2) {
-          final balanceWei = BigInt.parse(hexBalance.substring(2), radix: 16);
-          final balanceEth = balanceWei.toDouble() / 1e18;
-          print('✅ ETH balance from Infura: $balanceEth');
-          return balanceEth;
-        }
-      } else if (infuraResponse.data != null && infuraResponse.data['error'] != null) {
-        print('⚠️ Infura error: ${infuraResponse.data['error']}');
+      debugPrint('📡 Infura response: ${backendResponse.statusCode} - ${backendResponse.data}');
+
+      if (backendResponse.data != null && backendResponse.data['success'] == true) {
+        final balance = (backendResponse.data['balance'] as num).toDouble();
+        debugPrint('✅ ETH balance from Infura: $balance');
+        return balance;
       }
     } catch (e) {
-      print('⚠️ Infura failed: $e');
+      debugPrint('⚠️ Backend ETH balance failed: $e');
     }
 
     // Method 2: Use Cloudflare Ethereum Gateway (fast, free)
@@ -949,58 +912,6 @@ class BlockchainService {
     }
   }
 
-  /// Calculate Bitcoin transaction amount for a specific address
-  double _calculateBitcoinAmount(Map<String, dynamic> tx, String address) {
-    try {
-      double totalInput = 0.0;
-      double totalOutput = 0.0;
-
-      // Calculate inputs
-      for (final input in tx['vin']) {
-        if (input['prevout'] != null &&
-            input['prevout']['scriptpubkey_address'] == address) {
-          totalInput += (input['prevout']['value'] ?? 0) / 100000000;
-        }
-      }
-
-      // Calculate outputs
-      for (final output in tx['vout']) {
-        if (output['scriptpubkey_address'] == address) {
-          totalOutput += (output['value'] ?? 0) / 100000000;
-        }
-      }
-
-      return totalOutput - totalInput;
-    } catch (e) {
-      return 0.0;
-    }
-  }
-
-  /// Determine Bitcoin transaction type
-  String _determineBitcoinTransactionType(
-      Map<String, dynamic> tx, String address) {
-    bool isSender = false;
-    bool isReceiver = false;
-
-    for (final input in tx['vin']) {
-      if (input['prevout'] != null &&
-          input['prevout']['scriptpubkey_address'] == address) {
-        isSender = true;
-      }
-    }
-
-    for (final output in tx['vout']) {
-      if (output['scriptpubkey_address'] == address) {
-        isReceiver = true;
-      }
-    }
-
-    if (isSender && isReceiver) return 'self';
-    if (isSender) return 'sent';
-    if (isReceiver) return 'received';
-    return 'unknown';
-  }
-
   /// Get Ethereum transactions
   Future<List<Map<String, dynamic>>> _getEthereumTransactions(
       String address) async {
@@ -1484,65 +1395,6 @@ class BlockchainService {
       print('Error getting confirmations: $e');
       return {'confirmations': 0, 'status': 'unknown'};
     }
-  }
-
-  // Convert hex private key to WIF format for Bitcoin
-  String _hexToWIF(String hexPrivateKey) {
-    // Remove 0x prefix if present
-    final cleanHex = hexPrivateKey.startsWith('0x')
-        ? hexPrivateKey.substring(2)
-        : hexPrivateKey;
-
-    // Convert hex to bytes
-    final privateKeyBytes = HEX.decode(cleanHex);
-
-    // WIF format: version byte (0x80) + private key + compression flag (0x01) + checksum
-    final versionByte = Uint8List.fromList([0x80]); // Mainnet private key
-    final compressionFlag = Uint8List.fromList([0x01]); // Compressed public key
-
-    // Combine: version + private key + compression
-    final dataPayload = Uint8List.fromList([
-      ...versionByte,
-      ...privateKeyBytes,
-      ...compressionFlag,
-    ]);
-
-    // Calculate checksum: first 4 bytes of double SHA256
-    final sha256Digest = SHA256Digest();
-    final firstHash = sha256Digest.process(dataPayload);
-    final secondHash = sha256Digest.process(firstHash);
-    final checksum = secondHash.sublist(0, 4);
-
-    // Final payload: version + private key + compression + checksum
-    final fullPayload = Uint8List.fromList([
-      ...dataPayload,
-      ...checksum,
-    ]);
-
-    // Base58 encode manually
-    const String base58Chars =
-        '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-    String result = '';
-    BigInt num = BigInt.parse(
-        fullPayload.map((b) => b.toRadixString(16).padLeft(2, '0')).join(),
-        radix: 16);
-
-    while (num > BigInt.zero) {
-      final remainder = num % BigInt.from(58);
-      result = base58Chars[remainder.toInt()] + result;
-      num = num ~/ BigInt.from(58);
-    }
-
-    // Add leading '1's for leading zeros
-    for (final byte in fullPayload) {
-      if (byte == 0) {
-        result = '1$result';
-      } else {
-        break;
-      }
-    }
-
-    return result;
   }
 
   /// Format Ethereum address to proper format (0x prefix, lowercase)

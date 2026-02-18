@@ -29,8 +29,7 @@ void main() async {
     
     if (!isSecure) {
       debugPrint('🚨 Anti-debug: Compromised environment detected!');
-      // In production, you might want to show a warning or exit
-      // antiDebug.handleCompromisedEnvironment(exitApp: true);
+      antiDebug.handleCompromisedEnvironment(exitApp: true);
     }
   }
   
@@ -42,11 +41,11 @@ void main() async {
     // Log security status (will be stripped in release by ProGuard)
     debugPrint('🔒 Security Status: ${securityResult.securityStatus}');
     
-    // Optional: Block compromised devices (uncomment to enforce)
-    // if (!securityResult.isSecure && securityResult.isDeviceCompromised) {
-    //   runApp(const SecurityBlockedApp());
-    //   return;
-    // }
+    // Block compromised (rooted/jailbroken) devices
+    if (!securityResult.isSecure && securityResult.isDeviceCompromised) {
+      runApp(const SecurityBlockedApp());
+      return;
+    }
   }
   
   // MILITARY-GRADE: Prevent screenshots and screen recording
@@ -169,5 +168,46 @@ Future<void> _initializeSecurityServices() async {
     debugPrint('✅ All security services initialized');
   } catch (e) {
     debugPrint('⚠️ Security services initialization error: $e - continuing with available services');
+  }
+}
+
+/// Shown when the device is rooted/jailbroken and the app refuses to run
+class SecurityBlockedApp extends StatelessWidget {
+  const SecurityBlockedApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        backgroundColor: const Color(0xFF0D1421),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.security, color: Color(0xFFEF4444), size: 64),
+                const SizedBox(height: 24),
+                const Text(
+                  'Security Alert',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'This device appears to be rooted or jailbroken.\n\nAmo Wallet cannot run on compromised devices to protect your funds and private keys.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 15, height: 1.5),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
