@@ -119,10 +119,11 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
         return;
       }
       
-      // Try backend endpoint (may not require auth for checking)
+      // Try backend endpoint — silently skip if auth required (401) or unavailable
       try {
         final response = await _dio.get(
           '${ApiConfig.baseUrl}/api/multisig/my-wallet',
+          options: Options(validateStatus: (status) => status != null && status < 500),
         ).timeout(const Duration(seconds: 5));
 
         if (response.statusCode == 200 && response.data['address'] != null) {
@@ -133,9 +134,9 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
           await prefs.setString('multisig_wallet_address', _walletAddress!);
           await _loadWalletDetails();
         }
+        // 401/403 = auth required, 404 = no wallet — all silent, user creates locally
       } catch (e) {
-        // Backend not available or auth required - that's okay, user can create local multisig
-        print('MultiSig backend check failed (expected if not configured): $e');
+        // Timeout or network error — that's fine, user can create local multisig
       }
     } catch (e) {
       print('Error loading existing wallet: $e');
