@@ -173,7 +173,7 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
       
       final results = await Future.wait([
         _priceService.getPrices(symbols).timeout(
-          const Duration(seconds: 8),
+          const Duration(seconds: 20),
           onTimeout: () {
             print('⏱️ Price fetch timeout - using cached/fallback');
             return <String, Map<String, dynamic>>{};
@@ -204,21 +204,19 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
 
       double totalValue = 0.0;
       
-      // Only calculate total if we got real prices — never use fallback prices
-      // for the portfolio total (avoids showing wrong balance before real data)
-      final gotRealPrices = prices.isNotEmpty;
-      
-      if (gotRealPrices) {
-        realBalances.forEach((symbol, balance) {
-          final coinPrice = prices[symbol];
-          final price = (coinPrice?['price'] as double?) ?? 0.0;
-          if (balance > 0 && price > 0) {
-            final value = balance * price;
-            totalValue += value;
-            print('💵 $symbol: $balance @ \$${price.toStringAsFixed(2)} = \$${value.toStringAsFixed(2)}');
-          }
-        });
-      }
+      // Use real prices if available, otherwise fall back to previously cached _priceData
+      // so the balance card never stays at $0.00 after a network blip.
+      final effectivePrices = prices.isNotEmpty ? prices : _priceData;
+
+      realBalances.forEach((symbol, balance) {
+        final coinPrice = effectivePrices[symbol];
+        final price = (coinPrice?['price'] as double?) ?? 0.0;
+        if (balance > 0 && price > 0) {
+          final value = balance * price;
+          totalValue += value;
+          print('💵 $symbol: $balance @ \$${price.toStringAsFixed(2)} = \$${value.toStringAsFixed(2)}');
+        }
+      });
 
       if (mounted) {
         setState(() {

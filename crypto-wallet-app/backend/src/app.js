@@ -115,6 +115,11 @@ app.use('/api/admin', adminIpWhitelist, adminRoutes);
 // Conditionally apply authentication based on environment
 const requireAuth = process.env.REQUIRE_API_AUTH === 'true' || process.env.NODE_ENV === 'production';
 
+// Public swap read-only endpoints — providers, rates, coins are safe to expose without auth.
+// Must be registered BEFORE the authenticated app.use('/api/swap', ...) below.
+const publicSwapRoutes = require('./routes/swapPublicRoutes');
+app.use('/api/swap', publicSwapRoutes);
+
 // Apply app status check and authentication to protected routes
 // Transaction routes require signature validation
 app.use('/api/wallet', checkAppActive, checkReadOnly, requireAuth ? authenticate : (req, res, next) => next(), validateSignature, walletRoutes);

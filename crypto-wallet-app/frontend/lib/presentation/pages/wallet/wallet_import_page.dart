@@ -118,12 +118,14 @@ class _WalletImportPageState extends ConsumerState<WalletImportPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return Stack(
+      children: [
+        Scaffold(
       appBar: AppBar(
         title: const Text('Import Wallet'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/onboarding'),
+          onPressed: _isLoading ? null : () => context.go('/onboarding'),
         ),
       ),
       body: SafeArea(
@@ -236,10 +238,10 @@ class _WalletImportPageState extends ConsumerState<WalletImportPage> {
                               ),
                             ),
                             const SizedBox(width: 12),
-                            Text(
-                              'Importing Wallet...',
-                              style: const TextStyle(
-                                fontSize: 16, 
+                            const Text(
+                              'Importing Your Account...',
+                              style: TextStyle(
+                                fontSize: 16,
                                 fontWeight: FontWeight.w600,
                                 color: Colors.white,
                               ),
@@ -261,6 +263,17 @@ class _WalletImportPageState extends ConsumerState<WalletImportPage> {
           ),
         ),
       ),
-    );
+    ), // end Scaffold
+
+        // Dim overlay — no popup, just darkens the page behind the button
+        if (_isLoading)
+          IgnorePointer(
+            child: Container(
+              color: Colors.black.withOpacity(0.35),
+            ),
+          ),
+
+      ], // end Stack children
+    ); // end Stack
   }
 }

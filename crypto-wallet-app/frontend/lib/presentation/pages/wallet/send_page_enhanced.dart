@@ -1467,10 +1467,11 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
   // Build percentage button helper
   Widget _buildPercentButton(String label, double percent) {
     final isSelected = _selectedPercent == percent;
-    // Use the raw balance for percentage — if fee > balance, user can still
-    // type an amount (validation will catch it). Don't lock buttons out.
-    final total = _availableBalance > 0 ? _availableBalance : 0.0;
-    final isDisabled = !_balanceLoaded;
+    // Use (balance - fee) as the spendable base so that
+    // amount + fee never exceeds balance after pressing a % button.
+    final spendable = (_availableBalance - _fee).clamp(0.0, double.infinity);
+    final total = spendable;
+    final isDisabled = !_balanceLoaded || total <= 0;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Expanded(
