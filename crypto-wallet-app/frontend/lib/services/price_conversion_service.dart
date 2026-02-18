@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'dart:async';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 /// Service to convert cryptocurrency amounts to USD values
 class PriceConversionService {

@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'dart:async';
 
 import '../../../services/price_service.dart';
-import '../../../core/providers/fake_wallet_provider.dart';
+import '../../../core/providers/theme_provider.dart';
 
 /// Fake dashboard page shown when duress PIN is detected
 /// Same design as real wallet but with $0 balance and fake coins
@@ -21,7 +20,6 @@ class _FakeDashboardPageState extends ConsumerState<FakeDashboardPage> {
 
   Map<String, Map<String, dynamic>> _priceData = {};
   bool _isLoading = true;
-  bool _refreshing = false;
 
   // Coin data with colors - matches real dashboard
   final List<Map<String, dynamic>> _coins = [
@@ -87,9 +85,7 @@ class _FakeDashboardPageState extends ConsumerState<FakeDashboardPage> {
 
   Future<void> _refreshData() async {
     HapticFeedback.mediumImpact();
-    setState(() => _refreshing = true);
     await _loadPrices();
-    setState(() => _refreshing = false);
   }
 
   String _formatPrice(double price) {
