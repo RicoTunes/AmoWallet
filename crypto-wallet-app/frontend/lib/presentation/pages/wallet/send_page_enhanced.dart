@@ -1555,108 +1555,105 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
       );
     }
 
-    return Container(
-      height: 60,
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: color.withOpacity(0.3), width: 2),
-      ),
-      child: Stack(
-        children: [
-          // Animated background fill
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 100),
-            width: MediaQuery.of(context).size.width * _slidePosition,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxSlide = constraints.maxWidth - 60;
+        return GestureDetector(
+          onHorizontalDragStart: (_) {
+            setState(() => _isSliding = true);
+          },
+          onHorizontalDragUpdate: (details) {
+            final newPosition =
+                (_slidePosition * maxSlide + details.delta.dx) / maxSlide;
+            _onSlideUpdate(newPosition);
+          },
+          onHorizontalDragEnd: (_) {
+            setState(() => _isSliding = false);
+            _onSlideComplete();
+          },
+          child: Container(
+            height: 60,
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  color.withOpacity(0.3),
-                  color.withOpacity(0.5),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(28),
+              color: color.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(30),
+              border: Border.all(color: color.withOpacity(0.3), width: 2),
             ),
-          ),
-
-          // Text hint with animated arrows >> - wrapped in IgnorePointer to not block touch
-          IgnorePointer(
-            child: Center(
-              child: AnimatedOpacity(
-                opacity: _slidePosition < 0.3 ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 200),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      'Slide to Send',
-                      style: TextStyle(
-                        color: color,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    // Animated arrows >>
-                    _buildAnimatedArrows(color),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-          // Draggable thumb
-          Builder(
-            builder: (context) {
-              final maxSlide = MediaQuery.of(context).size.width - 100;
-              return Positioned(
-                left: _slidePosition * maxSlide,
-                top: 0,
-                bottom: 0,
-                child: GestureDetector(
-                  onHorizontalDragStart: (_) {
-                    setState(() => _isSliding = true);
-                  },
-                  onHorizontalDragUpdate: (details) {
-                    final newPosition =
-                        (_slidePosition * maxSlide + details.delta.dx) /
-                            maxSlide;
-                    _onSlideUpdate(newPosition);
-                  },
-                  onHorizontalDragEnd: (_) {
-                    setState(() => _isSliding = false);
-                    if (_slidePosition >= 0.85) {
-                      _onContinuePressed();
-                    }
-                    setState(() => _slidePosition = 0.0);
-                  },
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 100),
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: color,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: color.withOpacity(0.4),
-                          blurRadius: _isSliding ? 20 : 10,
-                          offset: const Offset(0, 4),
-                        ),
+            child: Stack(
+              children: [
+                // Animated background fill
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 100),
+                  width: (_slidePosition * constraints.maxWidth).clamp(0.0, constraints.maxWidth),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        color.withOpacity(0.3),
+                        color.withOpacity(0.5),
                       ],
                     ),
-                    child: Icon(
-                      _slidePosition >= 0.85 ? Icons.check : Icons.double_arrow,
-                      color: Colors.white,
-                      size: 28,
+                    borderRadius: BorderRadius.circular(28),
+                  ),
+                ),
+
+                // Text hint - IgnorePointer so it never blocks drag
+                IgnorePointer(
+                  child: Center(
+                    child: AnimatedOpacity(
+                      opacity: _slidePosition < 0.3 ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 200),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'Slide to Send',
+                            style: TextStyle(
+                              color: color,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _buildAnimatedArrows(color),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              );
-            },
+
+                // Thumb indicator (no GestureDetector — parent handles all drag)
+                Positioned(
+                  left: (_slidePosition * maxSlide).clamp(0.0, maxSlide),
+                  top: 0,
+                  bottom: 0,
+                  child: IgnorePointer(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 100),
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: color.withOpacity(0.4),
+                            blurRadius: _isSliding ? 20 : 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        _slidePosition >= 0.85 ? Icons.check : Icons.double_arrow,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
