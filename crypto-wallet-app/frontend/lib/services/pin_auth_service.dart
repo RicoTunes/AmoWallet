@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -63,7 +63,7 @@ class PinAuthService {
       }
       return await _secureStorage.read(key: key);
     } catch (e) {
-      print('❌ Error reading secure storage for key $key: $e');
+      debugPrint('❌ Error reading secure storage for key $key: $e');
       return null;
     }
   }
@@ -102,7 +102,7 @@ class PinAuthService {
   Future<bool> isPinSet() async {
     final pinHash = await _readSecure(_pinKey);
     final result = pinHash != null && pinHash.isNotEmpty;
-    print('🔑 isPinSet (pin_auth_service): $result');
+    debugPrint('🔑 isPinSet (pin_auth_service): $result');
     return result;
   }
 
@@ -121,10 +121,10 @@ class PinAuthService {
       await _writeSecure(_pinSaltKey, salt);
       await _writeSecure(_pinKey, hashedPin);
       await _writeSecure(_pinEnabledKey, 'true');
-      print('✅ PIN hash saved successfully in pin_auth_service');
+      debugPrint('✅ PIN hash saved successfully in pin_auth_service');
       return true;
     } catch (e) {
-      print('❌ Error saving PIN: $e');
+      debugPrint('❌ Error saving PIN: $e');
       return false;
     }
   }
@@ -136,12 +136,12 @@ class PinAuthService {
       final remoteWipeService = RemoteWipeService();
       if (await remoteWipeService.hasDuressPin()) {
         if (await remoteWipeService.isDuressPin(pin)) {
-          print('🚨 DURESS PIN DETECTED - ACTIVATING DECOY WALLET');
+          debugPrint('🚨 DURESS PIN DETECTED - ACTIVATING DECOY WALLET');
           
           // Activate fake wallet decoy persistently instead of wiping
           if (ref != null) {
             await ref.read(fakeWalletProvider.notifier).activateFakeWallet();
-            print('✅ Fake wallet PERSISTENTLY activated - all balances set to 0.00');
+            debugPrint('✅ Fake wallet PERSISTENTLY activated - all balances set to 0.00');
           }
           
           // Return false to not log user in normally
@@ -152,7 +152,7 @@ class PinAuthService {
       // Check if account is locked out
       if (await isLockedOut()) {
         final remainingTime = await getRemainingLockoutTime();
-        print('🔒 Account locked! Remaining time: $remainingTime minutes');
+        debugPrint('🔒 Account locked! Remaining time: $remainingTime minutes');
         return false;
       }
       
@@ -160,37 +160,37 @@ class PinAuthService {
       final salt = await _readSecure(_pinSaltKey);
 
       if (storedHash == null || salt == null) {
-        print('🔍 Verifying PIN - no stored hash or salt');
+        debugPrint('🔍 Verifying PIN - no stored hash or salt');
         return false;
       }
 
       // Hash the input PIN with the stored salt
       final inputHash = _hashPin(pin, salt);
 
-      print('🔍 Verifying PIN - comparing hashes');
+      debugPrint('🔍 Verifying PIN - comparing hashes');
       final isValid = storedHash == inputHash;
       
       if (isValid) {
         // Reset failed attempts on successful login
         await _resetFailedAttempts();
-        print('✅ PIN verified successfully');
+        debugPrint('✅ PIN verified successfully');
       } else {
         // Increment failed attempts
         await _incrementFailedAttempts();
         final attempts = await getFailedAttempts();
         final remaining = _maxFailedAttempts - attempts;
-        print('❌ Invalid PIN! $remaining attempts remaining');
+        debugPrint('❌ Invalid PIN! $remaining attempts remaining');
         
         // Check if should lock out
         if (attempts >= _maxFailedAttempts) {
           await _setLockout();
-          print('🔒 Account locked for $_lockoutDurationMinutes minutes!');
+          debugPrint('🔒 Account locked for $_lockoutDurationMinutes minutes!');
         }
       }
       
       return isValid;
     } catch (e) {
-      print('❌ Error verifying PIN: $e');
+      debugPrint('❌ Error verifying PIN: $e');
       return false;
     }
   }
@@ -273,11 +273,11 @@ class PinAuthService {
 
   // Enable/Disable biometric authentication
   Future<void> setBiometricEnabled(bool enabled) async {
-    print('💾 PinAuthService: Saving biometric enabled = $enabled');
+    debugPrint('💾 PinAuthService: Saving biometric enabled = $enabled');
     await _writeSecure(_biometricEnabledKey, enabled ? 'true' : 'false');
     // Verify write
     final verify = await _readSecure(_biometricEnabledKey);
-    print('💾 PinAuthService: Verified biometric saved = $verify');
+    debugPrint('💾 PinAuthService: Verified biometric saved = $verify');
   }
 
   // Delete PIN

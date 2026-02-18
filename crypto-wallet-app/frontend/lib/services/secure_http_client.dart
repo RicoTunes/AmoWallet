@@ -41,7 +41,7 @@ class SecureHttpClient {
         client.badCertificateCallback = (X509Certificate cert, String host, int port) {
           // Accept self-signed certificates for development
           // In production, this should return false to enforce proper certificate validation
-          print('[HTTP] Accepting certificate for $host:$port (development mode)');
+          debugPrint('[HTTP] Accepting certificate for $host:$port (development mode)');
           return true;
         };
         return client;
@@ -84,7 +84,7 @@ class SecureHttpClient {
             onError: (DioException error, handler) {
               // Handle certificate pinning errors
               if (error.message?.contains('Certificate') == true) {
-                print('Security Warning: Certificate validation failed');
+                debugPrint('Security Warning: Certificate validation failed');
               }
               return handler.next(error);
             },
@@ -206,7 +206,7 @@ Future<String?> getCertificateFingerprint(String url) async {
     );
     return fingerprints.toString();
   } catch (e) {
-    print('Error getting certificate fingerprint: $e');
+    debugPrint('Error getting certificate fingerprint: $e');
     return null;
   }
 }

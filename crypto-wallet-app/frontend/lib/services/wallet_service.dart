@@ -277,7 +277,7 @@ class WalletService {
         }
       }
       
-      print('🔍 getStoredAddresses($chain) → normalized: $normalizedChain, lookup: $lookupChain → found: $addresses');
+      debugPrint('🔍 getStoredAddresses($chain) → normalized: $normalizedChain, lookup: $lookupChain → found: $addresses');
       return addresses.toList();
     } catch (e) {
       _logger.e('Failed to get stored addresses: $e');
@@ -561,12 +561,12 @@ class WalletService {
       // Get all stored addresses across all chains
       final allKeys = await _safeReadAll();
 
-      print('🔑 Total keys in storage: ${allKeys.length}');
+      debugPrint('🔑 Total keys in storage: ${allKeys.length}');
       
       // Debug: print all keys to understand storage structure
       for (final k in allKeys.keys) {
         if (k.contains('_private') || k.contains('_meta')) {
-          print('🔑 Key: $k');
+          debugPrint('🔑 Key: $k');
         }
       }
       
@@ -601,7 +601,7 @@ class WalletService {
         
         // Only process valid blockchain chains (case-insensitive)
         if (!validChains.contains(normalizedChain)) {
-          print('⚠️ Skipping invalid chain: $chain (normalized: $normalizedChain)');
+          debugPrint('⚠️ Skipping invalid chain: $chain (normalized: $normalizedChain)');
           continue;
         }
         
@@ -610,18 +610,18 @@ class WalletService {
         
         // Validate address format
         if (address.isEmpty) {
-          print('⚠️ Empty address for chain: $chain');
+          debugPrint('⚠️ Empty address for chain: $chain');
           continue;
         }
         
-        print('📍 Found wallet: $processingChain - ${address.length > 20 ? "${address.substring(0, 10)}...${address.substring(address.length - 6)}" : address}');
+        debugPrint('📍 Found wallet: $processingChain - ${address.length > 20 ? "${address.substring(0, 10)}...${address.substring(address.length - 6)}" : address}');
         addressesByChain.putIfAbsent(processingChain, () => {}).add(address);
       }
       
-      print('💼 Wallets by chain: ${addressesByChain.length} chains - $addressesByChain');
+      debugPrint('💼 Wallets by chain: ${addressesByChain.length} chains - $addressesByChain');
       
       if (addressesByChain.isEmpty) {
-        print('⚠️ No wallets found in storage!');
+        debugPrint('⚠️ No wallets found in storage!');
         return {};
       }
       
@@ -665,13 +665,13 @@ class WalletService {
           // Set to 0 if negative, but keep in map so it shows up
           balances[coin] = 0.0;
         }
-        print('💱 Applied swap adjustment for $coin: $current + $adjustment = $adjusted');
+        debugPrint('💱 Applied swap adjustment for $coin: $current + $adjustment = $adjusted');
       }
       
-      print('💰 Total balances (with swaps): $balances');
+      debugPrint('💰 Total balances (with swaps): $balances');
       return balances;
     } catch (e) {
-      print('❌ Failed to get balances: $e');
+      debugPrint('❌ Failed to get balances: $e');
       _logger.e('Failed to get balances: $e');
       return {};
     }
@@ -684,16 +684,16 @@ class WalletService {
     String address
   ) async {
     try {
-      print('🔍 Fetching balance for $chain $address');
+      debugPrint('🔍 Fetching balance for $chain $address');
       final balance = await blockchainService.getBalance(chain, address)
           .timeout(const Duration(seconds: 8), onTimeout: () {
-        print('⏱️ Timeout fetching $chain balance');
+        debugPrint('⏱️ Timeout fetching $chain balance');
         return 0.0;
       });
-      print('✅ Balance for $chain $address: $balance');
+      debugPrint('✅ Balance for $chain $address: $balance');
       return MapEntry(chain, balance);
     } catch (e) {
-      print('❌ Failed to get balance for $chain $address: $e');
+      debugPrint('❌ Failed to get balance for $chain $address: $e');
       _logger.w('Failed to get balance for $chain $address: $e');
       return MapEntry(chain, 0.0);
     }
@@ -707,24 +707,24 @@ class WalletService {
       
       // Get all keys and filter swap adjustments
       final allKeys = prefs.getKeys();
-      print('🔍 SharedPreferences keys: ${allKeys.length} total');
-      print('🔍 All keys: $allKeys');
+      debugPrint('🔍 SharedPreferences keys: ${allKeys.length} total');
+      debugPrint('🔍 All keys: $allKeys');
       
       for (final key in allKeys) {
         if (key.startsWith('swap_adjustment_')) {
           final coin = key.replaceFirst('swap_adjustment_', '');
           final value = prefs.getDouble(key) ?? 0.0;
-          print('💱 Found swap adjustment: $key = $value');
+          debugPrint('💱 Found swap adjustment: $key = $value');
           if (value != 0.0) {
             adjustments[coin] = value;
           }
         }
       }
       
-      print('📊 Total swap adjustments found: $adjustments');
+      debugPrint('📊 Total swap adjustments found: $adjustments');
       return adjustments;
     } catch (e) {
-      print('❌ Failed to get swap adjustments: $e');
+      debugPrint('❌ Failed to get swap adjustments: $e');
       _logger.e('Failed to get swap adjustments: $e');
       return {};
     }
@@ -819,12 +819,12 @@ class WalletService {
       await prefs.setString('swap_history', jsonEncode(history));
       
       _logger.i('✅ Recorded swap: -$fromAmount $fromBase, +$toAmount $toBase');
-      print('✅ Swap recorded: $fromAmount $fromCoin → $toAmount $toCoin (fee: $fee)');
-      print('📊 New adjustments: $fromBase=$newFromAdj, $toBase=$newToAdj');
-      print('💾 Swap saved to SharedPreferences (persists on restart)');
+      debugPrint('✅ Swap recorded: $fromAmount $fromCoin → $toAmount $toCoin (fee: $fee)');
+      debugPrint('📊 New adjustments: $fromBase=$newFromAdj, $toBase=$newToAdj');
+      debugPrint('💾 Swap saved to SharedPreferences (persists on restart)');
     } catch (e) {
       _logger.e('Failed to record swap transaction: $e');
-      print('❌ Failed to record swap: $e');
+      debugPrint('❌ Failed to record swap: $e');
     }
   }
 
@@ -839,7 +839,7 @@ class WalletService {
       return history;
     } catch (e) {
       _logger.e('Failed to get swap history: $e');
-      print('❌ Failed to load swap history: $e');
+      debugPrint('❌ Failed to load swap history: $e');
       return [];
     }
   }

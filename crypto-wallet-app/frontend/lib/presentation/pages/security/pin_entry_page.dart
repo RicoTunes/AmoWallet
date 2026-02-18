@@ -61,7 +61,7 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
     // If duress mode is already active (persisted), go straight to fake dashboard
     final fakeWalletState = ref.read(fakeWalletProvider);
     if (fakeWalletState.isActive && fakeWalletState.isDuressMode) {
-      print('🎭 Duress mode already active - redirecting to fake dashboard');
+      debugPrint('🎭 Duress mode already active - redirecting to fake dashboard');
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) context.go('/fake-dashboard');
       });
@@ -76,19 +76,19 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
       setState(() {
         _returnRoute = savedRoute;
       });
-      print('📍 Will return to: $_returnRoute after PIN verification');
+      debugPrint('📍 Will return to: $_returnRoute after PIN verification');
     } else {
       setState(() {
         _returnRoute = '/dashboard';
       });
-      print('📍 Forced return to dashboard after PIN verification');
+      debugPrint('📍 Forced return to dashboard after PIN verification');
     }
   }
   
   Future<void> _checkAuthenticationMethods() async {
     // Check all flags including global to prevent double popup
     if (_isAuthenticating || _biometricAttempted || _globalBiometricInProgress) {
-      print('⏭️ _checkAuthenticationMethods skipped - biometric already in progress');
+      debugPrint('⏭️ _checkAuthenticationMethods skipped - biometric already in progress');
       return;
     }
     
@@ -110,7 +110,7 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
   Future<void> _authenticateWithBiometric() async {
     // Check both local and global flags to prevent double popup
     if (_biometricAttempted || _isAuthenticating || _globalBiometricInProgress) {
-      print('⏭️ Skipping biometric - already in progress (local: $_biometricAttempted, auth: $_isAuthenticating, global: $_globalBiometricInProgress)');
+      debugPrint('⏭️ Skipping biometric - already in progress (local: $_biometricAttempted, auth: $_isAuthenticating, global: $_globalBiometricInProgress)');
       return;
     }
     
@@ -124,13 +124,13 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
       final success = await _pinAuthService.authenticateWithBiometric();
       
       if (success && mounted) {
-        print('✅ Biometric auth success - returning to: $_returnRoute');
+        debugPrint('✅ Biometric auth success - returning to: $_returnRoute');
         
         // Save auth time FIRST before any navigation
         final prefs = await SharedPreferences.getInstance();
         final authTime = DateTime.now().millisecondsSinceEpoch;
         await prefs.setInt('last_auth_time', authTime);
-        print('💾 Saved auth time: $authTime');
+        debugPrint('💾 Saved auth time: $authTime');
         
         // Small delay to ensure auth time is saved before navigation
         await Future.delayed(const Duration(milliseconds: 100));
@@ -140,11 +140,11 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
         
         if (mounted) {
           final targetRoute = _returnRoute ?? '/dashboard';
-          print('🚀 Navigating to: $targetRoute');
+          debugPrint('🚀 Navigating to: $targetRoute');
           context.go(targetRoute);
         }
       } else {
-        print('❌ Biometric auth failed or cancelled - please enter PIN');
+        debugPrint('❌ Biometric auth failed or cancelled - please enter PIN');
         _globalBiometricInProgress = false;
         if (mounted) {
           setState(() {
@@ -154,7 +154,7 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
         }
       }
     } catch (e) {
-      print('❌ Biometric error: $e');
+      debugPrint('❌ Biometric error: $e');
       _globalBiometricInProgress = false;
       if (mounted) {
         setState(() {
@@ -196,7 +196,7 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
     final isValid = await _pinAuthService.verifyPin(_pin, ref: ref);
     
     if (isValid && mounted) {
-      print('✅ PIN verification success - returning to: $_returnRoute');
+      debugPrint('✅ PIN verification success - returning to: $_returnRoute');
       HapticFeedback.mediumImpact();
       
       final prefs = await SharedPreferences.getInstance();
@@ -205,7 +205,7 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
       try {
         context.go(_returnRoute ?? '/dashboard');
       } catch (navError) {
-        print('⚠️ Navigation error after PIN verification: $navError');
+        debugPrint('⚠️ Navigation error after PIN verification: $navError');
         if (mounted) {
           Navigator.of(context).pushReplacementNamed(_returnRoute ?? '/dashboard');
         }
@@ -214,14 +214,14 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
       // Check if fake wallet was activated (duress PIN)
       final fakeWalletState = ref.read(fakeWalletProvider);
       if (fakeWalletState.isActive && fakeWalletState.isDuressMode) {
-        print('🎭 Fake wallet activated - showing decoy dashboard');
+        debugPrint('🎭 Fake wallet activated - showing decoy dashboard');
         HapticFeedback.mediumImpact();
         
         // Navigate to fake dashboard
         try {
           context.go('/fake-dashboard');
         } catch (navError) {
-          print('⚠️ Navigation error to fake dashboard: $navError');
+          debugPrint('⚠️ Navigation error to fake dashboard: $navError');
         }
       } else {
         // Regular invalid PIN

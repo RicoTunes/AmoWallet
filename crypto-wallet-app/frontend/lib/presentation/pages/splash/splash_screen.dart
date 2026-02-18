@@ -66,7 +66,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     // Check if duress mode is permanently active - if so always show fake dashboard
     final fakeWalletState = ref.read(fakeWalletProvider);
     if (fakeWalletState.isActive && fakeWalletState.isDuressMode) {
-      print('🎭 Duress mode active - redirecting to fake dashboard');
+      debugPrint('🎭 Duress mode active - redirecting to fake dashboard');
       if (mounted) context.go('/fake-dashboard');
       return;
     }

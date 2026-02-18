@@ -435,7 +435,7 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
         }
       } catch (e) {
         // Biometric failed (UIUnavailable error, etc.) - fall back to PIN
-        print('Biometric auth failed: $e - falling back to PIN');
+        debugPrint('Biometric auth failed: $e - falling back to PIN');
         authenticated = false;
       }
 

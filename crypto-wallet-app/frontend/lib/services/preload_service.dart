@@ -38,7 +38,7 @@ class PreloadService {
     _isPreloading = true;
     
     try {
-      print('🔄 Preloading swap data in background...');
+      debugPrint('🔄 Preloading swap data in background...');
       
       // Run all preloads in parallel for speed
       await Future.wait([
@@ -49,9 +49,9 @@ class PreloadService {
       ], eagerError: false);
       
       _lastPreloadTime = DateTime.now();
-      print('✅ Swap data preloaded successfully');
+      debugPrint('✅ Swap data preloaded successfully');
     } catch (e) {
-      print('⚠️ Preload partially failed: $e');
+      debugPrint('⚠️ Preload partially failed: $e');
     } finally {
       _isPreloading = false;
     }
@@ -63,9 +63,9 @@ class PreloadService {
         'BTC', 'ETH', 'BNB', 'USDT', 'USDC', 'MATIC', 'TRX', 'SOL', 'XRP', 'DOGE', 'LTC'
       ]).timeout(const Duration(seconds: 5));
       _cachedPrices = prices;
-      print('  ✅ Prices preloaded');
+      debugPrint('  ✅ Prices preloaded');
     } catch (e) {
-      print('  ⚠️ Price preload failed: $e');
+      debugPrint('  ⚠️ Price preload failed: $e');
     }
   }
 
@@ -74,9 +74,9 @@ class PreloadService {
       final providers = await _swapService.getProviders()
           .timeout(const Duration(seconds: 5));
       _cachedProviders = providers;
-      print('  ✅ Providers preloaded: ${providers.length}');
+      debugPrint('  ✅ Providers preloaded: ${providers.length}');
     } catch (e) {
-      print('  ⚠️ Provider preload failed: $e');
+      debugPrint('  ⚠️ Provider preload failed: $e');
     }
   }
 
@@ -85,9 +85,9 @@ class PreloadService {
       final balances = await _walletService.getBalances()
           .timeout(const Duration(seconds: 5));
       _cachedBalances = balances;
-      print('  ✅ Balances preloaded');
+      debugPrint('  ✅ Balances preloaded');
     } catch (e) {
-      print('  ⚠️ Balance preload failed: $e');
+      debugPrint('  ⚠️ Balance preload failed: $e');
     }
   }
 
@@ -96,9 +96,9 @@ class PreloadService {
       final rates = await _swapService.getExchangeRates()
           .timeout(const Duration(seconds: 5));
       _cachedExchangeRates = rates;
-      print('  ✅ Exchange rates preloaded');
+      debugPrint('  ✅ Exchange rates preloaded');
     } catch (e) {
-      print('  ⚠️ Exchange rates preload failed: $e');
+      debugPrint('  ⚠️ Exchange rates preload failed: $e');
     }
   }
 

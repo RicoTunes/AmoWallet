@@ -9,7 +9,6 @@ import '../../../core/providers/fake_wallet_provider.dart';
 import '../../../services/wallet_service.dart';
 import '../../../services/transaction_service.dart';
 import '../../../services/blockchain_service.dart';
-import '../../../services/biometric_auth_service.dart';
 import '../../../services/pin_auth_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/confirmation_tracker_service.dart';
@@ -127,7 +126,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
   Future<void> _loadAllBalancesOnce() async {
     try {
       final allBalances = await _walletService.getBalances();
-      print('📊 Send page loaded all balances: $allBalances');
+      debugPrint('📊 Send page loaded all balances: $allBalances');
       for (final coin in _coins) {
         // For USDT variants, look up by their exact key
         final balance = allBalances[coin.symbol] ?? 0.0;
@@ -144,10 +143,10 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
         final addresses = await _walletService.getStoredAddresses(_selectedCoin);
         if (addresses.isNotEmpty && mounted) {
           setState(() => _myAddress = addresses.first);
-          print('📬 Send page: my address = $_myAddress');
+          debugPrint('📬 Send page: my address = $_myAddress');
         }
       } catch (e) {
-        print('⚠️ Could not load address: $e');
+        debugPrint('⚠️ Could not load address: $e');
       }
 
       // Update the currently displayed coin
@@ -161,7 +160,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
       _loadCryptoPrice();
       _calculateAndCacheRealFee();
     } catch (e) {
-      print('❌ Error loading all balances: $e');
+      debugPrint('❌ Error loading all balances: $e');
       if (mounted) {
         setState(() {
           _availableBalance = 0.0;
@@ -279,9 +278,9 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
         _balanceLoaded = true;
       });
       
-      print('📊 Send page loaded balance for $_selectedCoin: $balance');
+      debugPrint('📊 Send page loaded balance for $_selectedCoin: $balance');
     } catch (e) {
-      print('❌ Error loading balance: $e');
+      debugPrint('❌ Error loading balance: $e');
       final fee = await _calculateRealFee();
       setState(() {
         _availableBalance = 0.0;
@@ -444,7 +443,6 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
     setState(() {
       _showPinEntry = true;
       _enteredPin = '';
-      _pinVerified = false;
       _showSlideToSend = false;
     });
   }
@@ -475,14 +473,13 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
     if (isValid) {
       HapticFeedback.mediumImpact();
       setState(() {
-        _pinVerified = true;
         _showSlideToSend = true;
       });
     } else {
       // Check if fake wallet was activated (duress PIN)
       final fakeWalletState = ref.read(fakeWalletProvider);
       if (fakeWalletState.isActive && fakeWalletState.isDuressMode) {
-        print('🎭 Fake wallet activated - showing decoy send page');
+        debugPrint('🎭 Fake wallet activated - showing decoy send page');
         HapticFeedback.mediumImpact();
         
         // Navigate to fake send page
@@ -1725,7 +1722,6 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                       setState(() {
                         _showPinEntry = false;
                         _enteredPin = '';
-                        _pinVerified = false;
                         _showSlideToSend = false;
                       });
                     },

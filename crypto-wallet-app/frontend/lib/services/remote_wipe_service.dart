@@ -59,9 +59,9 @@ class RemoteWipeService {
       }
 
       _isInitialized = true;
-      print('✅ Remote wipe service initialized');
+      debugPrint('✅ Remote wipe service initialized');
     } catch (e) {
-      print('❌ Remote wipe service initialization failed: $e');
+      debugPrint('❌ Remote wipe service initialization failed: $e');
     }
   }
 
@@ -96,13 +96,13 @@ class RemoteWipeService {
   /// Enable remote wipe functionality
   Future<void> enableRemoteWipe() async {
     await _secureStorage.write(key: _wipeEnabledKey, value: 'true');
-    print('✅ Remote wipe enabled');
+    debugPrint('✅ Remote wipe enabled');
   }
 
   /// Disable remote wipe functionality
   Future<void> disableRemoteWipe() async {
     await _secureStorage.write(key: _wipeEnabledKey, value: 'false');
-    print('⚠️ Remote wipe disabled');
+    debugPrint('⚠️ Remote wipe disabled');
   }
 
   /// Check if remote wipe is enabled
@@ -125,10 +125,10 @@ class RemoteWipeService {
       await _secureStorage.write(key: _duressPinSaltKey, value: salt);
       await _secureStorage.write(key: _duressPinKey, value: hash.toString());
 
-      print('✅ Duress PIN configured');
+      debugPrint('✅ Duress PIN configured');
       return true;
     } catch (e) {
-      print('❌ Failed to set duress PIN: $e');
+      debugPrint('❌ Failed to set duress PIN: $e');
       return false;
     }
   }
@@ -168,20 +168,20 @@ class RemoteWipeService {
 
       if (action == 'remote_wipe' && token != null) {
         if (await verifyWipeToken(token)) {
-          print('🚨 Remote wipe command received - executing...');
+          debugPrint('🚨 Remote wipe command received - executing...');
           await executeWipe(WipeReason.remoteCommand);
         } else {
-          print('⚠️ Invalid wipe token received');
+          debugPrint('⚠️ Invalid wipe token received');
         }
       }
     } catch (e) {
-      print('❌ Error handling push notification: $e');
+      debugPrint('❌ Error handling push notification: $e');
     }
   }
 
   /// Execute wallet wipe - DESTROYS ALL DATA
   Future<WipeResult> executeWipe(WipeReason reason) async {
-    print('🚨 EXECUTING WALLET WIPE - Reason: ${reason.name}');
+    debugPrint('🚨 EXECUTING WALLET WIPE - Reason: ${reason.name}');
     
     final errors = <String>[];
 
@@ -189,7 +189,7 @@ class RemoteWipeService {
       // 1. Wipe HSM-protected data
       try {
         await _hsmService.wipeAllData();
-        print('✅ HSM data wiped');
+        debugPrint('✅ HSM data wiped');
       } catch (e) {
         errors.add('HSM wipe failed: $e');
       }
@@ -197,7 +197,7 @@ class RemoteWipeService {
       // 2. Wipe secure storage
       try {
         await _secureStorage.deleteAll();
-        print('✅ Secure storage wiped');
+        debugPrint('✅ Secure storage wiped');
       } catch (e) {
         errors.add('Secure storage wipe failed: $e');
       }
@@ -206,7 +206,7 @@ class RemoteWipeService {
       try {
         final prefs = await SharedPreferences.getInstance();
         await prefs.clear();
-        print('✅ Shared preferences wiped');
+        debugPrint('✅ Shared preferences wiped');
       } catch (e) {
         errors.add('SharedPreferences wipe failed: $e');
       }
@@ -217,14 +217,14 @@ class RemoteWipeService {
       _deviceId = null;
 
       if (errors.isEmpty) {
-        print('✅ WALLET WIPE COMPLETE - All data destroyed');
+        debugPrint('✅ WALLET WIPE COMPLETE - All data destroyed');
         return WipeResult(
           success: true,
           reason: reason,
           timestamp: DateTime.now(),
         );
       } else {
-        print('⚠️ WALLET WIPE PARTIAL - Some errors: $errors');
+        debugPrint('⚠️ WALLET WIPE PARTIAL - Some errors: $errors');
         return WipeResult(
           success: false,
           reason: reason,
@@ -233,7 +233,7 @@ class RemoteWipeService {
         );
       }
     } catch (e) {
-      print('❌ WALLET WIPE FAILED: $e');
+      debugPrint('❌ WALLET WIPE FAILED: $e');
       return WipeResult(
         success: false,
         reason: reason,
@@ -275,7 +275,7 @@ class RemoteWipeService {
 
       return false;
     } catch (e) {
-      print('⚠️ Failed to check for pending wipe: $e');
+      debugPrint('⚠️ Failed to check for pending wipe: $e');
       return false;
     }
   }
@@ -310,10 +310,10 @@ class RemoteWipeService {
       // );
       // return response.statusCode == 200;
 
-      print('✅ Device registered for remote wipe (mock)');
+      debugPrint('✅ Device registered for remote wipe (mock)');
       return true;
     } catch (e) {
-      print('❌ Failed to register for remote wipe: $e');
+      debugPrint('❌ Failed to register for remote wipe: $e');
       return false;
     }
   }

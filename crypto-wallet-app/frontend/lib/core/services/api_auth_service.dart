@@ -82,7 +82,7 @@ class ApiAuthService {
       }
       return null;
     } catch (e) {
-      print('Error generating API key: $e');
+      debugPrint('Error generating API key: $e');
       return null;
     }
   }

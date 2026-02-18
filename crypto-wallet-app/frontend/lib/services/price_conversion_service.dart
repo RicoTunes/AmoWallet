@@ -37,7 +37,7 @@ class PriceConversionService {
 
       final coinId = _coinGeckoIds[symbol];
       if (coinId == null) {
-        print('Unknown coin symbol: $symbol');
+        debugPrint('Unknown coin symbol: $symbol');
         return 0.0;
       }
 
@@ -56,7 +56,7 @@ class PriceConversionService {
       
       return price;
     } catch (e) {
-      print('Error fetching USD price for $symbol: $e');
+      debugPrint('Error fetching USD price for $symbol: $e');
       // Return cached price if available
       if (_priceCache.containsKey(symbol)) {
         return _priceCache[symbol]!.data;
@@ -102,7 +102,7 @@ class PriceConversionService {
         }
       }
     } catch (e) {
-      print('Error fetching batch USD prices: $e');
+      debugPrint('Error fetching batch USD prices: $e');
       // Return cached prices if available
       for (final symbol in symbols) {
         if (_priceCache.containsKey(symbol)) {
@@ -120,7 +120,7 @@ class PriceConversionService {
       final usdPrice = await getUSDPrice(symbol);
       return amount * usdPrice;
     } catch (e) {
-      print('Error converting $symbol to USD: $e');
+      debugPrint('Error converting $symbol to USD: $e');
       return 0.0;
     }
   }

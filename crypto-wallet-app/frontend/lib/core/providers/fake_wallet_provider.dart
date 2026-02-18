@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -39,10 +40,10 @@ class FakeWalletNotifier extends StateNotifier<FakeWalletState> {
       final isActive = prefs.getBool(_kDuressModeActiveKey) ?? false;
       if (isActive) {
         state = state.copyWith(isActive: true, isDuressMode: true);
-        print('🎭 Duress mode restored from persistent storage');
+        debugPrint('🎭 Duress mode restored from persistent storage');
       }
     } catch (e) {
-      print('⚠️ Failed to restore duress state: $e');
+      debugPrint('⚠️ Failed to restore duress state: $e');
     }
   }
 
@@ -52,9 +53,9 @@ class FakeWalletNotifier extends StateNotifier<FakeWalletState> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_kDuressModeActiveKey, true);
-      print('🎭 Duress mode PERSISTENTLY activated');
+      debugPrint('🎭 Duress mode PERSISTENTLY activated');
     } catch (e) {
-      print('⚠️ Failed to persist duress activation: $e');
+      debugPrint('⚠️ Failed to persist duress activation: $e');
     }
     state = state.copyWith(isActive: true, isDuressMode: true);
   }
@@ -66,7 +67,7 @@ class FakeWalletNotifier extends StateNotifier<FakeWalletState> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_kDuressModeActiveKey);
     } catch (e) {
-      print('⚠️ Failed to clear duress state: $e');
+      debugPrint('⚠️ Failed to clear duress state: $e');
     }
     state = state.copyWith(isActive: false, isDuressMode: false);
   }
