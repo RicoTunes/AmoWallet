@@ -12,6 +12,8 @@ import '../../../services/blockchain_service.dart';
 import '../../../services/pin_auth_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/confirmation_tracker_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 import '../../../services/qr_scanner_service.dart';
 import '../../../services/price_service.dart';
 import '../wallet/fake_send_page.dart';
@@ -121,16 +123,55 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
     _loadAllBalancesOnce();
   }
 
-  /// Load ALL coin balances in a single getBalances() call and cache them all.
-  /// This ensures ETH (and all other coins) are always consistent with the dashboard.
+  /// Load ALL coin balances — first show cached values instantly, then
+  /// refresh from the network in background. Uses the same SharedPreferences
+  /// cache that the dashboard writes to.
   Future<void> _loadAllBalancesOnce() async {
+    // ── Step 1: Show cached balances immediately ──────────────────────────
     try {
-      final allBalances = await _walletService.getBalances();
-      debugPrint('📊 Send page loaded all balances: $allBalances');
-      for (final coin in _coins) {
-        // For USDT variants, look up by their exact key
-        final balance = allBalances[coin.symbol] ?? 0.0;
-        _cachedBalances[coin.symbol] = balance;
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('dashboard_cached_balances');
+      if (raw != null && raw.isNotEmpty) {
+        final Map<String, dynamic> decoded = jsonDecode(raw);
+        final cached = decoded.map((k, v) => MapEntry(k, (v as num).toDouble()));
+        if (cached.isNotEmpty) {
+          for (final coin in _coins) {
+            final b = cached[coin.symbol];
+            if (b != null) _cachedBalances[coin.symbol] = b;
+          }
+          if (mounted) {
+            setState(() {
+              _availableBalance = _cachedBalances[_selectedCoin] ?? 0.0;
+              _balanceLoaded = true;
+            });
+          }
+          debugPrint('⚡ Send page: showing ${cached.length} cached balances instantly');
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Send page cache read error: $e');
+    }
+
+    // ── Step 2: Refresh from network in background ─────────────────────────
+    try {
+      final allBalances = await _walletService.getBalances().timeout(
+        const Duration(seconds: 20),
+        onTimeout: () {
+          debugPrint('⏱️ Send page balance fetch timeout - keeping cached values');
+          return <String, double>{};
+        },
+      );
+      if (allBalances.isNotEmpty) {
+        debugPrint('📊 Send page live balances: $allBalances');
+        for (final coin in _coins) {
+          final balance = allBalances[coin.symbol];
+          if (balance != null) _cachedBalances[coin.symbol] = balance;
+        }
+        // Persist updated balances for next open
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('dashboard_cached_balances', jsonEncode(_cachedBalances));
+        } catch (_) {}
       }
       // Also populate fees for all coins
       for (final coin in _coins) {
@@ -143,31 +184,29 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
         final addresses = await _walletService.getStoredAddresses(_selectedCoin);
         if (addresses.isNotEmpty && mounted) {
           setState(() => _myAddress = addresses.first);
-          debugPrint('📬 Send page: my address = $_myAddress');
         }
       } catch (e) {
         debugPrint('⚠️ Could not load address: $e');
       }
-
-      // Update the currently displayed coin
+      // Update displayed balance with fresh value
       if (mounted) {
         setState(() {
           _availableBalance = _cachedBalances[_selectedCoin] ?? 0.0;
           _balanceLoaded = true;
         });
       }
-      // Now calculate real fees in background
-      _loadCryptoPrice();
-      _calculateAndCacheRealFee();
     } catch (e) {
-      debugPrint('❌ Error loading all balances: $e');
-      if (mounted) {
+      debugPrint('❌ Error loading live balances: $e');
+      if (mounted && !_balanceLoaded) {
         setState(() {
-          _availableBalance = 0.0;
+          _availableBalance = _cachedBalances[_selectedCoin] ?? 0.0;
           _balanceLoaded = true;
         });
       }
     }
+    // Fees and price in background
+    _loadCryptoPrice();
+    _calculateAndCacheRealFee();
   }
 
   Future<void> _calculateAndCacheRealFee() async {
