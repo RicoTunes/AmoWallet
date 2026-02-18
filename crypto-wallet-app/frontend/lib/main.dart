@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 import 'services/confirmation_tracker_service.dart';
+import 'services/notification_service.dart';
+import 'services/incoming_tx_watcher_service.dart';
 import 'services/anti_debug_service.dart';
 import 'services/hsm_security_service.dart';
 import 'services/remote_wipe_service.dart';
@@ -72,6 +74,12 @@ void main() async {
   // Start background services
   final confirmationTracker = ConfirmationTrackerService();
   confirmationTracker.startTracking();
+
+  // Initialise notification service (loads persisted notifications)
+  await NotificationService().initialize();
+
+  // Start incoming-tx watcher (polls blockchain APIs)
+  IncomingTxWatcherService().start();
 
   runApp(
     const ProviderScope(

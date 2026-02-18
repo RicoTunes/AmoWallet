@@ -91,20 +91,20 @@ class PriceService {
     // Apply rate limiting
     await _enforceRateLimit(symbol);
 
-    // On web: use backend proxy only when running locally (localhost).
-    // The remote Railway backend doesn't have /api/prices yet.
-    // For remote/production, go straight to CoinCap (free, CORS-friendly).
+    // On web: CryptoCompare works reliably (CORS-friendly, no DNS issues).
+    // Backend proxy used when on localhost. CoinCap & CoinGecko as last resorts.
     final isLocalBackend = ApiConfig.baseUrl.contains('localhost');
     final apis = kIsWeb
         ? [
             if (isLocalBackend) () => _getPriceFromBackendProxy(symbol),
-            () => _getPriceFromCoinCap(symbol),
             () => _getPriceFromCryptoCompare(symbol),
+            () => _getPriceFromCoinCap(symbol),
+            () => _getPriceFromCoinGecko(symbol),
           ]
         : [
             () => _getPriceFromCoinGecko(symbol),
-            () => _getPriceFromCoinCap(symbol),
             () => _getPriceFromCryptoCompare(symbol),
+            () => _getPriceFromCoinCap(symbol),
           ];
 
     for (int i = 0; i < apis.length; i++) {
@@ -141,7 +141,8 @@ class PriceService {
   Future<Map<String, Map<String, dynamic>>> getPrices(List<String> symbols) async {
     final results = <String, Map<String, dynamic>>{};
     
-    // On web: backend proxy only for localhost; CoinCap for remote/production.
+    // On web: CryptoCompare batch first (reliable CORS + DNS), then CoinCap.
+    // Backend proxy used when on localhost.
     // On non-web: CoinGecko batch.
     final isLocalBackend = ApiConfig.baseUrl.contains('localhost');
     if (kIsWeb) {
@@ -153,18 +154,28 @@ class PriceService {
             return prices;
           }
         } catch (e) {
-          print('❌ Backend proxy batch failed, trying CoinCap: $e');
+          print('❌ Backend proxy batch failed: $e');
         }
       }
-      // CoinCap — free, no key, CORS-friendly for all environments
+      // CryptoCompare batch — supports multiple symbols, reliable CORS
       try {
-        final prices = await _getBatchPricesFromCoinCap(symbols);
+        final prices = await _getBatchPricesFromCryptoCompare(symbols);
         if (prices.isNotEmpty) {
-          print('✅ Fetched ${prices.length} prices from CoinCap');
+          print('✅ Fetched ${prices.length} prices from CryptoCompare');
           return prices;
         }
       } catch (e) {
-        print('❌ CoinCap batch failed: $e');
+        print('❌ CryptoCompare batch failed: $e');
+        // Try CoinCap as secondary
+        try {
+          final prices = await _getBatchPricesFromCoinCap(symbols);
+          if (prices.isNotEmpty) {
+            print('✅ Fetched ${prices.length} prices from CoinCap');
+            return prices;
+          }
+        } catch (e2) {
+          print('❌ CoinCap batch failed: $e2');
+        }
       }
     } else {
       try {
@@ -456,7 +467,34 @@ class PriceService {
     throw Exception('Invalid response from CoinMarketCap');
   }
 
-  /// CryptoCompare API (Fallback 3)
+  /// CryptoCompare batch — one call for all symbols
+  Future<Map<String, Map<String, dynamic>>> _getBatchPricesFromCryptoCompare(
+      List<String> symbols) async {
+    final fsyms = symbols.join(',');
+    final response = await _dio.get(
+      'https://min-api.cryptocompare.com/data/pricemultifull',
+      queryParameters: {'fsyms': fsyms, 'tsyms': 'USD'},
+    );
+    final results = <String, Map<String, dynamic>>{};
+    if (response.statusCode == 200 && response.data?['RAW'] != null) {
+      final raw = response.data['RAW'] as Map<String, dynamic>;
+      for (final sym in symbols) {
+        final data = raw[sym]?['USD'];
+        if (data != null) {
+          results[sym] = {
+            'price': (data['PRICE'] as num?)?.toDouble() ?? 0.0,
+            'change24h': (data['CHANGEPCT24HOUR'] as num?)?.toDouble() ?? 0.0,
+            'lastUpdated': DateTime.fromMillisecondsSinceEpoch(
+              ((data['LASTUPDATE'] as int?) ?? 0) * 1000),
+            'source': 'CryptoCompare',
+          };
+        }
+      }
+    }
+    return results;
+  }
+
+  /// CryptoCompare API (single symbol)
   Future<Map<String, dynamic>> _getPriceFromCryptoCompare(String symbol) async {
     final response = await _dio.get(
       'https://min-api.cryptocompare.com/data/pricemultifull',

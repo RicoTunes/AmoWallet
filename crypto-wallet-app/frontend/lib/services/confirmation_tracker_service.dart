@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logger/logger.dart';
 import 'dart:convert';
 import 'blockchain_service.dart';
@@ -13,7 +13,6 @@ class ConfirmationTrackerService {
   ConfirmationTrackerService._internal();
 
   final Logger _logger = Logger();
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
   final BlockchainService _blockchainService = BlockchainService();
   final NotificationService _notificationService = NotificationService();
 
@@ -144,25 +143,28 @@ class ConfirmationTrackerService {
           // If the tx has now at least 1 confirmation, update local stored transaction record
           if (confirmations > 0) {
             try {
-              // Find matching local stored transaction by txHash and update its status/confirmations
-              final dynamic rawStored = await _storage.readAll();
-              final allStored = rawStored is Map ? Map<String, String>.from(rawStored.map((k, v) => MapEntry(k.toString(), v.toString()))) : <String, String>{};
-              for (final entry in allStored.entries) {
-                final key = entry.key;
-                if (!key.startsWith('transaction_')) continue;
+              final prefs = await SharedPreferences.getInstance();
+              final keys = prefs.getKeys().where((k) => k.startsWith('tx_'));
+              for (final key in keys) {
+                final raw = prefs.getString(key);
+                if (raw == null) continue;
                 try {
-                  final Map<String, dynamic> jsonData = json.decode(entry.value);
+                  final Map<String, dynamic> jsonData =
+                      json.decode(raw) as Map<String, dynamic>;
                   if (jsonData['txHash'] == txHash) {
                     jsonData['confirmations'] = confirmations;
                     jsonData['status'] = 'completed';
                     jsonData['isPending'] = false;
-                    await _storage.write(key: key, value: json.encode(jsonData));
-                    _logger.i('Updated local stored transaction $key as confirmed ($confirmations)');
+                    await prefs.setString(key, json.encode(jsonData));
+                    _logger.i(
+                        'Updated local stored transaction $key as confirmed ($confirmations)');
                   }
                 } catch (e) {
                   // ignore parse errors for unrelated keys
                 }
               }
+              // Also update notification centre status
+              await _notificationService.updateTxStatus(txHash, TxStatus.confirmed);
             } catch (e) {
               _logger.w('Failed to update local stored transaction for $txHash: $e');
             }
@@ -264,33 +266,37 @@ class ConfirmationTrackerService {
   }) async {
     String title;
     String message;
-    String status;
 
     if (threshold == THRESHOLD_LOW) {
-      title = '✓ Transaction Confirmed';
-      message = '${type == 'send' ? 'Sent' : 'Received'} ${amount.toStringAsFixed(8)} $coin\n1+ confirmation';
-      status = 'confirmed';
+      final direction = type == 'send' ? 'Sent' : 'Received';
+      title = '✓ $direction $coin Confirmed';
+      message = '${amount.toStringAsFixed(8)} $coin — 1+ confirmation';
     } else if (threshold == THRESHOLD_MEDIUM) {
-      title = '✓✓ Transaction Secure';
-      message = '${type == 'send' ? 'Sent' : 'Received'} ${amount.toStringAsFixed(8)} $coin\n6+ confirmations (Standard)';
-      status = 'secure';
+      title = '✓✓ $coin Transaction Secure';
+      message = '${amount.toStringAsFixed(8)} $coin — 6+ confirmations (Standard)';
     } else {
-      title = '✓✓✓ Transaction Finalized';
-      message = '${type == 'send' ? 'Sent' : 'Received'} ${amount.toStringAsFixed(8)} $coin\n12+ confirmations (High Security)';
-      status = 'finalized';
+      title = '✓✓✓ $coin Transaction Finalized';
+      message = '${amount.toStringAsFixed(8)} $coin — 12+ confirmations (High Security)';
     }
 
+    // Update existing notification's displayed status
+    await _notificationService.updateTxStatus(txHash, TxStatus.confirmed);
+
+    // Push a new "confirmed" notification so badge increments
     await _notificationService.showNotification(
       title: title,
       message: message,
       type: NotificationType.confirmed,
+      txHash: txHash,
+      coin: coin,
+      amount: amount.toStringAsFixed(8),
+      txStatus: TxStatus.confirmed,
       data: {
         'type': 'confirmation',
         'txHash': txHash,
         'confirmations': confirmations.toString(),
         'coin': coin,
         'amount': amount.toString(),
-        'status': status,
       },
     );
   }
@@ -298,10 +304,10 @@ class ConfirmationTrackerService {
   /// Get list of pending transactions
   Future<List<Map<String, dynamic>>> _getPendingTransactions() async {
     try {
-      final data = await _storage.read(key: PENDING_TX_KEY);
+      final prefs = await SharedPreferences.getInstance();
+      final data = prefs.getString(PENDING_TX_KEY);
       if (data == null) return [];
-      
-      final List<dynamic> list = json.decode(data);
+      final List<dynamic> list = json.decode(data) as List<dynamic>;
       return list.cast<Map<String, dynamic>>();
     } catch (e) {
       _logger.e('Error reading pending transactions: $e');
@@ -312,7 +318,8 @@ class ConfirmationTrackerService {
   /// Save list of pending transactions
   Future<void> _savePendingTransactions(List<Map<String, dynamic>> transactions) async {
     try {
-      await _storage.write(key: PENDING_TX_KEY, value: json.encode(transactions));
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(PENDING_TX_KEY, json.encode(transactions));
     } catch (e) {
       _logger.e('Error saving pending transactions: $e');
     }
@@ -342,7 +349,8 @@ class ConfirmationTrackerService {
 
   /// Clear all pending transactions
   Future<void> clearAllTracking() async {
-    await _storage.delete(key: PENDING_TX_KEY);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(PENDING_TX_KEY);
     _logger.i('Cleared all pending transaction tracking');
   }
 
