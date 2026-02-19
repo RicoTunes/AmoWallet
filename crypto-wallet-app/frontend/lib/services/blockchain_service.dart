@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/config/api_config.dart';
 
@@ -1160,10 +1161,26 @@ class BlockchainService {
       print('💰 Amount: $amount $coin');
       print('⛽ Fee: $fee $coin');
 
-      // Get the private key from secure storage
-      final storage = const FlutterSecureStorage();
-      final privateKey =
-          await storage.read(key: '${coin}_${fromAddress}_private');
+      // Get the private key — check both FlutterSecureStorage and SharedPreferences
+      // (wallet_service uses SecureStorage with SharedPreferences fallback, so we check both)
+      String? privateKey;
+      final storageKey = '${coin}_${fromAddress}_private';
+      if (kIsWeb) {
+        final prefs = await SharedPreferences.getInstance();
+        privateKey = prefs.getString(storageKey);
+      } else {
+        try {
+          final storage = const FlutterSecureStorage(
+            aOptions: AndroidOptions(encryptedSharedPreferences: true),
+          );
+          privateKey = await storage.read(key: storageKey);
+        } catch (_) {}
+        // Fallback to SharedPreferences if secure storage returned null
+        if (privateKey == null || privateKey.isEmpty) {
+          final prefs = await SharedPreferences.getInstance();
+          privateKey = prefs.getString(storageKey);
+        }
+      }
 
       if (privateKey == null || privateKey.isEmpty) {
         throw Exception(
