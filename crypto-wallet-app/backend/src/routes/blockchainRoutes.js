@@ -75,7 +75,9 @@ router.use(helmet({
 // Blockchain API endpoints with real credentials
 const blockchainApis = {
   'BTC': 'https://blockstream.info/api',
-  'ETH': process.env.ETHEREUM_RPC_URL + process.env.INFURA_PROJECT_ID,
+  'ETH': process.env.INFURA_PROJECT_ID
+    ? `https://mainnet.infura.io/v3/${process.env.INFURA_PROJECT_ID}`
+    : 'https://eth.llamarpc.com',
   'BNB': 'https://bsc-dataseed1.binance.org',
   'LTC': 'https://api.blockcypher.com/v1/ltc/main',
   'DOGE': 'https://api.blockcypher.com/v1/doge/main',
@@ -803,28 +805,25 @@ async function getBitcoinBalance(address) {
 
 async function getEthereumBalance(address) {
   try {
-    // First try using Infura provider directly
-    if (process.env.INFURA_PROJECT_ID) {
-      const provider = providers.ethereum;
-      const balance = await provider.getBalance(address);
-      return parseFloat(ethers.formatEther(balance));
+    // Use provider — falls back to https://eth.llamarpc.com when Infura not configured
+    const provider = providers.ethereum;
+    const balance = await provider.getBalance(address);
+    return parseFloat(ethers.formatEther(balance));
+  } catch (providerError) {
+    console.error('ETH provider error, trying Etherscan:', providerError.message);
+    // Fallback to Etherscan only if API key is explicitly configured
+    if (process.env.ETHERSCAN_API_KEY) {
+      try {
+        const response = await axios.get(
+          `https://api.etherscan.io/api?module=account&action=balance&address=${address}&tag=latest&apikey=${process.env.ETHERSCAN_API_KEY}`
+        );
+        if (response.data.status === '1') {
+          return Number(BigInt(response.data.result)) / 1e18;
+        }
+      } catch (e) {
+        console.error('Etherscan fallback error:', e.message);
+      }
     }
-
-    // Fallback to Etherscan API
-    const apiKey = process.env.ETHERSCAN_API_KEY || 'YourApiKeyToken';
-    const response = await axios.get(
-      `https://api.etherscan.io/api?module=account&action=balance&address=${address}&tag=latest&apikey=${apiKey}`
-    );
-    const data = response.data;
-    
-    if (data.status === '1') {
-      const balanceWei = BigInt(data.result);
-      return Number(balanceWei) / 1e18; // Convert wei to ETH
-    }
-    
-    throw new Error('Failed to get balance from Etherscan');
-  } catch (error) {
-    console.error('Ethereum balance error:', error.message);
     throw new Error('Failed to fetch Ethereum balance');
   }
 }

@@ -536,25 +536,37 @@ class BlockchainService {
 
   /// Get Tron balance
   Future<double> _getTronBalance(String address) async {
+    // Method 1: Use backend proxy (avoids CORS on web)
     try {
-      // Remove the 'T' prefix if present
-      final cleanAddress =
-          address.startsWith('T') ? address.substring(1) : address;
-
-      final response =
-          await _dio.get('${_publicApis['TRX']}/account?address=$cleanAddress');
-      final data = response.data;
-
-      if (data is Map && data.containsKey('balance')) {
-        final balanceSun = data['balance'];
-        final balanceTrx = balanceSun / 1000000; // Convert SUN to TRX
-        return balanceTrx.toDouble();
+      final backendResponse = await _dio.get(
+        '${ApiConfig.baseUrl}/api/blockchain/balance/TRX/$address',
+        options: Options(receiveTimeout: const Duration(seconds: 10)),
+      );
+      if (backendResponse.data != null &&
+          backendResponse.data['success'] == true) {
+        return double.parse(backendResponse.data['balance'].toString());
       }
+    } catch (e) {
+      debugPrint('⚠️ Backend TRX balance failed: $e');
+    }
 
+    // Method 2: Direct trongrid.io (mobile only — CORS blocked on web)
+    try {
+      final response = await _dio.get(
+        'https://api.trongrid.io/v1/accounts/$address',
+        options: Options(receiveTimeout: const Duration(seconds: 8)),
+      );
+      final data = response.data;
+      if (data is Map &&
+          data.containsKey('data') &&
+          (data['data'] as List).isNotEmpty) {
+        final accountData = (data['data'] as List).first;
+        final balanceSun = accountData['balance'] ?? 0;
+        return (balanceSun / 1000000).toDouble();
+      }
       return 0.0;
     } catch (e) {
-      print('Error fetching Tron balance: $e');
-      // Return 0 on error - only show real balances
+      debugPrint('Error fetching Tron balance: $e');
       return 0.0;
     }
   }
