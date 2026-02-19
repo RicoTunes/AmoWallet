@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb, compute;
 import 'package:pointycastle/digests/sha256.dart' as pc;
 import 'package:pointycastle/key_derivators/api.dart' show Pbkdf2Parameters;
 import 'package:pointycastle/key_derivators/pbkdf2.dart';
@@ -13,6 +13,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/biometric_auth_service.dart';
 import '../services/remote_wipe_service.dart';
 import '../core/providers/fake_wallet_provider.dart';
+
+/// Top-level PBKDF2 runner — must be top-level for compute() to spawn into a background isolate.
+/// Prevents ANR on Android (100,000 iterations would block the UI thread for ~5s).
+String _runPbkdf2(List<String> args) {
+  const int iterations = 100000;
+  const int keyLength = 32;
+  final pbkdf2 = PBKDF2KeyDerivator(HMac(pc.SHA256Digest(), 64));
+  final saltBytes = Uint8List.fromList(utf8.encode(args[1]));
+  pbkdf2.init(Pbkdf2Parameters(saltBytes, iterations, keyLength));
+  final derived = pbkdf2.process(Uint8List.fromList(utf8.encode(args[0])));
+  return 'v2:${base64Url.encode(derived)}';
+}
 
 class PinAuthService {
   // Configure Android options for better compatibility
@@ -40,14 +52,9 @@ class PinAuthService {
   static const String _hashVersion = 'v2'; // v1 = plain SHA-256 (legacy)
 
   /// Hash the PIN using PBKDF2-HMAC-SHA256 (100,000 iterations).
-  /// Output is prefixed with 'v2:' to distinguish from legacy SHA-256 hashes.
-  String _hashPinPBKDF2(String pin, String salt) {
-    final pbkdf2 = PBKDF2KeyDerivator(HMac(pc.SHA256Digest(), 64));
-    final saltBytes = Uint8List.fromList(utf8.encode(salt));
-    pbkdf2.init(Pbkdf2Parameters(saltBytes, _pbkdf2Iterations, _pbkdf2KeyLength));
-    final derived = pbkdf2.process(Uint8List.fromList(utf8.encode(pin)));
-    return '$_hashVersion:${base64Url.encode(derived)}';
-  }
+  /// Offloaded to a background isolate via compute() — prevents ANR on Android.
+  Future<String> _hashPinPBKDF2(String pin, String salt) =>
+      compute(_runPbkdf2, [pin, salt]);
 
   /// Legacy SHA-256 hash — used ONLY for migrating existing stored PINs.
   /// Do NOT use for new PINs.
@@ -132,7 +139,7 @@ class PinAuthService {
 
       // Generate salt and hash the PIN with PBKDF2
       final salt = _generateSalt();
-      final hashedPin = _hashPinPBKDF2(pin, salt);
+      final hashedPin = await _hashPinPBKDF2(pin, salt);
 
       // Store hash and salt separately
       await _writeSecure(_pinSaltKey, salt);
@@ -185,7 +192,7 @@ class PinAuthService {
       bool isValid;
       if (storedHash.startsWith('$_hashVersion:')) {
         // Current PBKDF2 path
-        final inputHash = _hashPinPBKDF2(pin, salt);
+        final inputHash = await _hashPinPBKDF2(pin, salt);
         isValid = storedHash == inputHash;
       } else {
         // Legacy SHA-256 path — auto-migrate on successful match
@@ -195,7 +202,7 @@ class PinAuthService {
           // Silently upgrade to PBKDF2 while user is logged in
           debugPrint('🔄 Migrating PIN from SHA-256 to PBKDF2...');
           final newSalt = _generateSalt();
-          final newHash = _hashPinPBKDF2(pin, newSalt);
+          final newHash = await _hashPinPBKDF2(pin, newSalt);
           await _writeSecure(_pinSaltKey, newSalt);
           await _writeSecure(_pinKey, newHash);
           debugPrint('✅ PIN migrated to PBKDF2 (100k iterations)');
