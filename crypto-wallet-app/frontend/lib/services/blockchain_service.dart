@@ -20,7 +20,7 @@ class BlockchainService {
     'LTC': 'https://api.blockcypher.com/v1/ltc/main',
     'DOGE': 'https://api.blockcypher.com/v1/doge/main',
     'TRX': 'https://apilist.tronscan.org/api',
-    'XRP': 'https://s1.ripple.com:51234',
+    'XRP': 'https://xrplcluster.com',
     'SOL': 'https://api.mainnet-beta.solana.com',
   };
 
@@ -639,24 +639,25 @@ class BlockchainService {
   Future<List<Map<String, dynamic>>> _getDogeTransactions(String address) async {
     try {
       final response = await _dio.get(
-        'https://dogechain.info/api/v1/address/transactions/$address',
+        'https://api.blockcypher.com/v1/doge/main/addrs/$address?limit=20',
       );
       
-      if (response.data['transactions'] != null) {
-        return (response.data['transactions'] as List).take(20).map((tx) {
-          final amount = (tx['value'] as num?)?.toDouble() ?? 0.0;
-          return {
-            'hash': tx['hash'] ?? '',
-            'amount': amount.abs(),
-            'timestamp': tx['time'] ?? 0,
-            'confirmations': tx['confirmations'] ?? 0,
-            'type': amount >= 0 ? 'received' : 'sent',
-            'fromAddress': '',
-            'toAddress': '',
-          };
-        }).toList();
-      }
-      return [];
+      final txrefs = <dynamic>[
+        ...((response.data['txrefs'] as List?) ?? []),
+        ...((response.data['unconfirmed_txrefs'] as List?) ?? []),
+      ];
+      return txrefs.map((tx) {
+        final amount = ((tx['value'] as num?) ?? 0) / 100000000;
+        return {
+          'hash': tx['tx_hash'] ?? '',
+          'amount': amount.abs(),
+          'timestamp': DateTime.tryParse(tx['confirmed'] ?? tx['received'] ?? '')?.millisecondsSinceEpoch ?? 0,
+          'confirmations': tx['confirmations'] ?? 0,
+          'type': tx['tx_input_n'] == -1 ? 'received' : 'sent',
+          'fromAddress': '',
+          'toAddress': '',
+        };
+      }).toList();
     } catch (e) {
       print('Error fetching Dogecoin transactions: $e');
       return [];
@@ -694,8 +695,9 @@ class BlockchainService {
   /// Get XRP transactions
   Future<List<Map<String, dynamic>>> _getXrpTransactions(String address) async {
     try {
+      // Use xrplcluster.com — CORS-enabled XRPL Foundation public cluster
       final response = await _dio.post(
-        _publicApis['XRP']!,
+        'https://xrplcluster.com',
         data: {
           'method': 'account_tx',
           'params': [
@@ -706,10 +708,15 @@ class BlockchainService {
       
       if (response.data['result']?['transactions'] != null) {
         return (response.data['result']['transactions'] as List).map((item) {
-          final tx = item['tx'];
-          final amount = ((tx['Amount'] as num?) ?? 0) / 1000000;
+          final tx = item['tx'] ?? item['tx_json'] ?? {};
+          final rawAmount = tx['Amount'];
+          final amount = rawAmount is num
+              ? rawAmount / 1000000
+              : double.tryParse(rawAmount?.toString() ?? '0') != null
+                  ? double.parse(rawAmount.toString()) / 1000000
+                  : 0.0;
           return {
-            'hash': tx['hash'] ?? '',
+            'hash': tx['hash'] ?? item['hash'] ?? '',
             'amount': amount.abs(),
             'timestamp': (tx['date'] ?? 0) + 946684800, // Ripple epoch
             'confirmations': 100,
