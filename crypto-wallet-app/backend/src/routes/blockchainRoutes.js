@@ -90,6 +90,29 @@ const blockchainApis = {
   'AVALANCHE': process.env.AVALANCHE_RPC_URL
 };
 
+// ETH RPC endpoints — tried in order until one works
+const ETH_RPC_URLS = [
+  process.env.INFURA_PROJECT_ID ? `https://mainnet.infura.io/v3/${process.env.INFURA_PROJECT_ID}` : null,
+  'https://eth.llamarpc.com',
+  'https://rpc.ankr.com/eth',
+  'https://cloudflare-eth.com',
+  'https://1rpc.io/eth',
+].filter(Boolean);
+
+// Get a working ETH provider (tries each RPC in order)
+async function getWorkingEthProvider() {
+  for (const url of ETH_RPC_URLS) {
+    try {
+      const p = new ethers.JsonRpcProvider(url);
+      await p.getBlockNumber(); // quick connectivity check
+      return p;
+    } catch (_) {
+      console.warn(`ETH RPC ${url} failed, trying next...`);
+    }
+  }
+  throw new Error('All ETH RPC endpoints failed');
+}
+
 // Lazy-loaded blockchain providers (created on first use to avoid startup errors)
 let _providers = null;
 const getProviders = () => {
@@ -262,8 +285,10 @@ router.post('/send', transactionLimiter, [
       });
     }
 
-    // Get appropriate provider
-    const provider = network === 'ETH' ? providers.ethereum : providers.bsc;
+    // Get appropriate provider — ETH uses multi-fallback, BNB uses fixed endpoint
+    const provider = network === 'ETH'
+      ? await getWorkingEthProvider()
+      : providers.bsc;
     
     // Create wallet from private key (ethers expects without 0x for some versions)
     const wallet = new ethers.Wallet(privateKey, provider);
@@ -413,7 +438,7 @@ router.post('/send', transactionLimiter, [
     res.status(500).json({
       success: false,
       error: errorMessage,
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      details: error.message  // Always include details so client can show meaningful error
     });
   }
 });

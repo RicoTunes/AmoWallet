@@ -1241,7 +1241,9 @@ class BlockchainService {
           print('🔗 Explorer: ${response.data['explorerUrl']}');
           return txHash;
         } else {
-          throw Exception(response.data['error'] ?? 'Transaction failed');
+          final errMsg = response.data['error'] ?? 'Transaction failed';
+          final details = response.data['details'];
+          throw Exception(details != null ? '$errMsg: $details' : errMsg);
         }
       }
       
