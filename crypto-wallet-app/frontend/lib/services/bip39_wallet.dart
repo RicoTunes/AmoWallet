@@ -315,8 +315,69 @@ class Bip39Wallet {
         'privateKey': '0x$privHex',
         'mnemonic': mnemonic,
       };
+    } else if (uc == 'LTC') {
+      final path = "m/44'/2'/0'/0/0";
+      final child = root.derivePath(path);
+      final priv = child.privateKey;
+      final pub = child.publicKey;
+      if (priv == null) throw Exception('Failed to derive LTC keys');
+
+      final sha256ltc = SHA256Digest().process(pub);
+      final ripemdLtc = RIPEMD160Digest().process(sha256ltc);
+      final payloadLtc = Uint8List(ripemdLtc.length + 1);
+      payloadLtc[0] = 0x30;
+      payloadLtc.setRange(1, payloadLtc.length, ripemdLtc);
+      final csLtc = SHA256Digest().process(SHA256Digest().process(payloadLtc)).sublist(0, 4);
+      final abLtc = Uint8List(payloadLtc.length + 4);
+      abLtc.setRange(0, payloadLtc.length, payloadLtc);
+      abLtc.setRange(payloadLtc.length, abLtc.length, csLtc);
+
+      return {'address': _base58Encode(abLtc), 'privateKey': bytesToHex(priv), 'mnemonic': mnemonic};
+    } else if (uc == 'XRP') {
+      final path = "m/44'/144'/0'/0/0";
+      final child = root.derivePath(path);
+      final priv = child.privateKey;
+      final pub = child.publicKey;
+      if (priv == null) throw Exception('Failed to derive XRP keys');
+
+      final sha256xrp = SHA256Digest().process(pub);
+      final ripemdXrp = RIPEMD160Digest().process(sha256xrp);
+      final payloadXrp = Uint8List(ripemdXrp.length + 1);
+      payloadXrp[0] = 0x00;
+      payloadXrp.setRange(1, payloadXrp.length, ripemdXrp);
+      final csXrp = SHA256Digest().process(SHA256Digest().process(payloadXrp)).sublist(0, 4);
+      final abXrp = Uint8List(payloadXrp.length + 4);
+      abXrp.setRange(0, payloadXrp.length, payloadXrp);
+      abXrp.setRange(payloadXrp.length, abXrp.length, csXrp);
+
+      return {'address': _base58Encode(abXrp), 'privateKey': bytesToHex(priv), 'mnemonic': mnemonic};
+    } else if (uc == 'DOGE') {
+      final path = "m/44'/3'/0'/0/0";
+      final child = root.derivePath(path);
+      final priv = child.privateKey;
+      final pub = child.publicKey;
+      if (priv == null) throw Exception('Failed to derive DOGE keys');
+
+      final sha256doge = SHA256Digest().process(pub);
+      final ripemdDoge = RIPEMD160Digest().process(sha256doge);
+      final payloadDoge = Uint8List(ripemdDoge.length + 1);
+      payloadDoge[0] = 0x1E;
+      payloadDoge.setRange(1, payloadDoge.length, ripemdDoge);
+      final csDoge = SHA256Digest().process(SHA256Digest().process(payloadDoge)).sublist(0, 4);
+      final abDoge = Uint8List(payloadDoge.length + 4);
+      abDoge.setRange(0, payloadDoge.length, payloadDoge);
+      abDoge.setRange(payloadDoge.length, abDoge.length, csDoge);
+
+      return {'address': _base58Encode(abDoge), 'privateKey': bytesToHex(priv), 'mnemonic': mnemonic};
+    } else if (uc == 'SOL') {
+      final path = "m/44'/501'/0'/0'";
+      final child = root.derivePath(path);
+      final priv = child.privateKey;
+      final pub = child.publicKey;
+      if (priv == null) throw Exception('Failed to derive SOL keys');
+
+      return {'address': _base58Encode(pub), 'privateKey': bytesToHex(priv), 'mnemonic': mnemonic};
     } else {
-      // For unsupported chains, throw an error
       throw Exception('Unsupported chain for wallet restore: $chain');
     }
   }

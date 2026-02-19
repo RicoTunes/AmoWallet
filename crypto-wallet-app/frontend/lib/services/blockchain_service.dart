@@ -255,117 +255,45 @@ class BlockchainService {
   /// Get Ethereum balance with robust multi-API fallback
   Future<double> _getEthereumBalance(String address) async {
     debugPrint('🔄 Fetching ETH balance for: $address');
-    
+
     // Format address properly (0x prefix, lowercase)
     final addr = _formatEthereumAddress(address);
     debugPrint('📍 Formatted address: $addr');
-    
-    // Method 1: Use backend proxy (Infura key stays server-side, never in APK)
+
+    // Method 1: Use backend proxy (Infura/llamarpc server-side — no CORS issues)
     try {
       final backendResponse = await _dio.get(
-        'https://amowallet-backend-production.up.railway.app/api/blockchain/balance/ETH/$addr',
+        '${ApiConfig.baseUrl}/api/blockchain/balance/ETH/$addr',
         options: Options(receiveTimeout: const Duration(seconds: 10)),
       );
-
-      debugPrint('📡 Infura response: ${backendResponse.statusCode} - ${backendResponse.data}');
-
+      debugPrint('📡 Backend ETH response: ${backendResponse.statusCode} - ${backendResponse.data}');
       if (backendResponse.data != null && backendResponse.data['success'] == true) {
-        final balance = (backendResponse.data['balance'] as num).toDouble();
-        debugPrint('✅ ETH balance from Infura: $balance');
+        final balance = double.parse(backendResponse.data['balance'].toString());
+        debugPrint('✅ ETH balance from backend: $balance');
         return balance;
       }
     } catch (e) {
       debugPrint('⚠️ Backend ETH balance failed: $e');
     }
 
-    // Method 2: Use Cloudflare Ethereum Gateway (fast, free)
-    try {
-      final cfResponse = await _dio.post(
-        'https://cloudflare-eth.com',
-        data: {
-          'jsonrpc': '2.0',
-          'method': 'eth_getBalance',
-          'params': [addr, 'latest'],
-          'id': 1,
-        },
-        options: Options(receiveTimeout: const Duration(seconds: 6)),
-      );
-
-      if (cfResponse.data != null && cfResponse.data['result'] != null) {
-        final hexBalance = cfResponse.data['result'] as String;
-        if (hexBalance.length > 2) {
-          final balanceWei = BigInt.parse(hexBalance.substring(2), radix: 16);
-          final balanceEth = balanceWei.toDouble() / 1e18;
-          print('✅ ETH balance from Cloudflare: $balanceEth');
-          return balanceEth;
-        }
-      }
-    } catch (e) {
-      print('⚠️ Cloudflare failed: $e');
-    }
-
-    // Method 3: Use Etherscan public API
+    // Method 2: Etherscan free tier (no API key needed for low volume)
     try {
       final response = await _dio.get(
         'https://api.etherscan.io/api?module=account&action=balance&address=$addr&tag=latest',
-        options: Options(receiveTimeout: const Duration(seconds: 6)),
+        options: Options(receiveTimeout: const Duration(seconds: 8)),
       );
       final data = response.data;
-
       if (data is Map && data['status'] == '1') {
         final balanceWei = BigInt.parse(data['result']);
         final balanceEth = balanceWei.toDouble() / 1e18;
-        print('✅ ETH balance from Etherscan: $balanceEth');
+        debugPrint('✅ ETH balance from Etherscan: $balanceEth');
         return balanceEth;
       }
     } catch (e) {
-      print('⚠️ Etherscan failed: $e');
+      debugPrint('⚠️ Etherscan failed: $e');
     }
 
-    // Method 4: Use Alchemy free tier
-    try {
-      final alchemyResponse = await _dio.post(
-        'https://eth-mainnet.g.alchemy.com/v2/demo',
-        data: {
-          'jsonrpc': '2.0',
-          'method': 'eth_getBalance',
-          'params': [addr, 'latest'],
-          'id': 1,
-        },
-        options: Options(receiveTimeout: const Duration(seconds: 6)),
-      );
-
-      if (alchemyResponse.data != null && alchemyResponse.data['result'] != null) {
-        final hexBalance = alchemyResponse.data['result'] as String;
-        if (hexBalance.length > 2) {
-          final balanceWei = BigInt.parse(hexBalance.substring(2), radix: 16);
-          final balanceEth = balanceWei.toDouble() / 1e18;
-          print('✅ ETH balance from Alchemy: $balanceEth');
-          return balanceEth;
-        }
-      }
-    } catch (e) {
-      print('⚠️ Alchemy failed: $e');
-    }
-
-    // Method 5: Try backend API as last resort
-    try {
-      final response = await _dio.get(
-        '${ApiConfig.baseUrl}/api/blockchain/balance/ETH/$addr',
-        options: Options(receiveTimeout: const Duration(seconds: 6)),
-      );
-      final data = response.data;
-
-      if (data is Map && data['success'] == true) {
-        final balance = double.tryParse(data['balance']?.toString() ?? '0') ?? 0.0;
-        print('✅ ETH balance from backend: $balance');
-        return balance;
-      }
-    } catch (e) {
-      print('⚠️ Backend API failed: $e');
-    }
-
-    print('❌ All ETH balance APIs failed for $address');
+    debugPrint('❌ All ETH balance APIs failed for $address');
     return 0.0;
   }
 
