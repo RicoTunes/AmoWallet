@@ -396,7 +396,6 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
     final address = _addressController.text.trim();
     return inputAmount > 0 &&
         cryptoAmount > 0 &&
-        (cryptoAmount + _fee) <= _availableBalance &&
         address.isNotEmpty &&
         _validateAddressFormat(address);
   }
@@ -437,6 +436,20 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
         const SnackBar(
           content: Text('Please fill in all fields correctly'),
           backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // Check balance is sufficient before proceeding
+    final cryptoAmountCheck = _getActualCryptoAmount();
+    if (_balanceLoaded && _availableBalance > 0 && (cryptoAmountCheck + _fee) > _availableBalance) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Insufficient balance. Available: ${_availableBalance.toStringAsFixed(8)} $_selectedCoin',
+          ),
+          backgroundColor: Colors.red,
         ),
       );
       return;
