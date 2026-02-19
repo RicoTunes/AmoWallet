@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../services/notification_service.dart';
+import '../../services/transaction_service.dart';
+import '../pages/transactions/transaction_detail_page.dart';
 
 class NotificationBell extends StatefulWidget {
   const NotificationBell({super.key});
@@ -46,8 +48,31 @@ class _NotificationBellState extends State<NotificationBell> {
       backgroundColor: Colors.transparent,
       builder: (ctx) => NotificationPanel(
         onNavigateToHistory: () {
-          Navigator.of(ctx).pop(); // close sheet
+          Navigator.of(ctx).pop();
           context.go('/transactions');
+        },
+        onNavigateToTransaction: (String txHash) async {
+          Navigator.of(ctx).pop(); // close the notification sheet
+          // Look up the transaction by its hash
+          try {
+            final txService = TransactionService();
+            final all = await txService.getAllTransactions();
+            final match = all.firstWhere(
+              (t) => t.txHash == txHash,
+              orElse: () => all.first,
+            );
+            if (context.mounted) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => TransactionDetailPage(tx: match),
+                ),
+              );
+            }
+          } catch (_) {
+            // Fall back to transactions list if lookup fails
+            if (context.mounted) context.go('/transactions');
+          }
         },
       ),
     );
@@ -95,11 +120,18 @@ class _NotificationBellState extends State<NotificationBell> {
 // ─── Notification Panel ───────────────────────────────────────────────────────
 
 class NotificationPanel extends StatefulWidget {
-  /// Called when the user taps a transaction notification; closes the sheet
-  /// and navigates to the history page.
+  /// Called when the user taps a non-hash tx notification; navigates to history.
   final VoidCallback? onNavigateToHistory;
 
-  const NotificationPanel({super.key, this.onNavigateToHistory});
+  /// Called when the user taps a notification that has a txHash.
+  /// Receives the txHash so the caller can look up and show the detail page.
+  final void Function(String txHash)? onNavigateToTransaction;
+
+  const NotificationPanel({
+    super.key,
+    this.onNavigateToHistory,
+    this.onNavigateToTransaction,
+  });
 
   @override
   State<NotificationPanel> createState() => _NotificationPanelState();
@@ -354,8 +386,11 @@ class _NotificationPanelState extends State<NotificationPanel> {
       child: InkWell(
         onTap: () {
           _notificationService.markAsRead(n.id);
-          // All tx-related notifications → open transaction history
-          if (isTx) {
+          if (n.txHash != null && n.txHash!.isNotEmpty) {
+            // Has a txHash → open transaction detail page
+            widget.onNavigateToTransaction?.call(n.txHash!);
+          } else if (isTx) {
+            // Tx notification without a hash → open history list
             widget.onNavigateToHistory?.call();
           }
         },
@@ -439,7 +474,7 @@ class _NotificationPanelState extends State<NotificationPanel> {
                         // "View" hint for tx notifications
                         if (isTx)
                           Text(
-                            'View history →',
+                            n.txHash != null ? 'View details →' : 'View history →',
                             style: TextStyle(
                               fontSize: 11,
                               color: scheme.primary,
