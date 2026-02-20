@@ -112,51 +112,48 @@ class TransactionMonitorService {
     }
   }
 
-  /// Check for new transactions by comparing balances
+  /// Check for new transactions by comparing current blockchain balances
+  /// to the last known balances. Any increase = incoming transaction.
   Future<void> _checkForNewTransactions() async {
     if (!_isMonitoring) return;
 
     try {
-      // Get all transactions to check for pending and confirmed
-      final transactions = await _transactionService.getAllTransactions();
-      
-      // Only track received transactions through pending/confirmed flow
-      for (final tx in transactions) {
-        if (tx.isReceived) {
-          // Use txHash if available, otherwise use id
-          final uniqueId = tx.txHash ?? tx.id;
-          
-          // Skip if transaction is older than when we started monitoring
-          if (_monitorStartTime != null && tx.timestamp.isBefore(_monitorStartTime!)) {
-            continue; // Skip old transactions
+      // Fetch live balances from blockchain / cache
+      final currentBalances = await _walletService.getBalances();
+
+      for (final entry in currentBalances.entries) {
+        final coin = entry.key;
+        final currentBalance = entry.value;
+        final lastBalance = _lastBalances[coin];
+
+        if (lastBalance == null) {
+          // First time we see this coin — just snapshot it
+          _lastBalances[coin] = currentBalance;
+          continue;
+        }
+
+        final diff = currentBalance - lastBalance;
+        // Only fire if balance grew by a meaningful amount (> dust)
+        if (diff > 0.000001) {
+          final notifKey = '${coin}_incoming_${diff.toStringAsFixed(8)}_${DateTime.now().millisecondsSinceEpoch ~/ 60000}';
+          if (!_notifiedTransactions.contains(notifKey)) {
+            _notifiedTransactions.add(notifKey);
+            await _saveNotifiedTransactions();
+            debugPrint('💰 Incoming $coin detected: +$diff (was $lastBalance → $currentBalance)');
+            await _notifyIncomingTransaction(coin, diff);
           }
-          
-          if (tx.isPending) {
-            // Pending (unconfirmed) transaction
-            final pendingKey = 'pending-$uniqueId';
-            if (!_notifiedTransactions.contains(pendingKey)) {
-              _pendingTransactions.add(uniqueId);
-              _notifiedTransactions.add(pendingKey);
-              await _saveNotifiedTransactions();
-              debugPrint('✅ Tracking pending: $uniqueId (${tx.coin}: ${tx.amount})');
-            }
-          } else {
-            // Confirmed transaction (confirmations > 0)
-            final confirmedKey = 'confirmed-$uniqueId';
-            if (_pendingTransactions.contains(uniqueId) && !_notifiedTransactions.contains(confirmedKey)) {
-              _pendingTransactions.remove(uniqueId);
-              _notifiedTransactions.add(confirmedKey);
-              await _saveNotifiedTransactions();
-              debugPrint('✅ Tracking confirmed: $uniqueId');
-            }
-          }
+          // Update last balance
+          _lastBalances[coin] = currentBalance;
+        } else if (diff < 0) {
+          // Balance dropped (sent or fee) — just update snapshot
+          _lastBalances[coin] = currentBalance;
         }
       }
-      
-      // Cleanup old notifications to prevent memory leak
-      if (_notifiedTransactions.length > 200) {
-        final toRemove = _notifiedTransactions.length - 100;
-        _notifiedTransactions.removeAll(_notifiedTransactions.take(toRemove));
+
+      // Cleanup old notification keys
+      if (_notifiedTransactions.length > 500) {
+        final list = _notifiedTransactions.toList();
+        _notifiedTransactions = list.sublist(list.length - 300).toSet();
       }
     } catch (e) {
       debugPrint('⚠️ Error checking transactions: $e');
@@ -191,7 +188,7 @@ class TransactionMonitorService {
   /// Notify user of incoming transaction
   Future<void> _notifyIncomingTransaction(String coin, double amount) async {
     // Create unique ID for this transaction to avoid duplicates
-    final txId = '$coin-$amount-${DateTime.now().millisecondsSinceEpoch}';
+    final txId = '$coin-${amount.toStringAsFixed(8)}-${DateTime.now().millisecondsSinceEpoch ~/ 60000}';
     
     if (_notifiedTransactions.contains(txId)) {
       return; // Already notified
@@ -206,30 +203,36 @@ class TransactionMonitorService {
 
     debugPrint('💰 Incoming transaction detected: +$amount $coin');
 
-    // Show notification
-    await _notificationService.showNotification(
-      title: 'Received $coin',
-      message: 'You received $amount $coin',
-      type: NotificationType.incoming,
-      data: {
-        'type': 'received',
-        'coin': coin,
-        'amount': amount,
-        'timestamp': DateTime.now().toIso8601String(),
-      },
-    );
-
-    // Record the transaction
+    // Get wallet address for this coin so the detail page shows correct address
+    String toAddress = 'My Wallet';
     try {
-      await _transactionService.recordReceivedTransaction(
+      final addresses = await _walletService.getStoredAddresses(coin);
+      if (addresses.isNotEmpty) toAddress = addresses.first;
+    } catch (_) {}
+
+    // Record the transaction first – use txId as the hash so tapping the notification
+    // can look up this exact record.
+    String finalTxHash = txId;
+    try {
+      final recorded = await _transactionService.recordReceivedTransaction(
         coin: coin,
         amount: amount,
-        toAddress: 'My Wallet', // Placeholder - actual address would come from wallet
-        fromAddress: 'Unknown', // Unknown sender
+        toAddress: toAddress,
+        fromAddress: 'Unknown',
+        txHash: txId,
       );
+      finalTxHash = recorded.txHash ?? recorded.id;
     } catch (e) {
       debugPrint('⚠️ Error recording received transaction: $e');
     }
+
+    // Show notification with correct incoming type and txHash for detail navigation
+    await _notificationService.showIncomingTransaction(
+      amount: amount.toStringAsFixed(8),
+      currency: coin,
+      from: 'Unknown',
+      txHash: finalTxHash,
+    );
   }
 
   /// Manually check for new transactions (called on app resume or user action)

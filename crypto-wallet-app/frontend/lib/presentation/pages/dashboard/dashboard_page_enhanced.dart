@@ -17,6 +17,7 @@ import '../../../services/incoming_tx_monitor.dart';
 import '../../../services/blockchain_service.dart';
 import '../../../models/transaction_model.dart';
 import '../../widgets/portfolio_chart_widget.dart';
+import '../../widgets/animated_number.dart';
 
 class DashboardPageEnhanced extends ConsumerStatefulWidget {
   const DashboardPageEnhanced({super.key});
@@ -133,23 +134,34 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
   /// never shows blank while the network fetch is in progress.
   Future<void> _loadCachedBalances() async {
     try {
+      // Ensure persisted prices are loaded into PriceService memory before
+      // we try to compute the portfolio total.
+      await _priceService.loadFromDisk();
+
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString('dashboard_cached_balances');
       if (raw != null && raw.isNotEmpty) {
         final Map<String, dynamic> decoded = jsonDecode(raw);
         final cached = decoded.map((k, v) => MapEntry(k, (v as num).toDouble()));
         if (mounted && cached.isNotEmpty) {
+          // Use the now-loaded persisted prices to compute a real total
+          final cachedPrices = _priceService.getCachedPrices();
           double totalValue = 0.0;
           cached.forEach((symbol, balance) {
-            final coinPrice = _priceData[symbol];
+            final coinPrice = cachedPrices[symbol] ?? _priceData[symbol];
             final price = (coinPrice?['price'] as double?) ?? 0.0;
             if (balance > 0 && price > 0) totalValue += balance * price;
           });
           setState(() {
             _balances = Map.from(cached);
+            // Only override total if we got a real non-zero value
             if (totalValue > 0) _totalPortfolioValue = totalValue;
+            // Seed _priceData with cached prices so coin tiles show values immediately
+            if (_priceData.isEmpty && cachedPrices.isNotEmpty) {
+              _priceData = Map.from(cachedPrices);
+            }
           });
-          debugPrint('📦 Loaded ${cached.length} cached balances from disk');
+          debugPrint('📦 Loaded ${cached.length} cached balances, total \$${totalValue.toStringAsFixed(2)}');
         }
       }
     } catch (e) {
@@ -1095,23 +1107,29 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
                       const Color(0xFF8B5CF6).withOpacity(0.8),
                     ],
                   ).createShader(bounds),
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    child: Text(
-                      _balanceHidden
-                          ? '••••••••'
-                          : (_totalPortfolioValue > 0
-                              ? _formatCurrency(_totalPortfolioValue)
-                              : '\$0.00'),
-                      key: ValueKey(_balanceHidden),
-                      style: TextStyle(
-                        color: textColor,
-                        fontSize: 48,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: _balanceHidden ? 4 : -2,
-                      ),
-                    ),
-                  ),
+                  child: _balanceHidden
+                      ? Text(
+                          '••••••••',
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: 48,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 4,
+                          ),
+                        )
+                      : AnimatedCurrencyNumber(
+                          value: _totalPortfolioValue,
+                          formatter: (v) =>
+                              v > 0 ? _formatCurrency(v) : '\$0.00',
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: 48,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: -2,
+                          ),
+                          duration: const Duration(milliseconds: 900),
+                          textAlign: TextAlign.start,
+                        ),
                 );
               },
             ),
@@ -1511,17 +1529,21 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      Text(
-                        _formatPrice(price),
+                      AnimatedCurrencyNumber(
+                        value: price,
+                        formatter: _formatPrice,
                         style: TextStyle(
                           color: subtextColor,
                           fontSize: 13,
                         ),
+                        duration: const Duration(milliseconds: 700),
+                        textAlign: TextAlign.start,
                       ),
                       if (change != 0) ...[
                         const SizedBox(width: 8),
-                        Text(
-                          '${isPositive ? '+' : ''}${change.toStringAsFixed(1)}%',
+                        RollingDigitText(
+                          text:
+                              '${isPositive ? '+' : ''}${change.toStringAsFixed(1)}%',
                           style: TextStyle(
                             color: isPositive
                                 ? const Color(0xFF10B981)
@@ -1529,6 +1551,7 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
                             fontSize: 13,
                             fontWeight: FontWeight.w500,
                           ),
+                          duration: const Duration(milliseconds: 500),
                         ),
                       ],
                     ],
@@ -2392,31 +2415,66 @@ class _CoinDetailSheetContentState extends State<_CoinDetailSheetContent> {
         
         final newTransactions = <Transaction>[];
         for (final tx in blockchainTx) {
-          final existingTx = _transactions.where((t) => t.txHash == tx['hash']).toList();
-          if (existingTx.isEmpty) {
-            final rawAmount = (tx['amount'] as num?)?.toDouble() ?? 0.0;
-            final amount = rawAmount.abs();
-            
-            String txType = tx['type'] ?? 'unknown';
-            if (txType == 'unknown' && rawAmount != 0) {
-              txType = rawAmount < 0 ? 'sent' : 'received';
+          final txHash = tx['hash']?.toString() ?? '';
+          if (txHash.isEmpty) continue;
+
+          final rawAmount = (tx['amount'] as num?)?.toDouble() ?? 0.0;
+          final amount = rawAmount.abs();
+
+          String txType = (tx['type'] ?? 'unknown').toString().toLowerCase();
+          final fromAddr = (tx['fromAddress'] ?? '').toString().toLowerCase();
+          final toAddr   = (tx['toAddress']   ?? '').toString().toLowerCase();
+          final addrLower = (address ?? '').toLowerCase();
+
+          // Resolve direction: explicit > address comparison > amount sign
+          if (txType == 'received') {
+            // keep
+          } else if (txType == 'sent') {
+            // keep
+          } else if (toAddr.isNotEmpty && toAddr == addrLower && fromAddr != addrLower) {
+            txType = 'received';
+          } else if (fromAddr.isNotEmpty && fromAddr == addrLower) {
+            txType = 'sent';
+          } else if (rawAmount < 0) {
+            txType = 'sent';
+          } else if (rawAmount > 0) {
+            txType = 'received';
+          } else {
+            txType = 'sent';
+          }
+
+          final newTx = Transaction(
+            id: txHash,
+            txHash: txHash,
+            coin: widget.symbol,
+            type: txType,
+            amount: amount,
+            address: txType == 'received'
+                ? (tx['fromAddress'] ?? 'Unknown')
+                : (tx['toAddress'] ?? 'Unknown'),
+            fromAddress: tx['fromAddress']?.toString(),
+            toAddress: tx['toAddress']?.toString(),
+            timestamp: DateTime.fromMillisecondsSinceEpoch(
+              ((tx['timestamp'] as int?) ?? 0) * 1000
+            ),
+            status: (tx['confirmations'] ?? 0) > 0 ? 'confirmed' : 'pending',
+            confirmations: tx['confirmations'] ?? 0,
+          );
+
+          // Replace existing entry if blockchain has a definitive type (not unknown).
+          // This fixes the bug where a locally-stored 'sent' copy would block a
+          // blockchain-confirmed 'received' transaction from showing.
+          final existingIdx = _transactions.indexWhere((t) => t.txHash == txHash);
+          if (existingIdx >= 0) {
+            final existing = _transactions[existingIdx];
+            if (existing.type != txType && (txType == 'received' || txType == 'sent')) {
+              // Blockchain has authoritative type — replace
+              newTransactions.add(newTx);
+              _transactions.removeAt(existingIdx);
             }
-            
-            newTransactions.add(Transaction(
-              id: tx['hash'] ?? '',
-              txHash: tx['hash'] ?? '',
-              coin: widget.symbol,
-              type: txType == 'received' ? 'received' : 'sent',
-              amount: amount,
-              address: txType == 'received'
-                  ? (tx['fromAddress'] ?? 'Unknown')
-                  : (tx['toAddress'] ?? 'Unknown'),
-              timestamp: DateTime.fromMillisecondsSinceEpoch(
-                ((tx['timestamp'] as int?) ?? 0) * 1000
-              ),
-              status: (tx['confirmations'] ?? 0) > 0 ? 'confirmed' : 'pending',
-              confirmations: tx['confirmations'] ?? 0,
-            ));
+            // else already correct — skip duplicate
+          } else {
+            newTransactions.add(newTx);
           }
         }
         
@@ -2569,13 +2627,16 @@ class _CoinDetailSheetContentState extends State<_CoinDetailSheetContent> {
                     const SizedBox(height: 16),
 
                     // Price
-                    Text(
-                      widget.formatPrice(widget.price),
+                    AnimatedCurrencyNumber(
+                      value: widget.price,
+                      formatter: widget.formatPrice,
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 36,
                         fontWeight: FontWeight.bold,
                       ),
+                      duration: const Duration(milliseconds: 800),
+                      textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 4),
 
@@ -2645,18 +2706,18 @@ class _CoinDetailSheetContentState extends State<_CoinDetailSheetContent> {
                                   ),
                                 ),
                               )
-                            : AnimatedDefaultTextStyle(
-                                duration: const Duration(milliseconds: 300),
+                            : AnimatedCurrencyNumber(
+                                value: _realBalance,
+                                formatter: (v) => v.toStringAsFixed(8),
                                 style: TextStyle(
                                   color: _balanceUpdated
-                                      ? const Color(0xFF10B981) // Green when updated
+                                      ? const Color(0xFF10B981)
                                       : widget.color,
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold,
                                 ),
-                                child: Text(
-                                  _realBalance.toStringAsFixed(8),
-                                ),
+                                duration: const Duration(milliseconds: 900),
+                                textAlign: TextAlign.center,
                               ),
                         const SizedBox(height: 4),
                         Text(
@@ -2690,18 +2751,18 @@ class _CoinDetailSheetContentState extends State<_CoinDetailSheetContent> {
                                   ),
                                 ),
                               )
-                            : AnimatedDefaultTextStyle(
-                                duration: const Duration(milliseconds: 300),
+                            : AnimatedCurrencyNumber(
+                                value: _realUsdValue,
+                                formatter: widget.formatCurrency,
                                 style: TextStyle(
                                   color: _balanceUpdated
-                                      ? const Color(0xFF10B981) // Green when updated
+                                      ? const Color(0xFF10B981)
                                       : Colors.white,
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold,
                                 ),
-                                child: Text(
-                                  widget.formatCurrency(_realUsdValue),
-                                ),
+                                duration: const Duration(milliseconds: 900),
+                                textAlign: TextAlign.center,
                               ),
                         const SizedBox(height: 4),
                         Text(

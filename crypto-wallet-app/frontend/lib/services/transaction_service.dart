@@ -154,12 +154,28 @@ class TransactionService {
                 // Skip if no valid hash
                 if (txHash.isEmpty) continue;
                 
-                final txType = tx['type'] ?? 'unknown';
-                final isReceived = txType == 'received';
+                final rawType = (tx['type'] ?? 'unknown').toString().toLowerCase();
+                final fromAddr = (tx['fromAddress'] ?? '').toString().toLowerCase();
+                final toAddr   = (tx['toAddress']   ?? '').toString().toLowerCase();
+                final addrLower = address.toLowerCase();
+
+                // Resolve type: prefer explicit, then infer from addresses, fallback sent
+                final String resolvedType;
+                if (rawType == 'received') {
+                  resolvedType = 'received';
+                } else if (rawType == 'sent') {
+                  resolvedType = 'sent';
+                } else if (toAddr.isNotEmpty && toAddr == addrLower && fromAddr != addrLower) {
+                  resolvedType = 'received';
+                } else if (fromAddr.isNotEmpty && fromAddr == addrLower) {
+                  resolvedType = 'sent';
+                } else {
+                  resolvedType = 'sent'; // last resort
+                }
 
                 final transaction = Transaction(
                   id: txHash,
-                  type: isReceived ? 'received' : 'sent',
+                  type: resolvedType,
                   coin: chain,
                   amount: (tx['amount'] as num?)?.toDouble() ?? 0.0,
                   address: address,

@@ -107,11 +107,7 @@ class TransactionDetailPage extends StatelessWidget {
         title: const Text('Transaction Details'),
         elevation: 0,
       ),
-      body: Column(
-        children: [
-          // ── Scrollable content ─────────────────────────────────────────
-          Expanded(
-            child: SingleChildScrollView(
+      body: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(24, 32, 24, 8),
               child: Column(
                 children: [
@@ -233,104 +229,94 @@ class TransactionDetailPage extends StatelessWidget {
                   if (tx.memo != null && tx.memo!.isNotEmpty)
                     _detailRow(context, 'Memo', tx.memo!),
 
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 24),
+
+                  // ── Action buttons ───────────────────────────────────────
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            final hash = tx.txHash ?? '';
+                            if (hash.isNotEmpty) {
+                              Clipboard.setData(ClipboardData(text: hash));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Transaction hash copied')),
+                              );
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('No transaction hash available')),
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.copy),
+                          label: const Text('Copy Hash'),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () async {
+                            final hash = tx.txHash ?? '';
+                            if (hash.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('No transaction hash available')),
+                              );
+                              return;
+                            }
+                            final url = _explorerUrl(tx.coin, hash);
+                            if (url == null) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Explorer not available for this coin')),
+                              );
+                              return;
+                            }
+                            final uri = Uri.parse(url);
+                            try {
+                              await launchUrl(
+                                uri,
+                                mode: LaunchMode.externalApplication,
+                              );
+                            } catch (_) {
+                              // Fallback: copy URL if browser can't be opened
+                              Clipboard.setData(ClipboardData(text: url));
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Copied: $url'),
+                                    duration: const Duration(seconds: 4),
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          icon: const Icon(Icons.open_in_new),
+                          label: const Text('View Explorer'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: coinColor,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 32),
                 ],
               ),
             ),
-          ),
-
-          // ── Sticky action buttons ────────────────────────────────────────
-          Container(
-            padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.06),
-                  blurRadius: 12,
-                  offset: const Offset(0, -4),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      final hash = tx.txHash ?? '';
-                      if (hash.isNotEmpty) {
-                        Clipboard.setData(ClipboardData(text: hash));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content: Text('Transaction hash copied')),
-                        );
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content: Text('No transaction hash available')),
-                        );
-                      }
-                    },
-                    icon: const Icon(Icons.copy),
-                    label: const Text('Copy Hash'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () async {
-                      final hash = tx.txHash ?? '';
-                      if (hash.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content: Text('No transaction hash available')),
-                        );
-                        return;
-                      }
-                      final url = _explorerUrl(tx.coin, hash);
-                      if (url == null) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content: Text('Explorer not available for this coin')),
-                        );
-                        return;
-                      }
-                      final uri = Uri.parse(url);
-                      if (await canLaunchUrl(uri)) {
-                        await launchUrl(uri,
-                            mode: LaunchMode.externalApplication);
-                      } else {
-                        Clipboard.setData(ClipboardData(text: url));
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content:
-                                    Text('Explorer URL copied to clipboard')),
-                          );
-                        }
-                      }
-                    },
-                    icon: const Icon(Icons.open_in_new),
-                    label: const Text('View Explorer'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: coinColor,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 

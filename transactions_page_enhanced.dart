@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../services/transaction_service.dart';
 import '../../../services/notification_service.dart';
@@ -10,10 +11,7 @@ import '../../../models/transaction_model.dart';
 import 'transaction_detail_page.dart';
 
 class TransactionsPageEnhanced extends ConsumerStatefulWidget {
-  const TransactionsPageEnhanced({super.key, this.initialTxHash});
-
-  /// When set, the page will auto-open the detail for this tx hash after load.
-  final String? initialTxHash;
+  const TransactionsPageEnhanced({super.key});
 
   @override
   ConsumerState<TransactionsPageEnhanced> createState() => _TransactionsPageEnhancedState();
@@ -127,17 +125,6 @@ class _TransactionsPageEnhancedState extends ConsumerState<TransactionsPageEnhan
         _transactions = allTransactions;
         _loading = false;
       });
-
-      // Deep-link: auto-open detail if launched from a notification
-      final deepHash = widget.initialTxHash;
-      if (deepHash != null && deepHash.isNotEmpty && mounted) {
-        final match = allTransactions.where((t) => t.txHash == deepHash).toList();
-        if (match.isNotEmpty) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _showTransactionDetails(match.first);
-          });
-        }
-      }
     } catch (e) {
       print('DEBUG: Error loading transactions: $e');
       setState(() => _loading = false);
@@ -796,6 +783,5 @@ class _TransactionsPageEnhancedState extends ConsumerState<TransactionsPageEnhan
       ),
     );
   }
-
 
 }

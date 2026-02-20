@@ -75,7 +75,11 @@ void main() async {
   confirmationTracker.startTracking();
 
   // Initialise notification service (loads persisted notifications)
-  await NotificationService().initialize();
+  final notificationService = NotificationService();
+  await notificationService.initialize();
+
+  // Request Android 13+ POST_NOTIFICATIONS permission at runtime
+  await notificationService.requestPermission();
 
   // Start incoming-tx watcher (polls blockchain APIs)
   IncomingTxWatcherService().start();

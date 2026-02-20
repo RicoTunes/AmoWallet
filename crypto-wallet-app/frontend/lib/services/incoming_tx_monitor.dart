@@ -204,7 +204,7 @@ class IncomingTxMonitor {
     double newBalance,
   ) async {
     try {
-      // Create a unique identifier for this transaction
+      // Create a unique identifier for this transaction (used as dedup key and fallback txHash)
       final txIdentifier = '$coin-${amount.toStringAsFixed(8)}-${DateTime.now().millisecondsSinceEpoch ~/ 60000}';
       
       // Check if we've already notified about this transaction
@@ -216,28 +216,39 @@ class IncomingTxMonitor {
       // Add to notified set and save
       _notifiedTxHashes.add(txIdentifier);
       await _saveNotifiedTxHashes();
-      
-      // Get USD value
-      final usdValue = await _getUsdValue(coin, amount);
-      final usdString = usdValue > 0 ? ' (\$${usdValue.toStringAsFixed(2)})' : '';
-      
-      // Show notification
-      await _notificationService.showNotification(
-        title: '💰 $coin Received!',
-        message: '+${amount.toStringAsFixed(8)} $coin$usdString\nNew balance: ${newBalance.toStringAsFixed(8)} $coin',
-        type: NotificationType.success,
-        data: {
-          'type': 'incoming',
-          'coin': coin,
-          'amount': amount,
-          'newBalance': newBalance,
-        },
+
+      // Try to fetch and save the actual transaction first so we get a real txHash
+      final realTxHash = await _fetchAndSaveTransaction(coin, amount);
+      final txHash = realTxHash ?? txIdentifier;
+
+      // Skip if this real txHash was already notified (e.g. watcher service got it first)
+      if (realTxHash != null && _notifiedTxHashes.contains(realTxHash)) {
+        print('⏭️ Real txHash already notified: $realTxHash');
+        return;
+      }
+      if (realTxHash != null) {
+        _notifiedTxHashes.add(realTxHash);
+        await _saveNotifiedTxHashes();
+      }
+
+      // Get the sender address for the notification message
+      String fromAddr = 'Blockchain';
+      try {
+        final addresses = await _walletService.getStoredAddresses(coin);
+        if (addresses.isNotEmpty) {
+          // fromAddr stays 'Blockchain' – we don't know sender at this level
+        }
+      } catch (_) {}
+
+      // Show notification with correct incoming type and txHash for detail navigation
+      await _notificationService.showIncomingTransaction(
+        amount: amount.toStringAsFixed(8),
+        currency: coin,
+        from: fromAddr,
+        txHash: txHash,
       );
       
-      // Try to fetch the actual transaction from blockchain
-      await _fetchAndSaveTransaction(coin, amount);
-      
-      print('✅ Notification sent for incoming $coin');
+      print('✅ Notification sent for incoming $coin (txHash: $txHash)');
     } catch (e) {
       print('Error handling incoming transaction: $e');
     }
@@ -264,47 +275,60 @@ class IncomingTxMonitor {
     }
   }
 
-  /// Try to fetch the actual transaction and save to history
-  Future<void> _fetchAndSaveTransaction(String coin, double amount) async {
+  /// Try to fetch the actual transaction and save to history.
+  /// Returns the txHash if found, or null.
+  Future<String?> _fetchAndSaveTransaction(String coin, double amount) async {
     try {
       // Get user's address for this coin
       final addresses = await _walletService.getStoredAddresses(coin);
-      if (addresses.isEmpty) return;
+      if (addresses.isEmpty) return null;
       
       final address = addresses.first;
       
       // Fetch recent transactions
       final transactions = await _blockchainService.getTransactionHistory(coin, address);
       
-      // Find matching incoming transaction
+      // Find matching incoming transaction – be lenient about the type field
       for (final tx in transactions) {
-        final txType = tx['type']?.toString() ?? '';
-        if ((txType == 'receive' || txType == 'received') && 
-            ((tx['amount'] as num?)?.toDouble().abs() ?? 0) - amount.abs() < 0.00000001) {
+        final txType = (tx['type'] ?? tx['txType'] ?? '').toString().toLowerCase();
+        final toAddr = (tx['to'] ?? tx['toAddress'] ?? '').toString().toLowerCase();
+        final myAddr = address.toLowerCase();
+
+        final isReceive = txType.contains('receive') ||
+            txType.contains('incoming') ||
+            txType == 'in' ||
+            toAddr == myAddr;
+
+        final txAmount = (tx['amount'] as num?)?.toDouble().abs() ?? 0.0;
+        final amountMatch = (txAmount - amount.abs()).abs() < (amount * 0.01 + 0.000001);
+
+        if (isReceive && amountMatch) {
+          final txHash = (tx['hash'] ?? tx['txHash'] ?? '').toString();
           
           // Save to transaction history
           final transaction = Transaction(
-            id: tx['hash'] ?? tx['txHash'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+            id: txHash.isNotEmpty ? txHash : DateTime.now().millisecondsSinceEpoch.toString(),
             coin: coin,
             type: 'received',
             amount: amount,
             status: 'completed',
             timestamp: DateTime.tryParse(tx['timestamp']?.toString() ?? '') ?? DateTime.now(),
-            fromAddress: tx['from']?.toString() ?? 'Unknown',
+            fromAddress: (tx['from'] ?? tx['fromAddress'] ?? 'Unknown').toString(),
             toAddress: address,
             address: address,
-            txHash: tx['hash'] ?? tx['txHash'],
+            txHash: txHash.isNotEmpty ? txHash : null,
             confirmations: (tx['confirmations'] as num?)?.toInt() ?? 1,
           );
           
           await _transactionService.storeTransaction(transaction);
           print('💾 Saved incoming transaction to history: ${transaction.txHash}');
-          return;
+          return txHash.isNotEmpty ? txHash : null;
         }
       }
     } catch (e) {
       print('Failed to fetch/save transaction details: $e');
     }
+    return null;
   }
 
   /// Force refresh and check

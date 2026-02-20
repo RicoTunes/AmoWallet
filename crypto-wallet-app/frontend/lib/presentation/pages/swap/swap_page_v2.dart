@@ -336,8 +336,25 @@ class _SwapPageV2State extends ConsumerState<SwapPageV2>
   double _calculateEstimatedReceive() {
     if (_amount <= 0) return 0.0;
     final rate = _getExchangeRate();
-    final fee = _amount * 0.003; // 0.3% fee
+    final fee = _amount * 0.01; // 1% platform fee (matches backend)
     return (_amount - fee) * rate;
+  }
+
+  /// Smart crypto amount formatting — full 8-decimal precision for small amounts
+  String _formatCrypto(double amount) {
+    if (amount <= 0) return '0';
+    if (amount >= 10000) return amount.toStringAsFixed(2);
+    if (amount >= 1) return amount.toStringAsFixed(4);
+    return amount.toStringAsFixed(8); // Always full precision for sub-1 amounts
+  }
+
+  /// Smart exchange rate formatting — always shows significant digits
+  String _formatRate(double rate) {
+    if (rate >= 10000) return rate.toStringAsFixed(2);
+    if (rate >= 100) return rate.toStringAsFixed(2);
+    if (rate >= 1) return rate.toStringAsFixed(4);
+    if (rate >= 0.0001) return rate.toStringAsFixed(6);
+    return rate.toStringAsFixed(8); // e.g. DOGE→BTC: 0.00000416
   }
 
   void _setPercentage(double percent) {
@@ -436,7 +453,7 @@ class _SwapPageV2State extends ConsumerState<SwapPageV2>
         'fromAmount': _amount,
         'toAmount': estimated,
         'exchangeRate': _getExchangeRate(),
-        'fee': _amount * 0.003,
+        'fee': _amount * 0.01, // 1% matches backend fee
         'provider': 'local',
       };
       _showQuote = true;
@@ -662,7 +679,7 @@ class _SwapPageV2State extends ConsumerState<SwapPageV2>
               ),
               const SizedBox(height: 12),
               Text(
-                '${fromAmount.toStringAsFixed(6)} $_fromCoin',
+                '${_formatCrypto(fromAmount)} $_fromCoin',
                 style: TextStyle(
                   fontSize: 18,
                   color: _getCoinColor(_fromCoin),
@@ -671,7 +688,7 @@ class _SwapPageV2State extends ConsumerState<SwapPageV2>
               ),
               const Icon(Icons.arrow_downward, color: Colors.grey),
               Text(
-                '${toAmount.toStringAsFixed(6)} $_toCoin',
+                '${_formatCrypto(toAmount)} $_toCoin',
                 style: TextStyle(
                   fontSize: 18,
                   color: _getCoinColor(_toCoin),
@@ -785,7 +802,7 @@ class _SwapPageV2State extends ConsumerState<SwapPageV2>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      '${balance.toStringAsFixed(6)} $_fromCoin',
+                      '${_formatCrypto(balance)} $_fromCoin',
                       style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
                     ),
                     if (fromPrice > 0) ...[
@@ -889,7 +906,7 @@ class _SwapPageV2State extends ConsumerState<SwapPageV2>
           children: [
             Text('From', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[600])),
             Text(
-              'Available: ${balance.toStringAsFixed(6)}',
+              'Available: ${_formatCrypto(balance)}',
               style: TextStyle(color: Colors.grey[500], fontSize: 12),
             ),
           ],
@@ -1035,7 +1052,7 @@ class _SwapPageV2State extends ConsumerState<SwapPageV2>
           children: [
             Text('To', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[600])),
             Text(
-              'Balance: ${toBalance.toStringAsFixed(6)}',
+              'Balance: ${_formatCrypto(toBalance)}',
               style: TextStyle(color: Colors.grey[500], fontSize: 12),
             ),
           ],
@@ -1090,7 +1107,13 @@ class _SwapPageV2State extends ConsumerState<SwapPageV2>
         const SizedBox(height: 16),
         
         // Estimated receive display
-        Container(
+        Builder(builder: (context) {
+          // Use real quoted amount when available, else estimated
+          final displayAmount = (_showQuote && _quoteData != null)
+              ? (_quoteData!['toAmount'] as double)
+              : estimated;
+          final isQuoted = _showQuote && _quoteData != null;
+          return Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: _getCoinColor(_toCoin).withOpacity(0.05),
@@ -1106,16 +1129,16 @@ class _SwapPageV2State extends ConsumerState<SwapPageV2>
                   Text('You\'ll receive', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
                   const SizedBox(height: 4),
                   Text(
-                    '≈ ${estimated.toStringAsFixed(6)}',
+                    '${isQuoted ? '' : '≈ '}${_formatCrypto(displayAmount)}',
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
                       color: _getCoinColor(_toCoin),
                     ),
                   ),
-                  if (toPrice > 0 && estimated > 0)
+                  if (toPrice > 0 && displayAmount > 0)
                     Text(
-                      '≈ \$${(estimated * toPrice).toStringAsFixed(2)} USD',
+                      '≈ \$${(displayAmount * toPrice).toStringAsFixed(2)} USD',
                       style: TextStyle(color: Colors.grey[500], fontSize: 12),
                     ),
                 ],
@@ -1134,7 +1157,8 @@ class _SwapPageV2State extends ConsumerState<SwapPageV2>
               ),
             ],
           ),
-        ),
+        );
+        }), // end Builder
       ],
     );
   }
@@ -1241,7 +1265,7 @@ class _SwapPageV2State extends ConsumerState<SwapPageV2>
                     children: [
                       Text('You pay', style: TextStyle(color: Colors.grey[500], fontSize: 12)),
                       Text(
-                        '${_amount.toStringAsFixed(6)} $_fromCoin',
+                        '${_formatCrypto(_amount)} $_fromCoin',
                         style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _getCoinColor(_fromCoin)),
                       ),
                     ],
@@ -1261,7 +1285,7 @@ class _SwapPageV2State extends ConsumerState<SwapPageV2>
                     children: [
                       Text('You receive', style: TextStyle(color: Colors.grey[500], fontSize: 12)),
                       Text(
-                        '${toAmount.toStringAsFixed(6)} $_toCoin',
+                        '${_formatCrypto(toAmount)} $_toCoin',
                         style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: _getCoinColor(_toCoin)),
                       ),
                     ],
@@ -1288,15 +1312,18 @@ class _SwapPageV2State extends ConsumerState<SwapPageV2>
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('Rate', style: TextStyle(color: Colors.grey[500], fontSize: 13)),
-              Text('1 $_fromCoin = ${rate.toStringAsFixed(4)} $_toCoin', style: const TextStyle(fontSize: 13)),
+              Text('1 $_fromCoin = ${_formatRate(rate)} $_toCoin', style: const TextStyle(fontSize: 13)),
             ],
           ),
           const SizedBox(height: 6),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Fee (0.3%)', style: TextStyle(color: Colors.grey[500], fontSize: 13)),
-              Text('${fee.toStringAsFixed(6)} $_fromCoin', style: const TextStyle(fontSize: 13)),
+              Text(
+                'Platform Fee (${(_quoteData!["provider"] == "local" ? 1.0 : (_amount > 0 ? (fee / _amount * 100) : 1.0)).toStringAsFixed(1)}%)',
+                style: TextStyle(color: Colors.grey[500], fontSize: 13),
+              ),
+              Text('${_formatCrypto(fee)} $_fromCoin', style: const TextStyle(fontSize: 13)),
             ],
           ),
         ],

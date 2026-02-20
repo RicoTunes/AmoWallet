@@ -168,7 +168,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/transactions',
         name: 'transactions',
-        builder: (context, state) => const TransactionsPageEnhanced(),
+        builder: (context, state) {
+          final txHash = state.extra is String ? state.extra as String : null;
+          return TransactionsPageEnhanced(initialTxHash: txHash);
+        },
       ),
       GoRoute(
         path: '/swap',

@@ -1,12 +1,21 @@
 import 'package:dio/dio.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../core/config/api_config.dart';
 
 class PriceService {
   static final PriceService _instance = PriceService._internal();
   factory PriceService() => _instance;
-  PriceService._internal();
+  PriceService._internal() {
+    // Eagerly load persisted prices so they are available before any API call.
+    loadFromDisk();
+  }
+
+  static const String _diskKey = 'price_service_cache_v2';
+  bool _diskLoaded = false;
+  final Completer<void> _diskLoadCompleter = Completer<void>();
 
   final Dio _dio = Dio(BaseOptions(
     connectTimeout: const Duration(seconds: 8),
@@ -70,6 +79,86 @@ class PriceService {
     'AVAX': 'AVAXUSDT',
     'TRX': 'TRXUSDT',
   };
+
+  // ─── Disk persistence ────────────────────────────────────────────────────
+
+  /// Load last-seen real prices from SharedPreferences into the in-memory cache.
+  /// Idempotent – only runs once per session.  Sets the cache timestamp to
+  /// slightly in the past so a live API fetch still triggers, but if that fetch
+  /// fails the disk value is returned instead of 0.
+  Future<void> loadFromDisk() async {
+    if (_diskLoaded) return _diskLoadCompleter.future;
+    _diskLoaded = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_diskKey);
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw) as Map<String, dynamic>;
+        decoded.forEach((symbol, data) {
+          if (data is Map && !_priceCache.containsKey(symbol)) {
+            final price = (data['price'] as num?)?.toDouble() ?? 0.0;
+            if (price > 0) {
+              _priceCache[symbol] = _PriceCache(
+                data: {
+                  'price': price,
+                  'change24h': (data['change24h'] as num?)?.toDouble() ?? 0.0,
+                  'lastUpdated':
+                      DateTime.tryParse(data['lastUpdated']?.toString() ?? '') ??
+                          DateTime.now(),
+                  'source': 'DiskCache',
+                },
+                // Slightly stale so live fetch still runs — but fallback returns real data
+                timestamp: DateTime.now().subtract(const Duration(minutes: 4)),
+              );
+            }
+          }
+        });
+        print('📦 PriceService: loaded ${decoded.length} persisted prices');
+      }
+    } catch (e) {
+      print('⚠️ PriceService: could not load disk cache: $e');
+    } finally {
+      if (!_diskLoadCompleter.isCompleted) _diskLoadCompleter.complete();
+    }
+  }
+
+  /// Persist all in-memory prices > 0 to SharedPreferences.
+  Future<void> _saveToDisk() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final toSave = <String, dynamic>{};
+      _priceCache.forEach((symbol, cache) {
+        final price = (cache.data['price'] as num?)?.toDouble() ?? 0.0;
+        if (price > 0) {
+          toSave[symbol] = {
+            'price': price,
+            'change24h': (cache.data['change24h'] as num?)?.toDouble() ?? 0.0,
+            'lastUpdated':
+                (cache.data['lastUpdated'] as DateTime?)?.toIso8601String() ??
+                    DateTime.now().toIso8601String(),
+          };
+        }
+      });
+      if (toSave.isNotEmpty) {
+        await prefs.setString(_diskKey, jsonEncode(toSave));
+      }
+    } catch (e) {
+      print('⚠️ PriceService: could not persist prices: $e');
+    }
+  }
+
+  /// Synchronous snapshot of every price currently in the in-memory cache.
+  /// Returns an empty map if nothing is cached yet.
+  Map<String, Map<String, dynamic>> getCachedPrices() {
+    final result = <String, Map<String, dynamic>>{};
+    _priceCache.forEach((symbol, cache) {
+      final price = (cache.data['price'] as num?)?.toDouble() ?? 0.0;
+      if (price > 0) result[symbol] = Map<String, dynamic>.from(cache.data);
+    });
+    return result;
+  }
+
+  // ─── Live price fetch ─────────────────────────────────────────────────────
 
   /// Get real-time price with multiple fallback APIs, rate limiting, and circuit breaker
   Future<Map<String, dynamic>> getPrice(String symbol) async {
@@ -151,7 +240,7 @@ class PriceService {
           final prices = await _getBatchPricesFromBackendProxy(symbols);
           if (prices.isNotEmpty) {
             print('✅ Fetched ${prices.length} prices from backend proxy');
-            return prices;
+            return _cacheAndSavePrices(prices);
           }
         } catch (e) {
           print('❌ Backend proxy batch failed: $e');
@@ -162,7 +251,7 @@ class PriceService {
         final prices = await _getBatchPricesFromCryptoCompare(symbols);
         if (prices.isNotEmpty) {
           print('✅ Fetched ${prices.length} prices from CryptoCompare');
-          return prices;
+          return _cacheAndSavePrices(prices);
         }
       } catch (e) {
         print('❌ CryptoCompare batch failed: $e');
@@ -171,7 +260,7 @@ class PriceService {
           final prices = await _getBatchPricesFromCoinCap(symbols);
           if (prices.isNotEmpty) {
             print('✅ Fetched ${prices.length} prices from CoinCap');
-            return prices;
+            return _cacheAndSavePrices(prices);
           }
         } catch (e2) {
           print('❌ CoinCap batch failed: $e2');
@@ -182,7 +271,7 @@ class PriceService {
         final prices = await _getBatchPricesFromCoinGecko(symbols);
         if (prices.isNotEmpty) {
           print('✅ Fetched ${prices.length} prices from CoinGecko');
-          return prices;
+          return _cacheAndSavePrices(prices);
         }
       } catch (e) {
         print('❌ Batch price fetch failed: $e');
@@ -208,7 +297,22 @@ class PriceService {
       }
     }
 
-    return results;
+    return _cacheAndSavePrices(results);
+  }
+
+  /// Update the in-memory price cache with [prices], persist to disk,
+  /// and return the map so callers can do `return _cacheAndSavePrices(x)`.
+  Map<String, Map<String, dynamic>> _cacheAndSavePrices(
+      Map<String, Map<String, dynamic>> prices) {
+    final now = DateTime.now();
+    prices.forEach((symbol, data) {
+      final price = (data['price'] as num?)?.toDouble() ?? 0.0;
+      if (price > 0) {
+        _priceCache[symbol] = _PriceCache(data: data, timestamp: now);
+      }
+    });
+    _saveToDisk(); // fire-and-forget – no await intentional
+    return prices;
   }
   
   /// Get fallback price when APIs fail

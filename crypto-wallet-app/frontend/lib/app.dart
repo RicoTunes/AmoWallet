@@ -7,6 +7,7 @@ import 'core/routes/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/providers/theme_provider.dart';
 import 'services/pin_auth_service.dart';
+import 'services/notification_service.dart';
 
 class CryptoWalletProApp extends ConsumerStatefulWidget {
   const CryptoWalletProApp({super.key});
@@ -31,6 +32,17 @@ class _CryptoWalletProAppState extends ConsumerState<CryptoWalletProApp> with Wi
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadLastAuthTime();
+    // Wire up notification tap callbacks after the first frame so the router is ready.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final router = ref.read(routerProvider);
+      final notificationService = NotificationService();
+      notificationService.onTapNavigateToTransactions = () {
+        router.go('/transactions');
+      };
+      notificationService.onTapNavigateToTransaction = (String txHash) {
+        router.go('/transactions', extra: txHash);
+      };
+    });
   }
   
   Future<void> _loadLastAuthTime() async {

@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../../../services/qr_scanner_service.dart';
 import '../../../services/price_service.dart';
+import '../../widgets/animated_number.dart';
 import '../wallet/fake_send_page.dart';
 
 class SendPageEnhanced extends ConsumerStatefulWidget {
@@ -54,6 +55,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
   String _enteredPin = '';
   bool _showPinEntry = false;
   bool _showSlideToSend = false;
+  bool _verifyingPin = false;
 
   // Slide to send
   double _slidePosition = 0.0;
@@ -340,6 +342,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
   }
 
   void _loadCryptoPrice() {
+    // Return immediately if this coin was already loaded this session
     if (_cachedPrices.containsKey(_selectedCoin)) {
       setState(() {
         _currentCryptoPrice = _cachedPrices[_selectedCoin]!;
@@ -347,28 +350,42 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
       return;
     }
 
-    // Fallback prices (used until live price arrives)
-    final fallback = {
-      'BTC': 96000.0,
-      'ETH': 3600.0,
-      'BNB': 625.0,
-      'TRX': 0.25,
-      'XRP': 2.45,
-      'SOL': 235.0,
-      'LTC': 102.0,
-      'DOGE': 0.40,
-      'USDT-ERC20': 1.0,
-      'USDT-BEP20': 1.0,
-    };
+    final coinSymbol =
+        _selectedCoin.contains('-') ? _selectedCoin.split('-')[0] : _selectedCoin;
 
-    // Set fallback immediately so UI isn't blank
-    setState(() {
-      _currentCryptoPrice = fallback[_selectedCoin] ?? 0.0;
-      _cachedPrices[_selectedCoin] = _currentCryptoPrice;
-    });
+    // 1️⃣ Try disk-persisted price first (real last-known value — survives restarts)
+    final diskCached = PriceService().getCachedPrices();
+    final diskPrice =
+        (diskCached[coinSymbol]?['price'] as num?)?.toDouble() ?? 0.0;
 
-    // Fetch live price and update
-    final coinSymbol = _selectedCoin.contains('-') ? _selectedCoin.split('-')[0] : _selectedCoin;
+    if (diskPrice > 0) {
+      setState(() {
+        _currentCryptoPrice = diskPrice;
+        _cachedPrices[_selectedCoin] = diskPrice;
+      });
+    } else {
+      // 2️⃣ Last-resort static fallback (only hit on very first ever launch)
+      const fallback = {
+        'BTC': 96000.0,
+        'ETH': 3600.0,
+        'BNB': 625.0,
+        'TRX': 0.25,
+        'XRP': 2.45,
+        'SOL': 235.0,
+        'LTC': 102.0,
+        'DOGE': 0.40,
+        'USDT': 1.0,
+      };
+      final staticPrice = fallback[coinSymbol] ?? 0.0;
+      if (staticPrice > 0) {
+        setState(() {
+          _currentCryptoPrice = staticPrice;
+          _cachedPrices[_selectedCoin] = staticPrice;
+        });
+      }
+    }
+
+    // 3️⃣ Always fetch live price in background and animate in
     PriceService().getPrices([coinSymbol]).then((prices) {
       final livePrice = (prices[coinSymbol]?['price'] as num?)?.toDouble();
       if (livePrice != null && livePrice > 0 && mounted) {
@@ -378,7 +395,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
         });
       }
     }).catchError((_) {
-      // Keep fallback on error
+      // Keep whatever was already shown — never go blank
     });
   }
 
@@ -501,11 +518,13 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
 
   void _onPinDigitPressed(String digit) {
     if (_enteredPin.length < 6) {
+      final newPin = _enteredPin + digit;
       setState(() {
-        _enteredPin += digit;
+        _enteredPin = newPin;
+        if (newPin.length == 6) _verifyingPin = true;
       });
 
-      if (_enteredPin.length == 6) {
+      if (newPin.length == 6) {
         _verifyPin();
       }
     }
@@ -521,6 +540,9 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
 
   Future<void> _verifyPin() async {
     final isValid = await _pinAuthService.verifyPin(_enteredPin, ref: ref);
+
+    if (!mounted) return;
+    setState(() => _verifyingPin = false);
 
     if (isValid) {
       HapticFeedback.mediumImpact();
@@ -575,6 +597,8 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
 
   Future<void> _executeSend() async {
     setState(() => _loading = true);
+    // Yield one frame so Flutter repaints the spinner before the blocking work
+    await Future.delayed(Duration.zero);
 
     try {
       final cryptoAmount = _getActualCryptoAmount();
@@ -614,6 +638,13 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
         _availableBalance = (_availableBalance - optimisticDeduction);
         _cachedBalances[_selectedCoin] = _availableBalance;
       });
+
+      // Persist the updated balance so the dashboard shows it immediately on return
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(
+            'dashboard_cached_balances', jsonEncode(_cachedBalances));
+      } catch (_) {}
 
       // Record transaction
       await _transactionService.recordSentTransaction(
@@ -863,22 +894,28 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                     ? Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            '${_availableBalance.toStringAsFixed(6)} ${_selectedCoin.split('-').first}',
+                          AnimatedNumber(
+                            value: _availableBalance,
+                            formatter: (v) =>
+                                '${v.toStringAsFixed(6)} ${_selectedCoin.split('-').first}',
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
                             ),
+                            duration: const Duration(milliseconds: 600),
                           ),
                           if (_currentCryptoPrice > 0) ...[
                             const SizedBox(width: 4),
-                            Text(
-                              '(\$${(_availableBalance * _currentCryptoPrice).toStringAsFixed(2)})',
+                            AnimatedNumber(
+                              value: _availableBalance * _currentCryptoPrice,
+                              formatter: (v) =>
+                                  '(\$${v.toStringAsFixed(2)})',
                               style: TextStyle(
                                 color: Colors.white.withOpacity(0.7),
                                 fontSize: 10,
                               ),
+                              duration: const Duration(milliseconds: 600),
                             ),
                           ],
                         ],
@@ -1621,7 +1658,14 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
           },
           onHorizontalDragEnd: (_) {
             setState(() => _isSliding = false);
-            _onSlideComplete();
+            // The main-page slide only advances to PIN — never sends directly
+            if (_slidePosition >= 0.85) {
+              setState(() => _slidePosition = 0.0);
+              HapticFeedback.mediumImpact();
+              _onContinuePressed();
+            } else {
+              setState(() => _slidePosition = 0.0);
+            }
           },
           child: Container(
             height: 60,
@@ -1657,7 +1701,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            'Slide to Send',
+                            'Slide to Continue',
                             style: TextStyle(
                               color: color,
                               fontWeight: FontWeight.w600,
@@ -2032,7 +2076,14 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
               ),
               const SizedBox(height: 24),
 
-              // PIN Dots
+              // PIN Dots / Verifying indicator
+              if (_verifyingPin)
+                const SizedBox(
+                  height: 24,
+                  width: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                )
+              else
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: List.generate(6, (index) {
@@ -2094,7 +2145,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () {
+        onTap: _verifyingPin ? null : () {
           HapticFeedback.lightImpact();
           _onPinDigitPressed(digit);
         },
@@ -2130,7 +2181,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () {
+        onTap: _verifyingPin ? null : () {
           HapticFeedback.lightImpact();
           _onPinBackspace();
         },

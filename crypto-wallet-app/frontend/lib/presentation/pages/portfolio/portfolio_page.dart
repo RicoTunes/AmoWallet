@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../services/wallet_service.dart';
 import '../../../services/price_service.dart';
+import '../../widgets/animated_number.dart';
 
 // ─── Coin meta ────────────────────────────────────────────────────────────────
 
@@ -96,7 +99,8 @@ class _PortfolioPageState extends ConsumerState<PortfolioPage>
     _shimmerCtrl =
         AnimationController(vsync: this, duration: const Duration(seconds: 2))
           ..repeat();
-    _load();
+    // Show cached data instantly, then fetch live data on top
+    _loadCached().then((_) => _load());
   }
 
   @override
@@ -106,9 +110,65 @@ class _PortfolioPageState extends ConsumerState<PortfolioPage>
     super.dispose();
   }
 
+  // ── Cache helpers ──────────────────────────────────────────────────────────
+  static const _cacheKey = 'portfolio_cache_v1';
+
+  Future<void> _loadCached() async {
+    try {
+      // Ensure persisted prices are available before we compute totals
+      await _priceService.loadFromDisk();
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_cacheKey);
+      if (raw != null && raw.isNotEmpty) {
+        final List<dynamic> list = jsonDecode(raw) as List<dynamic>;
+        final assets = list.map((item) {
+          final m = item as Map<String, dynamic>;
+          return _AssetItem(
+            symbol: m['symbol'] as String,
+            balance: (m['balance'] as num).toDouble(),
+            price: (m['price'] as num).toDouble(),
+            change24h: (m['change24h'] as num).toDouble(),
+            value: (m['value'] as num).toDouble(),
+          );
+        }).toList();
+        if (assets.isNotEmpty && mounted) {
+          final total = assets.fold(0.0, (s, a) => s + a.value);
+          setState(() {
+            _assets = assets;
+            _totalValue = total;
+            _isLoading = false; // show stale data immediately — live fetch updates it
+          });
+          _generateChart(total);
+          _fadeCtrl.forward(from: 0);
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Portfolio: could not load cached data: $e');
+    }
+  }
+
+  Future<void> _saveCachedPortfolio(List<_AssetItem> assets) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = assets
+          .map((a) => {
+                'symbol': a.symbol,
+                'balance': a.balance,
+                'price': a.price,
+                'change24h': a.change24h,
+                'value': a.value,
+              })
+          .toList();
+      await prefs.setString(_cacheKey, jsonEncode(list));
+    } catch (e) {
+      debugPrint('⚠️ Portfolio: could not save cache: $e');
+    }
+  }
+
   // ── Data loading ───────────────────────────────────────────────────────────
   Future<void> _load() async {
-    setState(() => _isLoading = true);
+    // Only show spinner if we have nothing to display yet
+    if (_assets.isEmpty && mounted) setState(() => _isLoading = true);
     try {
       final balances = await _walletService.getBalances();
       final symbols = balances.keys.toList();
@@ -136,15 +196,19 @@ class _PortfolioPageState extends ConsumerState<PortfolioPage>
 
       assets.sort((a, b) => b.value.compareTo(a.value));
 
-      setState(() {
-        _totalValue = total;
-        _assets = assets;
-        _isLoading = false;
-      });
-      _generateChart(total);
-      _fadeCtrl.forward(from: 0);
+      if (mounted) {
+        setState(() {
+          _totalValue = total;
+          _assets = assets;
+          _isLoading = false;
+        });
+        _generateChart(total);
+        _fadeCtrl.forward(from: 0);
+        // Persist so next open shows real values instantly
+        _saveCachedPortfolio(assets);
+      }
     } catch (_) {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -328,14 +392,26 @@ class _PortfolioPageState extends ConsumerState<PortfolioPage>
           const Text('Total Portfolio Value',
               style: TextStyle(color: Colors.white70, fontSize: 13)),
           const SizedBox(height: 8),
-          Text(
-            _balanceHidden ? '••••••••' : _fmtUsd(_totalValue),
-            style: const TextStyle(
-                color: Colors.white,
-                fontSize: 36,
-                fontWeight: FontWeight.bold,
-                letterSpacing: -0.5),
-          ),
+          _balanceHidden
+              ? const Text(
+                  '••••••••',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 36,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2),
+                )
+              : AnimatedCurrencyNumber(
+                  value: _totalValue,
+                  formatter: _fmtUsd,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 36,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: -0.5),
+                  duration: const Duration(milliseconds: 900),
+                  textAlign: TextAlign.start,
+                ),
           const SizedBox(height: 12),
           Row(
             children: [
@@ -663,13 +739,22 @@ class _PortfolioPageState extends ConsumerState<PortfolioPage>
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text(
-                      _balanceHidden ? '••••' : _fmtUsd(a.value),
-                      style: const TextStyle(
-                          color: _textPrimary,
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold),
-                    ),
+                    _balanceHidden
+                        ? const Text('••••',
+                            style: TextStyle(
+                                color: _textPrimary,
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold))
+                        : AnimatedCurrencyNumber(
+                            value: a.value,
+                            formatter: _fmtUsd,
+                            style: const TextStyle(
+                                color: _textPrimary,
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold),
+                            duration: const Duration(milliseconds: 700),
+                            textAlign: TextAlign.end,
+                          ),
                     const SizedBox(height: 4),
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -689,12 +774,14 @@ class _PortfolioPageState extends ConsumerState<PortfolioPage>
                             size: 10,
                           ),
                           const SizedBox(width: 2),
-                          Text(
-                            '${a.change24h.abs().toStringAsFixed(2)}%',
+                          RollingDigitText(
+                            text:
+                                '${a.change24h.abs().toStringAsFixed(2)}%',
                             style: TextStyle(
                                 color: changeColor,
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold),
+                            duration: const Duration(milliseconds: 400),
                           ),
                         ],
                       ),

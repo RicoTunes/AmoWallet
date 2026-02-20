@@ -118,6 +118,10 @@ class NotificationService {
   /// to the transactions page. Set during app initialisation.
   Function()? onTapNavigateToTransactions;
 
+  /// An optional callback called when the user taps an OS notification banner that
+  /// carries a txHash payload. Allows the host app to open the specific detail page.
+  Function(String txHash)? onTapNavigateToTransaction;
+
   List<AppNotification> get notifications => List.unmodifiable(_notifications);
   int get unreadCount => _notifications.where((n) => !n.isRead).length;
 
@@ -148,7 +152,12 @@ class NotificationService {
   }
 
   void _onNotificationTapped(NotificationResponse response) {
-    onTapNavigateToTransactions?.call();
+    final payload = response.payload;
+    if (payload != null && payload.isNotEmpty && onTapNavigateToTransaction != null) {
+      onTapNavigateToTransaction!(payload);
+    } else {
+      onTapNavigateToTransactions?.call();
+    }
   }
 
   // ─── Listeners ───────────────────────────────────────────────────────────
@@ -250,6 +259,7 @@ class NotificationService {
         title: title,
         message: message,
         type: type,
+        txHash: txHash,
       );
     } catch (_) {}
   }
@@ -321,28 +331,56 @@ class NotificationService {
 
   // ─── System notifications ─────────────────────────────────────────────
 
+  /// Request Android 13+ POST_NOTIFICATIONS permission at runtime.
+  /// Safe to call on older Android versions — returns true immediately.
+  Future<bool> requestPermission() async {
+    try {
+      final android = _flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>();
+      if (android != null) {
+        final granted = await android.requestNotificationsPermission();
+        return granted ?? false;
+      }
+    } catch (_) {}
+    return true; // non-Android — assume granted
+  }
+
   Future<void> _showSystemNotification({
     required int id,
     required String title,
     required String message,
     required NotificationType type,
+    String? txHash,
   }) async {
+    // Use a dedicated high-priority channel with sound for incoming transactions
+    final channelId = type == NotificationType.incoming
+        ? 'crypto_wallet_incoming'
+        : 'crypto_wallet_channel';
+    final channelName = type == NotificationType.incoming
+        ? 'Incoming Transactions'
+        : 'Crypto Wallet Notifications';
+    final channelDesc = type == NotificationType.incoming
+        ? 'Alerts when crypto is received in your wallet'
+        : 'Notifications for crypto wallet transactions and updates';
+
     final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'crypto_wallet_channel',
-      'Crypto Wallet Notifications',
-      channelDescription: 'Notifications for crypto wallet transactions and updates',
-      importance: Importance.high,
-      priority: Priority.high,
+      channelId,
+      channelName,
+      channelDescription: channelDesc,
+      importance: Importance.max,
+      priority: Priority.max,
       icon: '@mipmap/ic_launcher',
       color: _getNotificationColor(type),
       enableVibration: true,
-      playSound: false,
+      playSound: true,
+      fullScreenIntent: type == NotificationType.incoming,
     );
 
     const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
       presentAlert: true,
       presentBadge: true,
-      presentSound: false,
+      presentSound: true,
     );
 
     final NotificationDetails platformDetails = NotificationDetails(
@@ -355,6 +393,7 @@ class NotificationService {
       title,
       message,
       platformDetails,
+      payload: txHash,
     );
   }
 
