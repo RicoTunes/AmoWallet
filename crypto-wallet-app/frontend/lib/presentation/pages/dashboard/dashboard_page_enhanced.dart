@@ -18,6 +18,7 @@ import '../../../services/blockchain_service.dart';
 import '../../../models/transaction_model.dart';
 import '../../widgets/portfolio_chart_widget.dart';
 import '../../widgets/animated_number.dart';
+import '../transactions/transaction_detail_page.dart';
 
 class DashboardPageEnhanced extends ConsumerStatefulWidget {
   const DashboardPageEnhanced({super.key});
@@ -888,7 +889,17 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
                       itemBuilder: (context, index) {
                         final tx = _recentTransactions[index];
                         final isReceived = tx.type == 'received';
-                        return Container(
+                        return GestureDetector(
+                          onTap: () {
+                            Navigator.pop(context); // close the bottom sheet
+                            Navigator.push(
+                              this.context,
+                              MaterialPageRoute(
+                                builder: (_) => TransactionDetailPage(tx: tx),
+                              ),
+                            );
+                          },
+                          child: Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
@@ -952,7 +963,8 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
                               ),
                             ],
                           ),
-                        );
+                        ),   // close GestureDetector child (Container)
+                        );   // close GestureDetector
                       },
                     ),
             ),

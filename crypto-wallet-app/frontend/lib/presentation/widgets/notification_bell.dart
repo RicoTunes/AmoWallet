@@ -57,17 +57,19 @@ class _NotificationBellState extends State<NotificationBell> {
           try {
             final txService = TransactionService();
             final all = await txService.getAllTransactions();
-            final match = all.firstWhere(
-              (t) => t.txHash == txHash,
-              orElse: () => all.first,
-            );
-            if (context.mounted) {
+            final matches = all.where(
+              (t) => t.txHash == txHash || t.id == txHash,
+            ).toList();
+            if (matches.isNotEmpty && context.mounted) {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => TransactionDetailPage(tx: match),
+                  builder: (_) => TransactionDetailPage(tx: matches.first),
                 ),
               );
+            } else if (context.mounted) {
+              // No exact match — open the transactions list
+              context.go('/transactions');
             }
           } catch (_) {
             // Fall back to transactions list if lookup fails

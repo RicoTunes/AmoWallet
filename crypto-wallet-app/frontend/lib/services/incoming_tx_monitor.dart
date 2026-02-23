@@ -5,7 +5,6 @@ import 'blockchain_service.dart';
 import 'wallet_service.dart';
 import 'notification_service.dart';
 import 'transaction_service.dart';
-import '../models/transaction_model.dart';
 
 /// Service to monitor and detect incoming transactions
 class IncomingTxMonitor {
@@ -28,7 +27,7 @@ class IncomingTxMonitor {
   static const String LAST_BALANCES_KEY = 'last_known_balances';
   static const String MONITOR_START_TIME_KEY = 'tx_monitor_start_time';
   static const String NOTIFIED_TX_HASHES_KEY = 'notified_tx_hashes';
-  static const int CHECK_INTERVAL_SECONDS = 60; // Check every minute
+  static const int CHECK_INTERVAL_SECONDS = 30; // Check every 30 seconds
 
   /// Start monitoring for incoming transactions
   Future<void> startMonitoring() async {
@@ -57,8 +56,8 @@ class IncomingTxMonitor {
       (_) => _checkForIncomingTransactions(),
     );
     
-    // Do initial check after 10 seconds
-    Future.delayed(const Duration(seconds: 10), () {
+    // Do initial check after 5 seconds (gives wallet service time to set up)
+    Future.delayed(const Duration(seconds: 5), () {
       if (_isMonitoring) _checkForIncomingTransactions();
     });
   }
@@ -161,174 +160,102 @@ class IncomingTxMonitor {
     }
   }
 
-  /// Check for incoming transactions by comparing balances
+  /// Check for incoming transactions by scanning blockchain transaction history
+  /// for new received hashes we haven't notified about yet.
+  /// Falls back to balance-comparison when tx history is unavailable.
   Future<void> _checkForIncomingTransactions() async {
     if (!_isMonitoring) return;
     
     try {
       print('🔍 Checking for incoming transactions...');
       
-      // Get current balances
-      final currentBalances = await _walletService.getBalances();
+      // Supported chains
+      const chains = ['BTC', 'ETH', 'BNB', 'SOL', 'TRX', 'LTC', 'DOGE', 'XRP'];
       
-      // Compare with last known
-      for (final coin in currentBalances.keys) {
-        final currentBalance = currentBalances[coin] ?? 0.0;
-        final lastBalance = _lastKnownBalances[coin] ?? 0.0;
-        
-        // Detect increase (incoming)
-        if (currentBalance > lastBalance) {
-          final increase = currentBalance - lastBalance;
+      for (final coin in chains) {
+        try {
+          final addresses = await _walletService.getStoredAddresses(coin);
+          if (addresses.isEmpty) continue;
+          final address = addresses.first;
           
-          // Only notify for meaningful amounts
-          if (increase > 0.00000001) {
-            print('💰 Detected incoming $coin: +$increase');
-            await _handleIncomingTransaction(coin, increase, currentBalance);
+          // Primary: fetch recent tx history and look for new received hashes
+          final txs = await _blockchainService.getTransactionHistory(coin, address)
+              .timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]);
+          
+          for (final tx in txs) {
+            final txHash = (tx['hash'] ?? tx['txHash'] ?? '').toString();
+            if (txHash.isEmpty) continue;
+            
+            // Determine if this is an incoming tx
+            final rawType = (tx['type'] ?? '').toString().toLowerCase();
+            final toAddr = (tx['toAddress'] ?? tx['to'] ?? '').toString().toLowerCase();
+            final fromAddr = (tx['fromAddress'] ?? tx['from'] ?? '').toString().toLowerCase();
+            final myAddr = address.toLowerCase();
+            
+            final isReceived = rawType == 'received' ||
+                rawType.contains('incoming') ||
+                rawType == 'in' ||
+                (toAddr == myAddr && fromAddr != myAddr);
+            
+            if (!isReceived) continue;
+            
+            // Skip if already notified
+            if (_notifiedTxHashes.contains(txHash)) continue;
+            
+            // Skip transactions that happened before monitor was installed
+            if (_monitorStartTime != null) {
+              final ts = (tx['timestamp'] as int?) ?? 0;
+              final txTime = ts > 0
+                  ? DateTime.fromMillisecondsSinceEpoch(ts > 9999999999 ? ts : ts * 1000)
+                  : DateTime.now();
+              if (txTime.isBefore(_monitorStartTime!)) continue;
+            }
+            
+            final amount = (tx['amount'] as num?)?.toDouble().abs() ?? 0.0;
+            if (amount <= 0.00000001) continue;
+            
+            // New incoming transaction found!
+            print('💰 New incoming $coin detected: +$amount (hash: $txHash)');
+            
+            _notifiedTxHashes.add(txHash);
+            await _saveNotifiedTxHashes();
+            
+            // Record to transaction history
+            await _transactionService.recordReceivedTransaction(
+              coin: coin,
+              amount: amount,
+              fromAddress: fromAddr.isNotEmpty ? fromAddr : 'Unknown',
+              toAddress: address,
+              txHash: txHash,
+            );
+            
+            // Show notification
+            await _notificationService.showIncomingTransaction(
+              amount: amount.toStringAsFixed(8).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), ''),
+              currency: coin,
+              from: fromAddr.isNotEmpty
+                  ? (fromAddr.length > 12 ? '${fromAddr.substring(0, 10)}…' : fromAddr)
+                  : 'Blockchain',
+              txHash: txHash,
+            );
+            
+            print('✅ Notification sent for incoming $coin (txHash: $txHash)');
           }
+        } catch (e) {
+          print('⚠️ Error checking $coin for incoming txs: $e');
         }
       }
       
-      // Update last known balances
-      _lastKnownBalances = Map.from(currentBalances);
-      await _saveLastKnownBalances();
+      // Also update balance snapshot so other parts of the app stay in sync
+      try {
+        final currentBalances = await _walletService.getBalances();
+        _lastKnownBalances = Map.from(currentBalances);
+        await _saveLastKnownBalances();
+      } catch (_) {}
       
     } catch (e) {
       print('Error checking for incoming transactions: $e');
     }
-  }
-
-  /// Handle detected incoming transaction
-  Future<void> _handleIncomingTransaction(
-    String coin, 
-    double amount, 
-    double newBalance,
-  ) async {
-    try {
-      // Create a unique identifier for this transaction (used as dedup key and fallback txHash)
-      final txIdentifier = '$coin-${amount.toStringAsFixed(8)}-${DateTime.now().millisecondsSinceEpoch ~/ 60000}';
-      
-      // Check if we've already notified about this transaction
-      if (_notifiedTxHashes.contains(txIdentifier)) {
-        print('⏭️ Already notified about transaction: $txIdentifier');
-        return;
-      }
-      
-      // Add to notified set and save
-      _notifiedTxHashes.add(txIdentifier);
-      await _saveNotifiedTxHashes();
-
-      // Try to fetch and save the actual transaction first so we get a real txHash
-      final realTxHash = await _fetchAndSaveTransaction(coin, amount);
-      final txHash = realTxHash ?? txIdentifier;
-
-      // Skip if this real txHash was already notified (e.g. watcher service got it first)
-      if (realTxHash != null && _notifiedTxHashes.contains(realTxHash)) {
-        print('⏭️ Real txHash already notified: $realTxHash');
-        return;
-      }
-      if (realTxHash != null) {
-        _notifiedTxHashes.add(realTxHash);
-        await _saveNotifiedTxHashes();
-      }
-
-      // Get the sender address for the notification message
-      String fromAddr = 'Blockchain';
-      try {
-        final addresses = await _walletService.getStoredAddresses(coin);
-        if (addresses.isNotEmpty) {
-          // fromAddr stays 'Blockchain' – we don't know sender at this level
-        }
-      } catch (_) {}
-
-      // Show notification with correct incoming type and txHash for detail navigation
-      await _notificationService.showIncomingTransaction(
-        amount: amount.toStringAsFixed(8),
-        currency: coin,
-        from: fromAddr,
-        txHash: txHash,
-      );
-      
-      print('✅ Notification sent for incoming $coin (txHash: $txHash)');
-    } catch (e) {
-      print('Error handling incoming transaction: $e');
-    }
-  }
-
-  /// Get USD value of amount
-  Future<double> _getUsdValue(String coin, double amount) async {
-    try {
-      // Use cached prices or fetch
-      final prices = {
-        'BTC': 95000.0,
-        'ETH': 3020.0,
-        'BNB': 650.0,
-        'USDT': 1.0,
-        'SOL': 200.0,
-        'XRP': 2.0,
-        'DOGE': 0.30,
-        'LTC': 100.0,
-      };
-      
-      return amount * (prices[coin] ?? 0);
-    } catch (e) {
-      return 0;
-    }
-  }
-
-  /// Try to fetch the actual transaction and save to history.
-  /// Returns the txHash if found, or null.
-  Future<String?> _fetchAndSaveTransaction(String coin, double amount) async {
-    try {
-      // Get user's address for this coin
-      final addresses = await _walletService.getStoredAddresses(coin);
-      if (addresses.isEmpty) return null;
-      
-      final address = addresses.first;
-      
-      // Fetch recent transactions
-      final transactions = await _blockchainService.getTransactionHistory(coin, address);
-      
-      // Find matching incoming transaction – be lenient about the type field
-      for (final tx in transactions) {
-        final txType = (tx['type'] ?? tx['txType'] ?? '').toString().toLowerCase();
-        final toAddr = (tx['to'] ?? tx['toAddress'] ?? '').toString().toLowerCase();
-        final myAddr = address.toLowerCase();
-
-        final isReceive = txType.contains('receive') ||
-            txType.contains('incoming') ||
-            txType == 'in' ||
-            toAddr == myAddr;
-
-        final txAmount = (tx['amount'] as num?)?.toDouble().abs() ?? 0.0;
-        final amountMatch = (txAmount - amount.abs()).abs() < (amount * 0.01 + 0.000001);
-
-        if (isReceive && amountMatch) {
-          final txHash = (tx['hash'] ?? tx['txHash'] ?? '').toString();
-          
-          // Save to transaction history
-          final transaction = Transaction(
-            id: txHash.isNotEmpty ? txHash : DateTime.now().millisecondsSinceEpoch.toString(),
-            coin: coin,
-            type: 'received',
-            amount: amount,
-            status: 'completed',
-            timestamp: DateTime.tryParse(tx['timestamp']?.toString() ?? '') ?? DateTime.now(),
-            fromAddress: (tx['from'] ?? tx['fromAddress'] ?? 'Unknown').toString(),
-            toAddress: address,
-            address: address,
-            txHash: txHash.isNotEmpty ? txHash : null,
-            confirmations: (tx['confirmations'] as num?)?.toInt() ?? 1,
-          );
-          
-          await _transactionService.storeTransaction(transaction);
-          print('💾 Saved incoming transaction to history: ${transaction.txHash}');
-          return txHash.isNotEmpty ? txHash : null;
-        }
-      }
-    } catch (e) {
-      print('Failed to fetch/save transaction details: $e');
-    }
-    return null;
   }
 
   /// Force refresh and check
