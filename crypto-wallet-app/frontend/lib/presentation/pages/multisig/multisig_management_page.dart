@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/config/api_config.dart';
+import '../../../core/services/api_auth_service.dart';
 import '../../../services/biometric_auth_service.dart';
 
 class MultiSigManagementPage extends StatefulWidget {
@@ -15,7 +16,7 @@ class MultiSigManagementPage extends StatefulWidget {
 class _MultiSigManagementPageState extends State<MultiSigManagementPage> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final _contractAddressController = TextEditingController();
-  final _dio = Dio();
+  late final Dio _dio;
   String? _savedContractAddress;
   Map<String, dynamic>? _contractInfo;
   List<dynamic> _pendingTransactions = [];
@@ -24,6 +25,8 @@ class _MultiSigManagementPageState extends State<MultiSigManagementPage> with Si
   @override
   void initState() {
     super.initState();
+    _dio = Dio();
+    _dio.interceptors.add(ApiAuthService().createDioAuthInterceptor());
     _tabController = TabController(length: 3, vsync: this);
     _loadSavedAddress();
   }

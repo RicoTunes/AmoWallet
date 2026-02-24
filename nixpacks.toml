@@ -1,6 +1,6 @@
-# Railway deployment config - Node.js backend ONLY
-# Explicitly disable Rust detection
-# Cache bust: v2 - 2026-01-22
+# Railway deployment config — Dockerfile-based (Rust + Node.js)
+# Cache bust: v3 - 2026-02-23
+# NOTE: railway.json specifies builder=DOCKERFILE so nixpacks is a fallback.
 providers = ["node"]
 
 [phases.setup]
@@ -13,7 +13,7 @@ cmds = ["rm -rf node_modules package-lock.json && npm install --legacy-peer-deps
 
 [phases.build]
 dependsOn = ["install"]
-cmds = ["echo 'Build complete - v2'"]
+cmds = ["echo 'Build complete - v3'"]
 
 [start]
 cmd = "node crypto-wallet-app/backend/server.js"
@@ -21,3 +21,4 @@ cmd = "node crypto-wallet-app/backend/server.js"
 [variables]
 NODE_ENV = "production"
 PORT = "3000"
+RUST_HTTPS_PORT = "8443"

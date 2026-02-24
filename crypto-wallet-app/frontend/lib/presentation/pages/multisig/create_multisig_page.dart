@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/config/api_config.dart';
+import '../../../core/services/api_auth_service.dart';
 import '../../../services/biometric_auth_service.dart';
 
 class CreateMultiSigPage extends StatefulWidget {
@@ -20,7 +21,14 @@ class _CreateMultiSigPageState extends State<CreateMultiSigPage> {
   ];
   int _requiredConfirmations = 2;
   bool _isCreating = false;
-  final _dio = Dio();
+  late final Dio _dio;
+
+  @override
+  void initState() {
+    super.initState();
+    _dio = Dio();
+    _dio.interceptors.add(ApiAuthService().createDioAuthInterceptor());
+  }
 
   @override
   void dispose() {

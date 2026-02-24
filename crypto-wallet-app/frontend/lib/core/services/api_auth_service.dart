@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
+import 'package:dio/dio.dart' as dio_pkg;
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
@@ -177,5 +179,28 @@ class ApiAuthService {
     
     final credentials = await generateNewApiKey(baseUrl);
     return credentials != null;
+  }
+
+  /// Create a Dio interceptor that auto-adds auth headers to every request.
+  /// Usage: `_dio.interceptors.add(ApiAuthService().createDioAuthInterceptor());`
+  dio_pkg.Interceptor createDioAuthInterceptor() {
+    return dio_pkg.InterceptorsWrapper(
+      onRequest: (options, handler) async {
+        try {
+          final method = options.method.toUpperCase();
+          final path = options.uri.path;
+          final bodyString = options.data != null ? jsonEncode(options.data) : '';
+          final headers = await getAuthHeaders(
+            method: method,
+            path: path,
+            body: bodyString,
+          );
+          options.headers.addAll(headers);
+        } catch (e) {
+          debugPrint('Auth interceptor error: $e');
+        }
+        handler.next(options);
+      },
+    );
   }
 }

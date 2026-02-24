@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/config/api_config.dart';
+import '../../../core/services/api_auth_service.dart';
 import '../../../services/biometric_auth_service.dart';
 import '../../../services/pin_auth_service.dart';
 
@@ -19,7 +20,7 @@ class MultiSigWalletPage extends ConsumerStatefulWidget {
 class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late TabController _tabController;
-  final _dio = Dio();
+  late final Dio _dio;
   final _biometricService = BiometricAuthService();
   final _pinAuthService = PinAuthService();
 
@@ -58,6 +59,8 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
   @override
   void initState() {
     super.initState();
+    _dio = Dio();
+    _dio.interceptors.add(ApiAuthService().createDioAuthInterceptor());
     WidgetsBinding.instance.addObserver(this);
     _tabController = TabController(length: 3, vsync: this);
     _restoreCreateWalletForm();
