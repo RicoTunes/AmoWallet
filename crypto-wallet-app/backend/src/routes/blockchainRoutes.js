@@ -236,6 +236,10 @@ router.get('/balance/:network/:address', balanceLimiter, async (req, res) => {
 });
 
 // POST send real transaction with actual signing
+// ⚠️  DEPRECATED: Use /api/secure/sign-evm instead. This route is kept for
+//     backward compatibility but should NOT be used by the current Flutter app.
+//     The Flutter app now routes ALL sends through /api/secure/* which encrypts
+//     private keys with AES-256-GCM and has Rust sign the transaction.
 router.post('/send', transactionLimiter, [
   body('network').isString().isIn(['ETH', 'BNB']), // Currently supporting EVM chains
   body('from').isString().isLength({ min: 42, max: 42 }),
@@ -481,11 +485,9 @@ router.post('/send/bitcoin', transactionLimiter, [
     try {
       // Try WIF first (starts with 5, K, or L for mainnet)
       if (privateKeyWIF.match(/^[5KL]/)) {
-        console.log('🔑 Detected WIF format');
         keyPair = ECPair.fromWIF(privateKeyWIF, bitcoin.networks.bitcoin);
       } else {
         // Assume hex format
-        console.log('🔑 Detected hex format, converting...');
         const cleanHex = privateKeyWIF.replace(/^0x/, '');
         const privateKeyBuffer = Buffer.from(cleanHex, 'hex');
         keyPair = ECPair.fromPrivateKey(privateKeyBuffer, { network: bitcoin.networks.bitcoin });

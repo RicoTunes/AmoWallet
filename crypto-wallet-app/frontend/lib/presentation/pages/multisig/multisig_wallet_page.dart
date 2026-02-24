@@ -26,6 +26,7 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
   // ── Wallet state ──────────────────────────────────────────────────────────
   String? _walletAddress;
   List<dynamic> _pendingTransactions = [];
+  List<dynamic> _historyTransactions = [];
   List<dynamic> _owners = [];
   int _requiredSignatures = 2;
   bool _loading = false;
@@ -159,15 +160,21 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
     if (_walletAddress == null) return;
     try {
       final response = await _dio
-          .get('${ApiConfig.baseUrl}/api/multisig/owners/$_walletAddress')
-          .timeout(const Duration(seconds: 5));
+          .get('${ApiConfig.baseUrl}/api/multisig/owners/$_walletAddress',
+              options: Options(validateStatus: (s) => s != null && s < 500))
+          .timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         setState(() {
           _owners = response.data['owners'] ?? [];
-          _requiredSignatures = response.data['required'] ?? 2;
-          _balance = (response.data['balance'] ?? 0).toDouble();
+          _requiredSignatures = (response.data['required'] ?? 2) is int
+              ? response.data['required']
+              : int.tryParse(response.data['required'].toString()) ?? 2;
+          _balance = double.tryParse(
+                  response.data['balance']?.toString() ?? '0') ??
+              0.0;
         });
         await _loadPendingTransactions();
+        await _loadHistory();
       }
     } catch (_) {
       // Load from local cache
@@ -187,11 +194,27 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
     if (_walletAddress == null) return;
     try {
       final response = await _dio
-          .get('${ApiConfig.baseUrl}/api/multisig/pending/$_walletAddress')
-          .timeout(const Duration(seconds: 5));
+          .get('${ApiConfig.baseUrl}/api/multisig/pending/$_walletAddress',
+              options: Options(validateStatus: (s) => s != null && s < 500))
+          .timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         setState(() {
           _pendingTransactions = response.data['pending'] ?? [];
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadHistory() async {
+    if (_walletAddress == null) return;
+    try {
+      final response = await _dio
+          .get('${ApiConfig.baseUrl}/api/multisig/history/$_walletAddress',
+              options: Options(validateStatus: (s) => s != null && s < 500))
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        setState(() {
+          _historyTransactions = response.data['transactions'] ?? [];
         });
       }
     } catch (_) {}
@@ -668,12 +691,16 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
   }
 
   Widget _pendingTxCard(Map<String, dynamic> tx) {
-    final confirmations = (tx['confirmations'] ?? 0) as int;
+    final confirmations =
+        (tx['num_confirmations'] ?? tx['confirmations'] ?? 0) as int;
     final progress =
         _requiredSignatures > 0 ? confirmations / _requiredSignatures : 0.0;
-    final isReady = confirmations >= _requiredSignatures;
-    final valueEth =
-        ((tx['value'] ?? 0) as num).toDouble() / 1e18;
+    final isReady = tx['can_execute'] == true ||
+        confirmations >= _requiredSignatures;
+    // Rust returns value_eth as a string; fall back to wei conversion
+    final valueEth = tx['value_eth'] != null
+        ? double.tryParse(tx['value_eth'].toString()) ?? 0.0
+        : ((tx['value'] ?? 0) as num).toDouble() / 1e18;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -704,7 +731,7 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'TX #${tx['txIndex'] ?? tx['index'] ?? '?'}',
+                      'TX #${tx['tx_index'] ?? tx['txIndex'] ?? tx['index'] ?? '?'}',
                       style: const TextStyle(
                           color: _textPrimary,
                           fontWeight: FontWeight.bold,
@@ -761,7 +788,7 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
                     BorderSide(color: _success, width: 1.2), () async {
                   if (await _authenticate()) {
                     _confirmTransaction(
-                        (tx['txIndex'] as num).toInt());
+                        (tx['tx_index'] ?? tx['txIndex'] as num).toInt());
                   }
                 }),
                 const SizedBox(width: 8),
@@ -769,7 +796,7 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
                     BorderSide(color: _danger, width: 1.2), () async {
                   if (await _authenticate()) {
                     _revokeConfirmation(
-                        (tx['txIndex'] as num).toInt());
+                        (tx['tx_index'] ?? tx['txIndex'] as num).toInt());
                   }
                 }),
                 if (isReady) ...[
@@ -781,7 +808,7 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
                       BorderSide(color: _success, width: 1.2), () async {
                     if (await _authenticate()) {
                       _executeTransaction(
-                          (tx['txIndex'] as num).toInt());
+                          (tx['tx_index'] ?? tx['txIndex'] as num).toInt());
                     }
                   }),
                 ],
@@ -931,10 +958,89 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
   // ── History tab ───────────────────────────────────────────────────────────
 
   Widget _buildHistoryTab() {
-    return _emptyState(
-      icon: Icons.history,
-      message: 'No transaction history',
-      sub: 'Completed transactions will appear here',
+    if (_historyTransactions.isEmpty) {
+      return _emptyState(
+        icon: Icons.history,
+        message: 'No transaction history',
+        sub: 'Completed transactions will appear here',
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      itemCount: _historyTransactions.length,
+      itemBuilder: (_, i) {
+        final tx = _historyTransactions[i] as Map<String, dynamic>;
+        final executed = tx['executed'] == true;
+        final valueEth = tx['value_eth'] != null
+            ? double.tryParse(tx['value_eth'].toString()) ?? 0.0
+            : 0.0;
+        return Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: _card,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+                color: executed ? _success.withOpacity(0.3) : _border),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: (executed ? _success : _textSecondary)
+                      .withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                    executed ? Icons.check_circle : Icons.pending,
+                    color: executed ? _success : _textSecondary,
+                    size: 18),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'TX #${tx['tx_index'] ?? '?'}',
+                      style: const TextStyle(
+                          color: _textPrimary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13),
+                    ),
+                    Text(
+                      _formatAddress(tx['to'] as String? ?? ''),
+                      style: const TextStyle(
+                          color: _textSecondary,
+                          fontFamily: 'monospace',
+                          fontSize: 11),
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '${valueEth.toStringAsFixed(4)} ETH',
+                    style: const TextStyle(
+                        color: _textPrimary,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13),
+                  ),
+                  Text(
+                    executed ? 'Executed' : 'Pending',
+                    style: TextStyle(
+                        color: executed ? _success : _warning,
+                        fontSize: 11),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -1329,61 +1435,72 @@ class _MultiSigWalletPageState extends ConsumerState<MultiSigWalletPage>
   Future<void> _createWallet(List<String> owners, int required) async {
     setState(() => _loading = true);
     try {
-      try {
-        final response = await _dio.post(
-          '${ApiConfig.baseUrl}/api/multisig/deploy',
-          data: {'owners': owners, 'required': required},
-        ).timeout(const Duration(seconds: 10));
+      final response = await _dio.post(
+        '${ApiConfig.baseUrl}/api/multisig/deploy',
+        data: {'owners': owners, 'required': required},
+        options: Options(validateStatus: (s) => s != null && s < 500),
+      ).timeout(const Duration(seconds: 60));
 
-        if (response.statusCode == 200 &&
-            response.data['address'] != null) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString(
-              'multisig_wallet_address', response.data['address']);
-          await prefs.setStringList('multisig_owners', owners);
-          await prefs.setInt('multisig_required', required);
-          setState(() {
-            _walletAddress = response.data['address'];
-            _hasWallet = true;
-            _owners = owners;
-            _requiredSignatures = required;
-          });
-          await _loadWalletDetails();
-          _snack('MultiSig wallet created', isSuccess: true);
-          return;
-        }
-      } catch (_) {}
-
-      // Local placeholder (demo — uses XOR hash of owners, not timestamp)
-      final prefs = await SharedPreferences.getInstance();
-      final hash =
-          owners.join().codeUnits.fold(0, (a, b) => a ^ b);
-      final placeholderAddress =
-          '0xLocalMultiSig${hash.toRadixString(16).padLeft(34, '0')}';
-      await prefs.setString(
-          'multisig_wallet_address', placeholderAddress);
-      await prefs.setStringList('multisig_owners', owners);
-      await prefs.setInt('multisig_required', required);
-      setState(() {
-        _walletAddress = placeholderAddress;
-        _hasWallet = true;
-        _owners = owners;
-        _requiredSignatures = required;
-      });
-      _snack('Wallet configured locally. Deploy contract for on-chain use.');
-    } catch (_) {
-      _snack('Failed to create wallet', isError: true);
+      if (response.statusCode == 200 &&
+          response.data['address'] != null) {
+        final addr = response.data['address'].toString();
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('multisig_wallet_address', addr);
+        await prefs.setStringList('multisig_owners', owners);
+        await prefs.setInt('multisig_required', required);
+        setState(() {
+          _walletAddress = addr;
+          _hasWallet = true;
+          _owners = owners;
+          _requiredSignatures = required;
+        });
+        await _loadWalletDetails();
+        _snack('MultiSig wallet deployed on-chain!', isSuccess: true);
+      } else {
+        final err = response.data?['error'] ?? 'Deploy failed';
+        _snack(err.toString(), isError: true);
+      }
+    } on DioException catch (e) {
+      final msg = e.response?.data?['error'] ?? e.message ?? 'Network error';
+      _snack(msg.toString(), isError: true);
+    } catch (e) {
+      _snack('Failed to create wallet: $e', isError: true);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _importWallet(String address) async {
-    setState(() {
-      _walletAddress = address;
-      _hasWallet = true;
-    });
-    await _loadWalletDetails();
+    setState(() => _loading = true);
+    try {
+      // Call Rust import to read on-chain state
+      final response = await _dio.post(
+        '${ApiConfig.baseUrl}/api/multisig/import',
+        data: {'contractAddress': address},
+        options: Options(validateStatus: (s) => s != null && s < 500),
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200 && response.data['address'] != null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('multisig_wallet_address', address);
+        final importedOwners = (response.data['owners'] as List<dynamic>?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            [];
+        await prefs.setStringList('multisig_owners', importedOwners);
+        await prefs.setInt('multisig_required',
+            (response.data['required'] ?? 2) as int);
+      }
+    } catch (_) {
+      // Import failed — still show wallet view, will load via owners endpoint
+    } finally {
+      setState(() {
+        _walletAddress = address;
+        _hasWallet = true;
+        _loading = false;
+      });
+      await _loadWalletDetails();
+    }
   }
 
   Future<void> _submitTransaction(String to, String amount) async {

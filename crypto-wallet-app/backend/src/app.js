@@ -57,6 +57,7 @@ const healthRoutes = require('./routes/healthRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const spendingRoutes = require('./routes/spendingRoutes');
 const priceRoutes = require('./routes/priceRoutes');
+const secureRoutes = require('./routes/secureRoutes');
 
 // Import middleware
 const errorHandler = require('./middleware/errorHandler');
@@ -126,7 +127,10 @@ app.use('/api/wallet', checkAppActive, checkReadOnly, requireAuth ? authenticate
 app.use('/api/swap', checkAppActive, checkReadOnly, requireAuth ? authenticate : (req, res, next) => next(), validateSignature, swapRoutes);
 app.use('/api/multisig', checkAppActive, checkReadOnly, requireAuth ? authenticate : (req, res, next) => next(), validateSignature, multisigRoutes);
 
-// Blockchain routes — no API-key auth required.
+// Secure routes — encrypted key forwarding to Rust (no raw keys in Node.js)
+app.use('/api/secure', checkAppActive, checkReadOnly, secureRoutes);
+
+// Blockchain routes — legacy (being replaced by /api/secure routes)
 // Security is enforced per-route via rate limiting (transactionLimiter) and the
 // client-provided private key (the server never stores keys).
 app.use('/api/blockchain', checkAppActive, checkReadOnly, blockchainRoutes);

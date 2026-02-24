@@ -529,12 +529,16 @@ class _BackupRecoveryPageState extends ConsumerState<BackupRecoveryPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Recovery phrase copied to clipboard'),
+            content: Text('Recovery phrase copied — clipboard auto-clears in 30s'),
             backgroundColor: Colors.orange,
-            duration: Duration(seconds: 2),
+            duration: Duration(seconds: 3),
           ),
         );
       }
+      // SECURITY: Auto-clear clipboard after 30 seconds to prevent leakage
+      Future.delayed(const Duration(seconds: 30), () {
+        Clipboard.setData(const ClipboardData(text: ''));
+      });
     }
   }
 

@@ -62,7 +62,8 @@ class _MultiSigManagementPageState extends State<MultiSigManagementPage> with Si
     try {
       final response = await _dio.get(
         '${ApiConfig.baseUrl}/api/multisig/owners/$address',
-      );
+        options: Options(validateStatus: (s) => s != null && s < 500),
+      ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final prefs = await SharedPreferences.getInstance();
@@ -72,7 +73,7 @@ class _MultiSigManagementPageState extends State<MultiSigManagementPage> with Si
           _savedContractAddress = address;
         });
       } else {
-        throw Exception('Failed to load contract info');
+        throw Exception(response.data?['error'] ?? 'Failed to load contract info');
       }
     } catch (e) {
       if (mounted) {
@@ -94,7 +95,8 @@ class _MultiSigManagementPageState extends State<MultiSigManagementPage> with Si
     try {
       final response = await _dio.get(
         '${ApiConfig.baseUrl}/api/multisig/pending/$address',
-      );
+        options: Options(validateStatus: (s) => s != null && s < 500),
+      ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         setState(() {
@@ -288,6 +290,43 @@ class _MultiSigManagementPageState extends State<MultiSigManagementPage> with Si
     }
   }
 
+  Future<void> _revokeConfirmation(int txIndex) async {
+    final authenticated = await BiometricAuthService().requireAuthentication();
+    if (!authenticated) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final response = await _dio.post(
+        '${ApiConfig.baseUrl}/api/multisig/revoke',
+        data: {
+          'contractAddress': _savedContractAddress,
+          'txIndex': txIndex,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Confirmation revoked'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+          await _loadPendingTransactions();
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -385,7 +424,7 @@ class _MultiSigManagementPageState extends State<MultiSigManagementPage> with Si
                   ),
                   const Divider(height: 24),
                   _buildInfoRow('Owners', '${_contractInfo!['owners']?.length ?? 0}'),
-                  _buildInfoRow('Required Confirmations', '${_contractInfo!['requiredConfirmations'] ?? 'N/A'}'),
+                  _buildInfoRow('Required Confirmations', '${_contractInfo!['required'] ?? _contractInfo!['requiredConfirmations'] ?? 'N/A'}'),
                   _buildInfoRow('Balance', '${_contractInfo!['balance'] ?? '0'} ETH'),
                   const SizedBox(height: 16),
                   if (_savedContractAddress != null)
@@ -442,19 +481,31 @@ class _MultiSigManagementPageState extends State<MultiSigManagementPage> with Si
               itemCount: _pendingTransactions.length,
               itemBuilder: (context, index) {
                 final tx = _pendingTransactions[index];
+                final txIdx = tx['tx_index'] ?? tx['txIndex'] ?? index;
+                final toAddr = (tx['to'] ?? '') as String;
+                final confirmations = tx['num_confirmations'] ?? tx['numConfirmations'] ?? 0;
+                final required = _contractInfo?['required'] ?? _contractInfo?['requiredConfirmations'] ?? '?';
+                final canExec = tx['can_execute'] == true;
+                final valueEth = tx['value_eth'] ?? '0';
                 return Card(
                   margin: const EdgeInsets.only(bottom: 12),
                   child: ListTile(
                     leading: CircleAvatar(
-                      backgroundColor: Colors.orange.withOpacity(0.2),
-                      child: const Icon(Icons.pending_actions, color: Colors.orange),
+                      backgroundColor: canExec
+                          ? Colors.green.withOpacity(0.2)
+                          : Colors.orange.withOpacity(0.2),
+                      child: Icon(
+                        canExec ? Icons.check_circle : Icons.pending_actions,
+                        color: canExec ? Colors.green : Colors.orange,
+                      ),
                     ),
-                    title: Text('Transaction #${tx['txIndex']}'),
+                    title: Text('Transaction #$txIdx'),
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('To: ${tx['to']?.substring(0, 10)}...'),
-                        Text('Confirmations: ${tx['numConfirmations']}/${_contractInfo?['requiredConfirmations'] ?? '?'}'),
+                        Text('To: ${toAddr.length > 10 ? '${toAddr.substring(0, 10)}...' : toAddr}'),
+                        Text('Value: $valueEth ETH'),
+                        Text('Confirmations: $confirmations/$required'),
                       ],
                     ),
                     trailing: PopupMenuButton(
@@ -466,6 +517,16 @@ class _MultiSigManagementPageState extends State<MultiSigManagementPage> with Si
                               Icon(Icons.check, color: Colors.green),
                               SizedBox(width: 8),
                               Text('Confirm'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'revoke',
+                          child: Row(
+                            children: [
+                              Icon(Icons.undo, color: Colors.orange),
+                              SizedBox(width: 8),
+                              Text('Revoke'),
                             ],
                           ),
                         ),
@@ -482,9 +543,11 @@ class _MultiSigManagementPageState extends State<MultiSigManagementPage> with Si
                       ],
                       onSelected: (value) {
                         if (value == 'confirm') {
-                          _confirmTransaction(tx['txIndex']);
+                          _confirmTransaction(txIdx is int ? txIdx : int.tryParse(txIdx.toString()) ?? 0);
+                        } else if (value == 'revoke') {
+                          _revokeConfirmation(txIdx is int ? txIdx : int.tryParse(txIdx.toString()) ?? 0);
                         } else if (value == 'execute') {
-                          _executeTransaction(tx['txIndex']);
+                          _executeTransaction(txIdx is int ? txIdx : int.tryParse(txIdx.toString()) ?? 0);
                         }
                       },
                     ),

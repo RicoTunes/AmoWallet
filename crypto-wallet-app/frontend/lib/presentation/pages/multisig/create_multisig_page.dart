@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../../core/config/api_config.dart';
 import '../../../services/biometric_auth_service.dart';
 
 class CreateMultiSigPage extends StatefulWidget {
@@ -17,6 +20,7 @@ class _CreateMultiSigPageState extends State<CreateMultiSigPage> {
   ];
   int _requiredConfirmations = 2;
   bool _isCreating = false;
+  final _dio = Dio();
 
   @override
   void dispose() {
@@ -45,11 +49,8 @@ class _CreateMultiSigPageState extends State<CreateMultiSigPage> {
   }
 
   Future<void> _createMultiSigWallet() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
 
-    // Require authentication
     final authService = BiometricAuthService();
     final authenticated = await authService.requireAuthentication();
 
@@ -70,39 +71,63 @@ class _CreateMultiSigPageState extends State<CreateMultiSigPage> {
           .where((text) => text.isNotEmpty)
           .toList();
 
-      // Show deployment instructions dialog
-      if (mounted) {
-        await _showDeploymentInstructions(owners, _requiredConfirmations);
+      if (owners.length < 2) {
+        _showError('At least 2 owner addresses required');
+        return;
       }
+
+      // Deploy via Rust backend (on-chain)
+      final response = await _dio.post(
+        '${ApiConfig.baseUrl}/api/multisig/deploy',
+        data: {
+          'owners': owners,
+          'required': _requiredConfirmations,
+        },
+        options: Options(validateStatus: (s) => s != null && s < 500),
+      ).timeout(const Duration(seconds: 60));
+
+      if (response.statusCode == 200 && response.data['address'] != null) {
+        final address = response.data['address'].toString();
+        final txHash = (response.data['tx_hash'] ?? '').toString();
+
+        // Persist locally
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('multisig_wallet_address', address);
+        await prefs.setStringList('multisig_owners', owners);
+        await prefs.setInt('multisig_required', _requiredConfirmations);
+
+        if (mounted) await _showSuccessDialog(address, txHash);
+      } else {
+        final error = response.data['error'] ?? 'Deployment failed';
+        _showError(error.toString());
+      }
+    } on DioException catch (e) {
+      final msg = e.response?.data?['error'] ?? e.message ?? 'Network error';
+      _showError(msg.toString());
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to create multi-sig wallet: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      _showError('Failed to deploy: $e');
     } finally {
-      if (mounted) {
-        setState(() => _isCreating = false);
-      }
+      if (mounted) setState(() => _isCreating = false);
     }
   }
 
-  Future<void> _showDeploymentInstructions(
-    List<String> owners,
-    int required,
-  ) async {
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
+  Future<void> _showSuccessDialog(String address, String txHash) async {
     return showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Row(
           children: [
-            Icon(Icons.info_outline, color: Colors.blue),
+            Icon(Icons.check_circle, color: Colors.green),
             SizedBox(width: 8),
-            Text('Deploy Multi-Sig Wallet'),
+            Text('Wallet Deployed!'),
           ],
         ),
         content: SingleChildScrollView(
@@ -110,67 +135,45 @@ class _CreateMultiSigPageState extends State<CreateMultiSigPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Multi-signature wallet configuration:',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              Text('Owners: ${owners.length}'),
-              ...owners.asMap().entries.map(
-                    (entry) => Padding(
-                      padding: const EdgeInsets.only(left: 16, top: 4),
-                      child: Text(
-                        '${entry.key + 1}. ${entry.value.substring(0, 10)}...${entry.value.substring(entry.value.length - 8)}',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ),
-                  ),
-              const SizedBox(height: 12),
-              Text('Required Confirmations: $required'),
-              const Divider(height: 24),
               const Text(
-                'Deployment Steps:',
-                style: TextStyle(fontWeight: FontWeight.bold),
+                'Your multi-signature wallet has been deployed on-chain.',
+                style: TextStyle(fontSize: 14),
               ),
-              const SizedBox(height: 8),
-              _buildStep('1', 'cd backend/contracts'),
-              _buildStep('2', 'npm install'),
-              _buildStep('3', 'Configure .env file with owner addresses'),
-              _buildStep('4', 'npm run compile'),
-              _buildStep('5', 'npm run deploy:sepolia'),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
+              const Text('Contract Address:',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+              const SizedBox(height: 4),
+              SelectableText(
+                address,
+                style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+              ),
+              if (txHash.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text('Transaction Hash:',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                const SizedBox(height: 4),
+                SelectableText(
+                  txHash,
+                  style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+                ),
+              ],
+              const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.1),
+                  color: Colors.green.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                  border: Border.all(color: Colors.green.withOpacity(0.3)),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.lightbulb_outline, size: 16, color: Colors.blue),
-                        SizedBox(width: 4),
-                        Text(
-                          'Environment Variables:',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    SelectableText(
-                      'MULTISIG_OWNERS=${owners.join(',')}',
-                      style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
-                    ),
-                    const SizedBox(height: 4),
-                    SelectableText(
-                      'REQUIRED_CONFIRMATIONS=$required',
-                      style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+                    const Icon(Icons.security, size: 16, color: Colors.green),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '$_requiredConfirmations of ${_ownerControllers.length} signatures required',
+                        style: const TextStyle(fontSize: 12),
+                      ),
                     ),
                   ],
                 ),
@@ -181,43 +184,19 @@ class _CreateMultiSigPageState extends State<CreateMultiSigPage> {
         actions: [
           TextButton(
             onPressed: () {
-              Clipboard.setData(ClipboardData(
-                text: 'MULTISIG_OWNERS=${owners.join(',')}\nREQUIRED_CONFIRMATIONS=$required',
-              ));
+              Clipboard.setData(ClipboardData(text: address));
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Configuration copied to clipboard')),
+                const SnackBar(content: Text('Address copied')),
               );
             },
-            child: const Text('Copy Config'),
+            child: const Text('Copy Address'),
           ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStep(String number, String text) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 8, bottom: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            number,
-            style: const TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Colors.blue,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(fontSize: 13),
-            ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop(); // close dialog
+              Navigator.of(context).pop(); // go back to wallet page
+            },
+            child: const Text('Go to Wallet'),
           ),
         ],
       ),
@@ -440,11 +419,11 @@ class _CreateMultiSigPageState extends State<CreateMultiSigPage> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         ),
                         SizedBox(width: 12),
-                        Text('Creating...'),
+                        Text('Deploying on-chain...'),
                       ],
                     )
                   : const Text(
-                      'Generate Deployment Configuration',
+                      'Deploy MultiSig Wallet',
                       style: TextStyle(fontSize: 16),
                     ),
             ),

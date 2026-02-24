@@ -29,7 +29,7 @@ pub fn sign_message(private_key_hex: &str, message: &str) -> String {
     hasher.update(message.as_bytes());
     let message_hash = hasher.finalize();
 
-    let message = secp256k1::Message::from_slice(&message_hash).expect("invalid message hash length");
+    let message = secp256k1::Message::from_digest_slice(&message_hash).expect("invalid message hash length");
     let signature = secp.sign_ecdsa(&message, &secret_key);
 
     hex::encode(signature.serialize_compact())
@@ -48,7 +48,7 @@ pub fn verify_signature(public_key_hex: &str, message: &str, signature_hex: &str
     let mut hasher = Sha256::new();
     hasher.update(message.as_bytes());
     let message_hash = hasher.finalize();
-    let message = secp256k1::Message::from_slice(&message_hash).expect("invalid message hash length");
+    let message = secp256k1::Message::from_digest_slice(&message_hash).expect("invalid message hash length");
 
     secp.verify_ecdsa(&message, &signature, &public_key).is_ok()
 }

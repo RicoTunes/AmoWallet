@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/config/api_config.dart';
+import 'rust_security_service.dart';
 
 class BlockchainService {
   final Dio _dio = Dio(BaseOptions(
@@ -1145,7 +1145,10 @@ class BlockchainService {
     }
   }
 
-  /// Send transaction (simulated for demo)
+  /// Send transaction — ALL CHAINS go through Rust-protected pipeline.
+  /// Private keys are AES-256-GCM encrypted BEFORE leaving the device.
+  /// EVM chains (ETH/BNB): Rust signs AND broadcasts the transaction.
+  /// Non-EVM chains: Rust validates spending limits, then decrypts for Node.js signing.
   Future<String> sendTransaction({
     required String coin,
     required String fromAddress,
@@ -1155,215 +1158,85 @@ class BlockchainService {
     String? memo,
   }) async {
     try {
-      print('🚀 Sending REAL $coin transaction...');
+      print('🔒 Sending RUST-PROTECTED $coin transaction...');
       print('📤 From: $fromAddress');
       print('📥 To: $toAddress');
       print('💰 Amount: $amount $coin');
       print('⛽ Fee: $fee $coin');
 
-      // Get the private key — check both FlutterSecureStorage and SharedPreferences
-      // (wallet_service uses SecureStorage with SharedPreferences fallback, so we check both)
+      // Get the private key from FlutterSecureStorage ONLY (no SharedPreferences fallback)
       String? privateKey;
       final storageKey = '${coin}_${fromAddress}_private';
-      if (kIsWeb) {
-        final prefs = await SharedPreferences.getInstance();
-        privateKey = prefs.getString(storageKey);
-      } else {
+      if (!kIsWeb) {
         try {
           final storage = const FlutterSecureStorage(
             aOptions: AndroidOptions(encryptedSharedPreferences: true),
           );
           privateKey = await storage.read(key: storageKey);
         } catch (_) {}
-        // Fallback to SharedPreferences if secure storage returned null
-        if (privateKey == null || privateKey.isEmpty) {
-          final prefs = await SharedPreferences.getInstance();
-          privateKey = prefs.getString(storageKey);
-        }
       }
 
       if (privateKey == null || privateKey.isEmpty) {
         throw Exception(
-            'Private key not found. Cannot send transaction without private key.');
+            'Private key not found in secure storage. Please re-import your wallet.');
       }
 
-      print('🔑 Private key found, preparing to send real transaction...');
+      print('🔑 Private key retrieved from secure storage');
 
-      // Handle Bitcoin transactions differently
-      if (coin == 'BTC') {
-        print('🔵 Using Bitcoin-specific endpoint...');
-        print('🔑 Sending private key in original format');
+      final rustSecurity = RustSecurityService();
 
-        final response = await _dio.post(
-          '${ApiConfig.baseUrl}/api/blockchain/send/bitcoin',
-          data: {
-            'from': fromAddress,
-            'to': toAddress,
-            'amount': amount,
-            'privateKeyWIF':
-                privateKey, // Backend will handle hex or WIF format
-            'fee': fee,
-          },
-        );
-
-        if (response.data['success'] == true) {
-          final txHash = response.data['txHash'];
-          print('✅ Bitcoin transaction sent successfully!');
-          print('📝 TX Hash: $txHash');
-          print('🔗 Explorer: ${response.data['explorerUrl']}');
-          return txHash;
-        } else {
-          throw Exception(
-              response.data['error'] ?? 'Bitcoin transaction failed');
-        }
-      }
-
-      // Handle Ethereum/BNB transactions
+      // ── EVM chains: Full Rust signing ──────────────────────────────────
       if (['ETH', 'BNB'].contains(coin)) {
-        // Send EVM transaction via backend API
-        final response = await _dio.post(
-          '${ApiConfig.baseUrl}/api/blockchain/send',
-          data: {
-            'network': coin,
-            'from': fromAddress,
-            'to': toAddress,
-            'amount': amount,
-            'privateKey': privateKey,
-            'gasLimit': 21000,
-            'memo': memo,
-          },
+        print('🦀 Using Rust secure EVM signing...');
+        final result = await rustSecurity.secureEvmSend(
+          privateKey: privateKey,
+          chain: coin,
+          from: fromAddress,
+          to: toAddress,
+          amount: amount.toString(),
+          gasLimit: 21000,
+          memo: memo,
         );
 
-        if (response.data['success'] == true) {
-          final txHash = response.data['txHash'];
-          print('✅ Transaction sent successfully!');
-          print('📝 TX Hash: $txHash');
-          print('🔗 Explorer: ${response.data['explorerUrl']}');
+        if (result['success'] == true || result['tx_hash'] != null) {
+          final txHash = (result['tx_hash'] ?? result['txHash'] ?? '').toString();
+          print('✅ Rust-signed EVM transaction: $txHash');
           return txHash;
         } else {
-          final errMsg = response.data['error'] ?? 'Transaction failed';
-          final details = response.data['details'];
-          throw Exception(details != null ? '$errMsg: $details' : errMsg);
-        }
-      }
-      
-      // Handle Litecoin transactions
-      if (coin == 'LTC') {
-        print('🔵 Using Litecoin endpoint...');
-        final response = await _dio.post(
-          '${ApiConfig.baseUrl}/api/blockchain/send/litecoin',
-          data: {
-            'from': fromAddress,
-            'to': toAddress,
-            'amount': amount,
-            'privateKeyWIF': privateKey,
-          },
-        );
-
-        if (response.data['success'] == true) {
-          final txHash = response.data['txHash'];
-          print('✅ Litecoin transaction sent!');
-          print('📝 TX Hash: $txHash');
-          return txHash;
-        } else {
-          throw Exception(response.data['error'] ?? 'Litecoin transaction failed');
-        }
-      }
-      
-      // Handle Dogecoin transactions
-      if (coin == 'DOGE') {
-        print('🐕 Using Dogecoin endpoint...');
-        final response = await _dio.post(
-          '${ApiConfig.baseUrl}/api/blockchain/send/dogecoin',
-          data: {
-            'from': fromAddress,
-            'to': toAddress,
-            'amount': amount,
-            'privateKeyWIF': privateKey,
-          },
-        );
-
-        if (response.data['success'] == true) {
-          final txHash = response.data['txHash'];
-          print('✅ Dogecoin transaction sent!');
-          print('📝 TX Hash: $txHash');
-          return txHash;
-        } else {
-          throw Exception(response.data['error'] ?? 'Dogecoin transaction failed');
-        }
-      }
-      
-      // Handle Solana transactions
-      if (coin == 'SOL') {
-        print('☀️ Using Solana endpoint...');
-        final response = await _dio.post(
-          '${ApiConfig.baseUrl}/api/blockchain/send/solana',
-          data: {
-            'from': fromAddress,
-            'to': toAddress,
-            'amount': amount,
-            'privateKey': privateKey,
-          },
-        );
-
-        if (response.data['success'] == true) {
-          final txHash = response.data['txHash'];
-          print('✅ Solana transaction sent!');
-          print('📝 TX Hash: $txHash');
-          return txHash;
-        } else {
-          throw Exception(response.data['error'] ?? 'Solana transaction failed');
-        }
-      }
-      
-      // Handle TRON transactions
-      if (coin == 'TRX') {
-        print('⚡ Using TRON endpoint...');
-        final response = await _dio.post(
-          '${ApiConfig.baseUrl}/api/blockchain/send/tron',
-          data: {
-            'from': fromAddress,
-            'to': toAddress,
-            'amount': amount,
-            'privateKey': privateKey,
-          },
-        );
-
-        if (response.data['success'] == true) {
-          final txHash = response.data['txHash'];
-          print('✅ TRON transaction sent!');
-          print('📝 TX Hash: $txHash');
-          return txHash;
-        } else {
-          throw Exception(response.data['error'] ?? 'TRON transaction failed');
-        }
-      }
-      
-      // Handle XRP transactions
-      if (coin == 'XRP') {
-        print('💧 Using XRP endpoint...');
-        final response = await _dio.post(
-          '${ApiConfig.baseUrl}/api/blockchain/send/ripple',
-          data: {
-            'from': fromAddress,
-            'to': toAddress,
-            'amount': amount,
-            'privateKey': privateKey,
-          },
-        );
-
-        if (response.data['success'] == true) {
-          final txHash = response.data['txHash'];
-          print('✅ XRP transaction sent!');
-          print('📝 TX Hash: $txHash');
-          return txHash;
-        } else {
-          throw Exception(response.data['error'] ?? 'XRP transaction failed');
+          throw Exception(result['error'] ?? 'Rust EVM signing failed');
         }
       }
 
-      throw Exception(
-          '$coin transactions are not supported yet.');
+      // ── Non-EVM chains: Rust validates, encrypted send via secure route ─
+      print('🦀 Using Rust-validated secure send for $coin...');
+      final encryptedKey = rustSecurity.encryptAesGcm(privateKey);
+
+      final payload = <String, dynamic>{
+        'encrypted_key': encryptedKey,
+        'chain': coin,
+        'from': fromAddress,
+        'to': toAddress,
+        'amount': amount.toString(),
+        if (fee > 0) 'fee': fee,
+        if (memo != null) 'memo': memo,
+      };
+
+      // Add HMAC integrity
+      final payloadJson = jsonEncode(payload);
+      payload['hmac'] = rustSecurity.computeHmac(payloadJson);
+
+      final response = await _dio.post(
+        '${ApiConfig.baseUrl}/api/secure/send-non-evm',
+        data: payload,
+      );
+
+      if (response.data['success'] == true) {
+        final txHash = (response.data['txHash'] ?? response.data['tx_hash'] ?? '').toString();
+        print('✅ Rust-validated $coin transaction: $txHash');
+        return txHash;
+      } else {
+        throw Exception(response.data['error'] ?? '$coin transaction failed');
+      }
     } catch (e) {
       print('❌ Error sending transaction: $e');
 
@@ -1371,6 +1244,12 @@ class BlockchainService {
       if (e.toString().contains('Private key not found')) {
         throw Exception(
             'Cannot send transaction: Wallet not properly set up. Please import your wallet again.');
+      } else if (e.toString().contains('Spending limit exceeded')) {
+        throw Exception(
+            'Transaction blocked by spending limits. Adjust your limits in Settings.');
+      } else if (e.toString().contains('HMAC verification failed')) {
+        throw Exception(
+            'Request integrity check failed. Please try again.');
       } else if (e.toString().contains('INSUFFICIENT_FUNDS') ||
           e.toString().contains('Insufficient funds')) {
         throw Exception('Insufficient funds for transaction including fees.');
@@ -1382,8 +1261,8 @@ class BlockchainService {
             'Too many requests. Please wait a moment and try again.');
       } else if (e.toString().contains('No UTXOs available')) {
         throw Exception(
-            'No confirmed Bitcoin available to send. Wait for your received transactions to confirm.');
-      } else if (e.toString().contains('Private key does not match')) {
+            'No confirmed balance available to send. Wait for confirmations.');
+      } else if (e.toString().contains('does not match')) {
         throw Exception(
             'Wallet configuration error. Please re-import your wallet.');
       } else {

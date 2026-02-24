@@ -1,5 +1,5 @@
-require("@nomicfoundation/hardhat-toolbox");
-require('dotenv').config();
+try { require("@nomicfoundation/hardhat-toolbox"); } catch (_) {}
+try { require('dotenv').config(); } catch (_) {}
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {

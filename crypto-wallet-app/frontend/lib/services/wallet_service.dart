@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
@@ -8,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logger/logger.dart';
 import 'bip39_wallet.dart';
 import 'blockchain_service.dart';
+import 'rust_security_service.dart';
 import '../core/config/api_config.dart';
 
 class WalletService {
@@ -17,15 +17,17 @@ class WalletService {
   SharedPreferences? _prefs;
 
   /// WalletService constructor. Optional dependencies may be injected for testing.
+  /// SECURITY: FlutterSecureStorage is ALWAYS used for private keys and mnemonics.
+  /// SharedPreferences is ONLY used for non-sensitive metadata (swap history, etc.).
   WalletService({Dio? dio, dynamic storage, Logger? logger})
       : _dio = dio ?? Dio(BaseOptions(
           baseUrl: '${ApiConfig.baseUrl}/api/wallet',
           connectTimeout: const Duration(seconds: 10),
           receiveTimeout: const Duration(seconds: 10),
         )),
-        _storage = storage ?? (kIsWeb || !Platform.isAndroid ? null : const FlutterSecureStorage(
+        _storage = storage ?? const FlutterSecureStorage(
           aOptions: AndroidOptions(encryptedSharedPreferences: true),
-        )),
+        ),
         _logger = logger ?? Logger();
 
   /// Get shared preferences instance for web/fallback storage
@@ -33,17 +35,9 @@ class WalletService {
     return _prefs ??= await SharedPreferences.getInstance();
   }
 
-  // --------------- Safe storage wrappers (web = SharedPreferences, mobile = FlutterSecureStorage) ---------------
+  // --------------- Secure storage wrappers — NEVER fall back to SharedPreferences for keys ---------------
 
   Future<Map<String, String>> _safeReadAll() async {
-    if (kIsWeb || _storage == null) {
-      final prefs = await _getPrefs();
-      return prefs.getKeys().fold<Map<String, String>>({}, (map, key) {
-        final v = prefs.get(key);
-        if (v != null) map[key] = v.toString();
-        return map;
-      });
-    }
     try {
       final dynamic raw = await _storage.readAll();
       if (raw is Map) {
@@ -53,82 +47,49 @@ class WalletService {
       }
       return {};
     } catch (e) {
-      _logger.w('Secure storage readAll failed, falling back to SharedPreferences: $e');
-      final prefs = await _getPrefs();
-      return prefs.getKeys().fold<Map<String, String>>({}, (map, key) {
-        final v = prefs.get(key);
-        if (v != null) map[key] = v.toString();
-        return map;
-      });
+      _logger.e('Secure storage readAll failed: $e');
+      return {};
     }
   }
 
   Future<String?> _safeRead(String key) async {
-    if (kIsWeb || _storage == null) {
-      final prefs = await _getPrefs();
-      return prefs.get(key)?.toString();
-    }
     try {
       return await _storage.read(key: key);
     } catch (e) {
-      _logger.w('Secure storage read failed for $key, falling back: $e');
-      final prefs = await _getPrefs();
-      return prefs.get(key)?.toString();
+      _logger.e('Secure storage read failed for $key: $e');
+      return null;
     }
   }
 
   Future<void> _safeWrite(String key, String value) async {
-    if (kIsWeb || _storage == null) {
-      final prefs = await _getPrefs();
-      await prefs.setString(key, value);
-      return;
-    }
     try {
       await _storage.write(key: key, value: value);
     } catch (e) {
-      _logger.w('Secure storage write failed for $key, falling back: $e');
-      final prefs = await _getPrefs();
-      await prefs.setString(key, value);
+      _logger.e('Secure storage write failed for $key: $e');
+      rethrow;
     }
   }
 
   Future<void> _safeDelete(String key) async {
-    if (kIsWeb || _storage == null) {
-      final prefs = await _getPrefs();
-      await prefs.remove(key);
-      return;
-    }
     try {
       await _storage.delete(key: key);
     } catch (e) {
-      _logger.w('Secure storage delete failed for $key: $e');
+      _logger.e('Secure storage delete failed for $key: $e');
     }
   }
 
-  /// Store wallet credentials in the format expected by getBalances()
+  /// Store wallet credentials SECURELY — FlutterSecureStorage only.
+  /// Private keys and mnemonics are NEVER written to SharedPreferences.
   Future<void> storeWalletCredentials(String chain, String address, String? privateKey, String? mnemonic) async {
     try {
-      if (kIsWeb || _storage == null) {
-        // Web platform - use SharedPreferences
-        final prefs = await _getPrefs();
-        if (privateKey != null) {
-          await prefs.setString('${chain}_${address}_private', privateKey);
-        }
-        if (mnemonic != null) {
-          await prefs.setString('${chain}_${address}_mnemonic', mnemonic);
-        }
-        await prefs.setString('${chain}_${address}_meta', DateTime.now().toIso8601String());
-      } else {
-        // Mobile platform - use secure storage
-        if (privateKey != null) {
-          await _safeWrite('${chain}_${address}_private', privateKey);
-        }
-        if (mnemonic != null) {
-          await _safeWrite('${chain}_${address}_mnemonic', mnemonic);
-        }
-        await _safeWrite('${chain}_${address}_meta', DateTime.now().toIso8601String());
+      if (privateKey != null) {
+        await _safeWrite('${chain}_${address}_private', privateKey);
       }
-      _logger.i('✅ Stored credentials for $chain wallet: $address');
+      if (mnemonic != null) {
+        await _safeWrite('${chain}_${address}_mnemonic', mnemonic);
+      }
+      await _safeWrite('${chain}_${address}_meta', DateTime.now().toIso8601String());
+      _logger.i('✅ Stored credentials for $chain wallet: $address (secure storage only)');
     } catch (e) {
       _logger.e('❌ Failed to store wallet credentials: $e');
       rethrow;
@@ -331,52 +292,26 @@ class WalletService {
     }
   }
 
-  /// Scan ALL storage locations (secure storage + SharedPreferences) and return
-  /// the first mnemonic found, regardless of which chain it belongs to.
-  /// This is robust against wallets created on any chain.
+  /// Scan secure storage and return the first mnemonic found.
+  /// SECURITY: Only reads from FlutterSecureStorage — never SharedPreferences.
   Future<String?> findAnyMnemonic() async {
     try {
-      // 1. Try secure storage (mobile)
-      try {
-        final rawKeys = await _safeReadAll();
-        if (rawKeys.isNotEmpty) {
-          for (final entry in rawKeys.entries) {
-            final key = entry.key;
-            final value = entry.value;
-            if (key.endsWith('_mnemonic') && value.trim().isNotEmpty) {
-              // Validate it looks like a BIP39 mnemonic (12 or 24 words)
-              final wordCount = value.trim().split(RegExp(r'\s+')).length;
-              if (wordCount == 12 || wordCount == 24) {
-                _logger.i('✅ Found mnemonic in secure storage key: $key ($wordCount words)');
-                return value.trim();
-              }
+      final rawKeys = await _safeReadAll();
+      if (rawKeys.isNotEmpty) {
+        for (final entry in rawKeys.entries) {
+          final key = entry.key;
+          final value = entry.value;
+          if (key.endsWith('_mnemonic') && value.trim().isNotEmpty) {
+            final wordCount = value.trim().split(RegExp(r'\s+')).length;
+            if (wordCount == 12 || wordCount == 24) {
+              _logger.i('✅ Found mnemonic in secure storage key: $key ($wordCount words)');
+              return value.trim();
             }
           }
         }
-      } catch (e) {
-        _logger.w('Secure storage readAll failed in findAnyMnemonic: $e');
       }
 
-      // 2. Fallback: SharedPreferences (web or if secure storage failed)
-      try {
-        final prefs = await _getPrefs();
-        for (final key in prefs.getKeys()) {
-          if (key.endsWith('_mnemonic')) {
-            final value = prefs.getString(key) ?? '';
-            if (value.trim().isNotEmpty) {
-              final wordCount = value.trim().split(RegExp(r'\s+')).length;
-              if (wordCount == 12 || wordCount == 24) {
-                _logger.i('✅ Found mnemonic in SharedPreferences key: $key ($wordCount words)');
-                return value.trim();
-              }
-            }
-          }
-        }
-      } catch (e) {
-        _logger.w('SharedPreferences scan failed in findAnyMnemonic: $e');
-      }
-
-      _logger.w('⚠️ No mnemonic found in any storage');
+      _logger.w('⚠️ No mnemonic found in secure storage');
       return null;
     } catch (e) {
       _logger.e('findAnyMnemonic error: $e');
@@ -417,7 +352,8 @@ class WalletService {
     }
   }
 
-  /// Sign a message using the private key for the given chain and address
+  /// Sign a message using the private key for the given chain and address.
+  /// SECURITY: Private key is encrypted before sending to Rust for signing.
   Future<String> signMessage(String chain, String address, String message) async {
     try {
       final privateKey = await getPrivateKey(chain, address);
@@ -425,9 +361,13 @@ class WalletService {
         throw Exception('Private key not found for this address');
       }
 
+      // Encrypt private key before sending
+      final rustSecurity = RustSecurityService();
+      final encryptedKey = rustSecurity.encryptAesGcm(privateKey);
+
       final response = await _dio.post('/sign', data: {
         'chain': chain,
-        'privateKey': privateKey,
+        'encrypted_key': encryptedKey,
         'message': message,
       });
 
@@ -498,39 +438,24 @@ class WalletService {
     }
   }
 
-  /// Try every known storage location to find a valid BIP39 mnemonic.
-  /// Order: secure storage chain keys → AuthService 'mnemonic' key → SharedPreferences brute-scan.
+  /// Try secure storage locations to find a valid BIP39 mnemonic.
+  /// SECURITY: Only reads from FlutterSecureStorage.
   Future<String?> _recoverMnemonicFromAnyStorage() async {
-    // 1. Try findAnyMnemonic (scans chain-keyed entries)
+    // 1. Try findAnyMnemonic (scans chain-keyed entries in secure storage)
     final m1 = await findAnyMnemonic();
     if (m1 != null) return m1;
 
-    // 2. Try the AuthService plain 'mnemonic' key
+    // 2. Try the plain 'mnemonic' key in secure storage
     try {
-      final prefs = await _getPrefs();
-      final m2 = prefs.getString('mnemonic');
-      if (m2 != null && m2.trim().isNotEmpty) {
-        final words = m2.trim().split(RegExp(r'\s+'));
+      final m3 = await _safeRead('mnemonic');
+      if (m3 != null && m3.trim().isNotEmpty) {
+        final words = m3.trim().split(RegExp(r'\s+'));
         if (words.length == 12 || words.length == 24) {
-          debugPrint('✅ Found mnemonic in AuthService SharedPreferences key');
-          return m2.trim();
+          debugPrint('✅ Found mnemonic in secure storage "mnemonic" key');
+          return m3.trim();
         }
       }
     } catch (_) {}
-
-    // 3. Secure storage 'mnemonic' key (mobile only)
-    if (!kIsWeb && _storage != null) {
-      try {
-        final m3 = await _storage.read(key: 'mnemonic');
-        if (m3 != null && m3.trim().isNotEmpty) {
-          final words = m3.trim().split(RegExp(r'\s+'));
-          if (words.length == 12 || words.length == 24) {
-            debugPrint('✅ Found mnemonic in secure storage "mnemonic" key');
-            return m3.trim();
-          }
-        }
-      } catch (_) {}
-    }
 
     return null;
   }
