@@ -1,5 +1,5 @@
 const { spawn } = require('child_process');
-const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 const os = require('os');
 
 class RustWorker {
@@ -47,7 +47,7 @@ class RustWorker {
 
   sendCommand(cmdObj) {
     return new Promise((resolve, reject) => {
-      const id = cmdObj.id || uuidv4();
+      const id = cmdObj.id || crypto.randomUUID();
       cmdObj.id = id;
       this.pending.set(id, { resolve, reject });
       try {
