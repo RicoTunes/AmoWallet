@@ -312,17 +312,13 @@ router.post('/send-non-evm', async (req, res) => {
 // GET /api/secure/health
 // ---------------------------------------------------------------------------
 router.get('/health', async (req, res) => {
-  try {
-    const url = `${RUST_URL}/api/secure/health`;
-    const r = await axios.get(url, { timeout: 5000, validateStatus: () => true });
-    return res.json(r.data?.data ?? r.data);
-  } catch (err) {
-    return res.json({
-      success: false,
-      error: 'Rust secure signer unreachable',
-      details: err.message,
-    });
-  }
+  const rustUp = await isRustAlive();
+  return res.json({
+    success: true,
+    version: 'v5-node-fallback',
+    rust_available: rustUp,
+    signing_mode: rustUp ? 'rust' : 'node-local',
+  });
 });
 
 // ---------------------------------------------------------------------------
