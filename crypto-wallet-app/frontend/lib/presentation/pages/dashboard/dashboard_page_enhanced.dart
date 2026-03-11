@@ -14,6 +14,7 @@ import '../../../services/wallet_service.dart';
 import '../../../services/transaction_service.dart';
 import '../../../services/preload_service.dart';
 import '../../../services/incoming_tx_monitor.dart';
+import '../../../services/notification_service.dart';
 import '../../../services/blockchain_service.dart';
 import '../../../models/transaction_model.dart';
 import '../../widgets/portfolio_chart_widget.dart';
@@ -35,11 +36,13 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
   final TransactionService _transactionService = TransactionService();
   final PreloadService _preloadService = PreloadService();
   final IncomingTxMonitor _incomingTxMonitor = IncomingTxMonitor();
+  final NotificationService _notificationService = NotificationService();
 
   // Animation controllers
   late AnimationController _logoAnimationController;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+  late AnimationController _coinSpinController;
 
   Map<String, Map<String, dynamic>> _priceData = {};
   Map<String, double> _balances = {};
@@ -49,6 +52,11 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
   bool _isSheetOpen = false; // Prevent multiple bottom sheets
   Set<String> _favorites = {'BTC', 'ETH'}; // Default favorites
   bool _balanceHidden = false; // Toggle to hide/show balance
+
+  // Auto-refresh timer & price change tracking
+  Timer? _autoRefreshTimer;
+  Map<String, double> _previousPrices = {};
+  Set<String> _changedCoins = {};
 
   // Coin data with colors
   final List<Map<String, dynamic>> _allCoins = [
@@ -118,17 +126,39 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
+    // Spin animation for coin icons when prices change
+    _coinSpinController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+
     _loadCachedBalances().then((_) => _loadDashboardData());
     _preloadService.preloadSwapData();
     _incomingTxMonitor.startMonitoring();
     _loadFavorites();
+
+    // Listen for notification changes so badge updates in real time
+    _notificationService.addListener(_onNotificationsChanged);
+
+    // Auto-refresh prices every 10 minutes
+    _autoRefreshTimer = Timer.periodic(
+      const Duration(minutes: 10),
+      (_) => _loadDashboardData(),
+    );
   }
 
   @override
   void dispose() {
     _logoAnimationController.dispose();
     _pulseController.dispose();
+    _coinSpinController.dispose();
+    _autoRefreshTimer?.cancel();
+    _notificationService.removeListener(_onNotificationsChanged);
     super.dispose();
+  }
+
+  void _onNotificationsChanged(List<AppNotification> _) {
+    if (mounted) setState(() {});
   }
 
   /// Load last-known balances instantly from SharedPreferences so the UI
@@ -276,6 +306,32 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
       });
 
       if (mounted) {
+        // Detect which coins had price changes for spin animation
+        if (prices.isNotEmpty && _previousPrices.isNotEmpty) {
+          final newChanged = <String>{};
+          for (final symbol in prices.keys) {
+            final newPrice = (prices[symbol]?['price'] as double?) ?? 0.0;
+            final oldPrice = _previousPrices[symbol] ?? 0.0;
+            if (oldPrice > 0 && newPrice > 0 && (newPrice - oldPrice).abs() / oldPrice > 0.0001) {
+              newChanged.add(symbol);
+            }
+          }
+          if (newChanged.isNotEmpty) {
+            _changedCoins = newChanged;
+            _coinSpinController.forward(from: 0).then((_) {
+              if (mounted) setState(() => _changedCoins = {});
+            });
+          }
+        }
+
+        // Save current prices for next comparison
+        if (prices.isNotEmpty) {
+          _previousPrices = {};
+          for (final e in prices.entries) {
+            _previousPrices[e.key] = (e.value['price'] as double?) ?? 0.0;
+          }
+        }
+
         setState(() {
           _priceData = prices.isNotEmpty ? prices : _priceData;
           _balances = mergedBalances;
@@ -428,23 +484,30 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
               size: 20,
             ),
           ),
-          // Notification badge
-          Positioned(
-            right: 6,
-            top: 6,
-            child: Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(
-                color: const Color(0xFFEF4444),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: cardColor,
-                  width: 1.5,
+          // Notification badge — only show when unread notifications exist
+          if (_notificationService.unreadCount > 0)
+            Positioned(
+              right: 4,
+              top: 4,
+              child: Container(
+                width: 16,
+                height: 16,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEF4444),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: cardColor,
+                    width: 1.5,
+                  ),
+                ),
+                child: Center(
+                  child: Text(
+                    _notificationService.unreadCount > 9 ? '9+' : '${_notificationService.unreadCount}',
+                    style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -811,11 +874,16 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
   }
 
   void _showNotifications() {
+    // Mark all as read when user opens the panel
+    _notificationService.markAllAsRead();
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) => Container(
+      builder: (context) {
+        final notifs = _notificationService.notifications;
+        return Container(
         height: MediaQuery.of(context).size.height * 0.7,
         decoration: const BoxDecoration(
           color: Color(0xFF1A1F2E),
@@ -848,7 +916,10 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
                     ),
                   ),
                   TextButton(
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: () {
+                      _notificationService.clearAllNotifications();
+                      Navigator.pop(context);
+                    },
                     child: const Text(
                       'Clear all',
                       style: TextStyle(
@@ -862,7 +933,7 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
             ),
             // Notification list
             Expanded(
-              child: _recentTransactions.isEmpty
+              child: notifs.isEmpty
                   ? Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -885,21 +956,31 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
                     )
                   : ListView.builder(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
-                      itemCount: _recentTransactions.length,
+                      itemCount: notifs.length,
                       itemBuilder: (context, index) {
-                        final tx = _recentTransactions[index];
-                        final isReceived = tx.type == 'received';
-                        return GestureDetector(
-                          onTap: () {
-                            Navigator.pop(context); // close the bottom sheet
-                            Navigator.push(
-                              this.context,
-                              MaterialPageRoute(
-                                builder: (_) => TransactionDetailPage(tx: tx),
-                              ),
-                            );
-                          },
-                          child: Container(
+                        final n = notifs[index];
+                        final isReceived = n.type == NotificationType.incoming;
+                        final isFailed = n.type == NotificationType.failed;
+                        final isConfirmed = n.type == NotificationType.confirmed ||
+                            n.txStatus == TxStatus.confirmed;
+
+                        Color iconColor = isReceived
+                            ? const Color(0xFF10B981)
+                            : isFailed
+                                ? const Color(0xFFEF4444)
+                                : isConfirmed
+                                    ? const Color(0xFF3B82F6)
+                                    : const Color(0xFFF59E0B);
+
+                        IconData iconData = isReceived
+                            ? Icons.south_west
+                            : isFailed
+                                ? Icons.error_outline
+                                : isConfirmed
+                                    ? Icons.check_circle_outline
+                                    : Icons.north_east;
+
+                        return Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
@@ -912,19 +993,12 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
                                 width: 44,
                                 height: 44,
                                 decoration: BoxDecoration(
-                                  color: isReceived
-                                      ? const Color(0xFF10B981).withOpacity(0.1)
-                                      : const Color(0xFFEF4444)
-                                          .withOpacity(0.1),
+                                  color: iconColor.withOpacity(0.1),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Icon(
-                                  isReceived
-                                      ? Icons.south_west
-                                      : Icons.north_east,
-                                  color: isReceived
-                                      ? const Color(0xFF10B981)
-                                      : const Color(0xFFEF4444),
+                                  iconData,
+                                  color: iconColor,
                                   size: 20,
                                 ),
                               ),
@@ -934,9 +1008,7 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      isReceived
-                                          ? 'Received ${tx.coin}'
-                                          : 'Sent ${tx.coin}',
+                                      n.title,
                                       style: const TextStyle(
                                         color: Colors.white,
                                         fontSize: 14,
@@ -945,17 +1017,19 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      '${tx.amount.toStringAsFixed(6)} ${tx.coin}',
+                                      n.message,
                                       style: TextStyle(
                                         color: Colors.white.withOpacity(0.5),
                                         fontSize: 12,
                                       ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
                                   ],
                                 ),
                               ),
                               Text(
-                                _formatTimeAgo(tx.timestamp),
+                                _formatTimeAgo(n.timestamp),
                                 style: TextStyle(
                                   color: Colors.white.withOpacity(0.4),
                                   fontSize: 12,
@@ -963,14 +1037,14 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
                               ),
                             ],
                           ),
-                        ),   // close GestureDetector child (Container)
-                        );   // close GestureDetector
+                        );
                       },
                     ),
             ),
           ],
         ),
-      ),
+      );
+      },
     );
   }
 
@@ -1482,8 +1556,17 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
             ),
             const SizedBox(width: 12),
 
-            // Coin icon
-            Container(
+            // Coin icon — spins when price changes on auto-refresh
+            AnimatedBuilder(
+              animation: _coinSpinController,
+              builder: (context, child) {
+                final shouldSpin = _changedCoins.contains(symbol);
+                return Transform.rotate(
+                  angle: shouldSpin ? _coinSpinController.value * 2 * math.pi : 0,
+                  child: child,
+                );
+              },
+              child: Container(
               width: 44,
               height: 44,
               decoration: BoxDecoration(
@@ -1501,6 +1584,7 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
                 child: _getCoinIcon(symbol, color),
               ),
             ),
+            ), // close AnimatedBuilder
             const SizedBox(width: 12),
 
             // Coin name and change

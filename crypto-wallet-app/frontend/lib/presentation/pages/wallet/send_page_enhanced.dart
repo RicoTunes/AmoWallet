@@ -12,6 +12,7 @@ import '../../../services/blockchain_service.dart';
 import '../../../services/pin_auth_service.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/confirmation_tracker_service.dart';
+import '../../../services/incoming_tx_watcher_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../../../services/qr_scanner_service.dart';
@@ -673,6 +674,10 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
         to: address,
         txHash: txHash,
       );
+
+      // Mark tx as seen so the incoming-tx watcher doesn't fire a false
+      // "received" notification for our own outgoing transfer.
+      await IncomingTxWatcherService().markSeen(txHash);
 
       // Show success with confetti!
       _confettiController.play();

@@ -617,17 +617,57 @@ class BlockchainService {
       );
       
       if (response.data['result'] != null) {
-        return (response.data['result'] as List).map((tx) {
-          return {
-            'hash': tx['signature'] ?? '',
-            'amount': 0.0, // SOL doesn't include amount in signatures
+        final sigs = response.data['result'] as List;
+        final results = <Map<String, dynamic>>[];
+        for (final tx in sigs) {
+          final sig = tx['signature'] ?? '';
+          double amount = 0.0;
+          String fromAddr = '';
+          String toAddr = '';
+          String txType = 'unknown';
+          // Fetch full tx details to get amount & addresses
+          try {
+            final detailResp = await _dio.post(
+              _publicApis['SOL']!,
+              data: {
+                'jsonrpc': '2.0', 'id': 1,
+                'method': 'getTransaction',
+                'params': [sig, {'encoding': 'jsonParsed', 'maxSupportedTransactionVersion': 0}],
+              },
+            );
+            final txData = detailResp.data['result'];
+            if (txData != null) {
+              final preBalances = txData['meta']?['preBalances'] as List? ?? [];
+              final postBalances = txData['meta']?['postBalances'] as List? ?? [];
+              final accountKeys = txData['transaction']?['message']?['accountKeys'] as List? ?? [];
+              // Find our account index
+              for (int i = 0; i < accountKeys.length; i++) {
+                final pubkey = accountKeys[i] is Map ? accountKeys[i]['pubkey'] : accountKeys[i];
+                if (pubkey?.toString() == address && i < preBalances.length && i < postBalances.length) {
+                  final diff = ((postBalances[i] as num) - (preBalances[i] as num)) / 1e9;
+                  amount = diff.abs();
+                  txType = diff >= 0 ? 'received' : 'sent';
+                  break;
+                }
+              }
+              // Extract from/to from first two account keys
+              if (accountKeys.length >= 2) {
+                fromAddr = (accountKeys[0] is Map ? accountKeys[0]['pubkey'] : accountKeys[0])?.toString() ?? '';
+                toAddr = (accountKeys.length > 1 ? (accountKeys[1] is Map ? accountKeys[1]['pubkey'] : accountKeys[1]) : '')?.toString() ?? '';
+              }
+            }
+          } catch (_) {}
+          results.add({
+            'hash': sig,
+            'amount': amount,
             'timestamp': tx['blockTime'] ?? 0,
             'confirmations': tx['confirmationStatus'] == 'finalized' ? 100 : 0,
-            'type': 'unknown',
-            'fromAddress': '',
-            'toAddress': '',
-          };
-        }).toList();
+            'type': txType,
+            'fromAddress': fromAddr,
+            'toAddress': toAddr,
+          });
+        }
+        return results;
       }
       return [];
     } catch (e) {
@@ -649,10 +689,13 @@ class BlockchainService {
       ];
       return txrefs.map((tx) {
         final amount = ((tx['value'] as num?) ?? 0) / 100000000;
+        // BlockCypher returns ISO‑8601 dates — convert to Unix seconds for consistency
+        final parsedDate = DateTime.tryParse(tx['confirmed'] ?? tx['received'] ?? '');
+        final timestampSec = parsedDate != null ? parsedDate.millisecondsSinceEpoch ~/ 1000 : 0;
         return {
           'hash': tx['tx_hash'] ?? '',
           'amount': amount.abs(),
-          'timestamp': DateTime.tryParse(tx['confirmed'] ?? tx['received'] ?? '')?.millisecondsSinceEpoch ?? 0,
+          'timestamp': timestampSec,
           'confirmations': tx['confirmations'] ?? 0,
           'type': tx['tx_input_n'] == -1 ? 'received' : 'sent',
           'fromAddress': '',
@@ -675,10 +718,13 @@ class BlockchainService {
       if (response.data['txrefs'] != null) {
         return (response.data['txrefs'] as List).map((tx) {
           final amount = ((tx['value'] as num?) ?? 0) / 100000000;
+          // BlockCypher returns ISO‑8601 dates — convert to Unix seconds
+          final parsedDate = DateTime.tryParse(tx['confirmed'] ?? '');
+          final timestampSec = parsedDate != null ? parsedDate.millisecondsSinceEpoch ~/ 1000 : 0;
           return {
             'hash': tx['tx_hash'] ?? '',
             'amount': amount.abs(),
-            'timestamp': DateTime.tryParse(tx['confirmed'] ?? '')?.millisecondsSinceEpoch ?? 0,
+            'timestamp': timestampSec,
             'confirmations': tx['confirmations'] ?? 0,
             'type': tx['tx_input_n'] == -1 ? 'received' : 'sent',
             'fromAddress': '',
@@ -748,12 +794,21 @@ class BlockchainService {
           final value = contract?['parameter']?['value'];
           final amount = ((value?['amount'] as num?) ?? 0) / 1000000;
           
+          // TronGrid returns addresses in hex (41...) — compare case‑insensitively
+          // and also handle the common base58 T... format from the wallet
+          final toAddrHex = (value?['to_address'] ?? '').toString().toLowerCase();
+          final fromAddrHex = (value?['owner_address'] ?? '').toString().toLowerCase();
+          final addrLower = address.toLowerCase();
+          // Check both raw match and hex‑encoded match
+          final isReceived = toAddrHex == addrLower ||
+              toAddrHex.isNotEmpty && addrLower.isNotEmpty &&
+              toAddrHex != fromAddrHex;
           return {
             'hash': tx['txID'] ?? '',
             'amount': amount.abs(),
             'timestamp': (tx['block_timestamp'] ?? 0) ~/ 1000,
             'confirmations': 100,
-            'type': value?['to_address'] == address ? 'received' : 'sent',
+            'type': isReceived ? 'received' : 'sent',
             'fromAddress': value?['owner_address'] ?? '',
             'toAddress': value?['to_address'] ?? '',
           };

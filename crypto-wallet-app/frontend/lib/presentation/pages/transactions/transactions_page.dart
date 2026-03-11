@@ -548,7 +548,7 @@ class _TransactionsPageState extends ConsumerState<TransactionsPage> {
   }
 
   void _copyToClipboard(String text) {
-    // Clipboard.setData(ClipboardData(text: text));
+    Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Copied to clipboard')),
     );

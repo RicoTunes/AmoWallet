@@ -467,11 +467,10 @@ class TransactionService {
     }).toList();
   }
 
-  // Clear old test transactions (keep only recent ones from last 7 days)
+  // Clear old local-only transactions (30+ days) and stale pending entries
   Future<void> clearOldTestTransactions() async {
     try {
       final allStorage = await _prefsReadAll();
-      final sevenDaysAgo = DateTime.now().subtract(const Duration(days: 7));
       
       for (final entry in allStorage.entries) {
         final key = entry.key;
@@ -480,10 +479,12 @@ class TransactionService {
             final Map<String, dynamic> jsonData = json.decode(entry.value);
             final tx = Transaction.fromJson(jsonData);
             
-            // Delete if older than 7 days
-            if (tx.timestamp.isBefore(sevenDaysAgo)) {
+            // Skip blockchain-sourced transactions (they're re-fetched anyway)
+            // Only clean up local-only entries older than 30 days
+            final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
+            if (tx.timestamp.isBefore(thirtyDaysAgo)) {
               await _prefsDelete(key);
-              _logger.i('Deleted old transaction: $key');
+              _logger.i('Deleted old local transaction: $key');
               continue;
             }
 

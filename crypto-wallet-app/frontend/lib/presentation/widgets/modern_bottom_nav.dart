@@ -107,23 +107,23 @@ class _ModernBottomNavState extends State<ModernBottomNav>
                     child: Container(
                       height: 56,
                       decoration: BoxDecoration(
-                        // Glass effect - see content behind
+                        // Clean white glass effect
                         gradient: LinearGradient(
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
                           colors: [
-                            const Color(0xFF1A1F2E).withOpacity(0.7),
-                            const Color(0xFF0D1421).withOpacity(0.8),
+                            Colors.white.withOpacity(0.95),
+                            Colors.white.withOpacity(0.90),
                           ],
                         ),
                         borderRadius: BorderRadius.circular(28),
                         border: Border.all(
-                          color: Colors.white.withOpacity(0.12),
+                          color: Colors.grey.withOpacity(0.15),
                           width: 1,
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.15),
+                            color: Colors.black.withOpacity(0.08),
                             blurRadius: 20,
                             offset: const Offset(0, -3),
                           ),
@@ -168,7 +168,7 @@ class _ModernBottomNavState extends State<ModernBottomNav>
   }) {
     final isActive = widget.currentIndex == index;
     final Color activeColor = const Color(0xFF10B981);
-    final Color inactiveColor = Colors.white.withOpacity(0.6);
+    final Color inactiveColor = Colors.grey.shade500;
 
     return Expanded(
       child: GestureDetector(
