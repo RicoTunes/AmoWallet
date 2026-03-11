@@ -1,0 +1,9 @@
+**/node_modules
+**/npm-debug.log
+**/.DS_Store
+**/target
+**/.env
+**/.git
+flutter-sdk/
+crypto-wallet-app/frontend/
+crypto-wallet-app/admin-panel/
