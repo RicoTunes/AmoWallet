@@ -49,8 +49,10 @@ bitcoin.initEccLib(ecc);
 // Create ECPair factory with the ecc library
 const ECPair = ECPairFactory(ecc);
 
-// Create cache with 5 minute TTL to reduce API calls (300 seconds)
+// Balance cache: 5 minute TTL (balances don't change as often)
 const cache = new SimpleCache({ stdTTL: 300, checkperiod: 600 });
+// Transaction cache: 30 second TTL (incoming tx detection needs fresh data)
+const txCache = new SimpleCache({ stdTTL: 30, checkperiod: 60 });
 
 // Initialize Telegram service for alerts
 const telegramService = new TelegramService();
@@ -703,12 +705,16 @@ router.get('/transactions/:network/:address', apiLimiter, async (req, res) => {
   try {
     const { network, address } = req.params;
     
-    // Check cache first
+    // Check cache first (use shorter TTL txCache for transactions)
     const cacheKey = `transactions_${network}_${address}`;
-    const cached = cache.get(cacheKey);
-    if (cached) {
-      console.log(`Cache hit for transactions: ${network} ${address}`);
-      return res.json(cached);
+    // Allow clients to bypass cache with ?fresh=1
+    const skipCache = req.query.fresh === '1' || req.query.fresh === 'true';
+    if (!skipCache) {
+      const cached = txCache.get(cacheKey);
+      if (cached) {
+        console.log(`Cache hit for transactions: ${network} ${address}`);
+        return res.json(cached);
+      }
     }
     
     let transactions = [];
@@ -754,9 +760,9 @@ router.get('/transactions/:network/:address', apiLimiter, async (req, res) => {
       count: transactions.length
     };
     
-    // Store in cache
-    cache.set(cacheKey, result);
-    console.log(`Cache miss for transactions: ${network} ${address}`);
+    // Store in transaction cache (30s TTL)
+    txCache.set(cacheKey, result);
+    console.log(`Cache miss for transactions: ${network} ${address}, found ${transactions.length} txs`);
 
     res.json(result);
   } catch (error) {

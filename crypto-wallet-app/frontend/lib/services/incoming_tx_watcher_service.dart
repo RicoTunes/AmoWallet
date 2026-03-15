@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:logger/logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'blockchain_service.dart';
 import 'notification_service.dart';
@@ -17,7 +16,6 @@ class IncomingTxWatcherService {
   factory IncomingTxWatcherService() => _instance;
   IncomingTxWatcherService._internal();
 
-  final Logger _logger = Logger();
   final BlockchainService _blockchainService = BlockchainService();
   final WalletService _walletService = WalletService();
   final NotificationService _notificationService = NotificationService();
@@ -26,16 +24,15 @@ class IncomingTxWatcherService {
       ConfirmationTrackerService();
 
   static const String _seenTxsKey = 'seen_incoming_txs';
-  static const int _pollIntervalSeconds = 45;
-  // USDT/USDC are omitted here: their addresses are the same as ETH/BNB/TRX
-  // and are already covered when we poll those base chains.
+  static const int _pollIntervalSeconds = 30;
   static const List<String> _watchedCoins = [
-    'ETH', 'BTC', 'BNB', 'MATIC', 'SOL',
+    'ETH', 'BTC', 'BNB', 'SOL',
     'TRX', 'XRP', 'DOGE', 'LTC',
   ];
 
   Timer? _timer;
   bool _isRunning = false;
+  bool _isPolling = false;
   Set<String> _seenTxHashes = {};
 
   bool get isRunning => _isRunning;
@@ -46,11 +43,10 @@ class IncomingTxWatcherService {
     if (_isRunning) return;
     _isRunning = true;
     await _loadSeenTxs();
-    _logger.i('IncomingTxWatcher started (polling every ${_pollIntervalSeconds}s)');
+    print('🔔 IncomingTxWatcher started (polling every ${_pollIntervalSeconds}s, ${_seenTxHashes.length} seen txs loaded)');
 
     // First poll shortly after start
-    await Future.delayed(const Duration(seconds: 5));
-    await _pollAll();
+    Future.delayed(const Duration(seconds: 8), () => _pollAll());
 
     _timer = Timer.periodic(
       Duration(seconds: _pollIntervalSeconds),
@@ -62,22 +58,31 @@ class IncomingTxWatcherService {
     _timer?.cancel();
     _timer = null;
     _isRunning = false;
-    _logger.i('IncomingTxWatcher stopped');
+    print('🔔 IncomingTxWatcher stopped');
   }
 
   // ─── Core poll ────────────────────────────────────────────────────────────
 
   Future<void> _pollAll() async {
-    for (final coin in _watchedCoins) {
-      try {
-        final addresses = await _walletService.getStoredAddresses(coin);
-        for (final address in addresses) {
-          if (address.isEmpty) continue;
-          await _pollAddress(coin: coin, address: address);
+    if (_isPolling) return; // Prevent overlapping polls
+    _isPolling = true;
+    try {
+      for (final coin in _watchedCoins) {
+        try {
+          final addresses = await _walletService.getStoredAddresses(coin);
+          if (addresses.isEmpty) continue;
+          for (final address in addresses) {
+            if (address.isEmpty) continue;
+            await _pollAddress(coin: coin, address: address);
+          }
+        } catch (e) {
+          print('🔔 [$coin] getStoredAddresses error: $e');
         }
-      } catch (e) {
-        // Skip unsupported chains silently
+        // Small delay between chains to avoid rate limiting
+        await Future.delayed(const Duration(milliseconds: 500));
       }
+    } finally {
+      _isPolling = false;
     }
   }
 
@@ -86,31 +91,38 @@ class IncomingTxWatcherService {
     required String address,
   }) async {
     try {
-      final txs = await _blockchainService.getTransactionHistory(coin, address);
+      final txs = await _blockchainService.getTransactionHistory(coin, address, fresh: true);
+      if (txs.isEmpty) return;
 
+      int newCount = 0;
       for (final tx in txs) {
         final hash = (tx['hash'] ?? tx['txHash'] ?? tx['signature'] ?? '').toString();
         if (hash.isEmpty) continue;
 
-        // Only look at received transactions.
-        // Some chains (SOL, DOGE, LTC) don't populate toAddress — fall back to
-        // the 'type' field they do set, or check fromAddress mismatch.
-        final toAddr = (tx['to'] ?? tx['toAddress'] ?? tx['recipient'] ?? '').toString().toLowerCase();
-        final txType = (tx['type'] ?? '').toString().toLowerCase();
-        final fromAddr2 = (tx['from'] ?? tx['fromAddress'] ?? tx['sender'] ?? '').toString().toLowerCase();
-        final isReceived = toAddr.contains(address.toLowerCase()) ||
-            (toAddr.isEmpty && txType == 'received') ||
-            (toAddr.isEmpty && txType.isEmpty && fromAddr2.isNotEmpty && !fromAddr2.contains(address.toLowerCase()));
-        if (!isReceived) continue;
-
         // Skip if we have already notified about this tx
         if (_seenTxHashes.contains(hash)) continue;
+
+        // Determine if this is a received transaction.
+        // Priority: check the 'type' field set by blockchain_service first,
+        // then fall back to address comparison.
+        final toAddr = (tx['toAddress'] ?? tx['to'] ?? tx['recipient'] ?? '').toString().toLowerCase();
+        final fromAddr = (tx['fromAddress'] ?? tx['from'] ?? tx['sender'] ?? '').toString().toLowerCase();
+        final txType = (tx['type'] ?? '').toString().toLowerCase();
+        final myAddr = address.toLowerCase();
+
+        final isReceived = txType == 'received' ||
+            txType == 'incoming' ||
+            txType == 'in' ||
+            (toAddr.isNotEmpty && toAddr.contains(myAddr) && !fromAddr.contains(myAddr)) ||
+            (toAddr.isEmpty && fromAddr.isNotEmpty && !fromAddr.contains(myAddr));
+
+        if (!isReceived) continue;
 
         // Mark seen immediately so a retry loop doesn't double-fire
         _seenTxHashes.add(hash);
         await _saveSeenTxs();
 
-        final rawAmount = tx['value'] ?? tx['amount'] ?? tx['lamports'] ?? 0;
+        final rawAmount = tx['amount'] ?? tx['value'] ?? tx['lamports'] ?? 0;
         double amount = 0.0;
         if (rawAmount is num) {
           amount = rawAmount.toDouble();
@@ -118,10 +130,13 @@ class IncomingTxWatcherService {
           amount = double.tryParse(rawAmount.toString()) ?? 0.0;
         }
 
-        final fromAddr = (tx['from'] ?? tx['fromAddress'] ?? tx['sender'] ?? 'Unknown').toString();
+        // Skip dust/zero amounts
+        if (amount <= 0.00000001) continue;
+
+        final senderAddr = (tx['fromAddress'] ?? tx['from'] ?? tx['sender'] ?? 'Unknown').toString();
         final amountStr = amount.toStringAsFixed(8).replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
 
-        _logger.i('New incoming $coin tx detected: $hash');
+        print('🔔 💰 NEW INCOMING $coin: +$amountStr from $senderAddr (hash: ${hash.substring(0, 16)}...)');
 
         // Determine confirmation state
         final confirmations = (tx['confirmations'] as num?)?.toInt() ?? 0;
@@ -133,19 +148,22 @@ class IncomingTxWatcherService {
         await _transactionService.recordReceivedTransaction(
           coin: coin,
           amount: amount,
-          fromAddress: fromAddr,
+          fromAddress: senderAddr,
           toAddress: address,
           txHash: hash,
           status: txStatus,
         );
 
-        // Fire in-app notification (dedup handled inside NotificationService too)
+        // Fire in-app notification
         await _notificationService.showIncomingTransaction(
           amount: amountStr,
           currency: coin,
-          from: fromAddr,
+          from: senderAddr,
           txHash: hash,
         );
+
+        newCount++;
+        print('🔔 ✅ Notification fired for $coin tx $hash');
 
         // Start tracking confirmations so status updates from pending → confirmed
         if (isPending) {
@@ -158,8 +176,12 @@ class IncomingTxWatcherService {
           );
         }
       }
+
+      if (newCount > 0) {
+        print('🔔 [$coin] Found $newCount new incoming tx(s) out of ${txs.length} total');
+      }
     } catch (e) {
-      // Silent – network errors are expected when offline
+      print('🔔 [$coin] poll error for ${address.substring(0, 8)}...: $e');
     }
   }
 

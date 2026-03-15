@@ -571,15 +571,15 @@ class BlockchainService {
 
   /// Get transaction history for an address
   Future<List<Map<String, dynamic>>> getTransactionHistory(
-      String coin, String address) async {
+      String coin, String address, {bool fresh = false}) async {
     try {
       switch (coin) {
         case 'BTC':
-          return await _getBitcoinTransactions(address);
+          return await _getBitcoinTransactions(address, fresh: fresh);
         case 'ETH':
-          return await _getEthereumTransactions(address);
+          return await _getEthereumTransactions(address, fresh: fresh);
         case 'BNB':
-          return await _getBnbTransactions(address);
+          return await _getBnbTransactions(address, fresh: fresh);
         case 'SOL':
           return await _getSolanaTransactions(address);
         case 'DOGE':
@@ -779,7 +779,24 @@ class BlockchainService {
       return [];
     }
   }
-  
+
+  /// Convert Tron base58 address (T...) to hex address (41...)
+  /// Uses Base58Check decoding: decode → drop 4-byte checksum → hex
+  static String _tronBase58ToHex(String base58Addr) {
+    const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    BigInt value = BigInt.zero;
+    for (int i = 0; i < base58Addr.length; i++) {
+      final idx = alphabet.indexOf(base58Addr[i]);
+      if (idx < 0) throw FormatException('Invalid base58 character');
+      value = value * BigInt.from(58) + BigInt.from(idx);
+    }
+    String hex = value.toRadixString(16);
+    // Pad to 50 chars (25 bytes = 1 version + 20 address + 4 checksum)
+    while (hex.length < 50) hex = '0$hex';
+    // Drop last 8 hex chars (4 byte checksum)
+    return hex.substring(0, hex.length - 8);
+  }
+
   /// Get Tron transactions
   Future<List<Map<String, dynamic>>> _getTronTransactions(String address) async {
     try {
@@ -794,15 +811,22 @@ class BlockchainService {
           final value = contract?['parameter']?['value'];
           final amount = ((value?['amount'] as num?) ?? 0) / 1000000;
           
-          // TronGrid returns addresses in hex (41...) — compare case‑insensitively
-          // and also handle the common base58 T... format from the wallet
-          final toAddrHex = (value?['to_address'] ?? '').toString().toLowerCase();
-          final fromAddrHex = (value?['owner_address'] ?? '').toString().toLowerCase();
+          // TronGrid returns addresses in hex (41...) — we must compare
+          // by converting the wallet's base58 address to hex, or falling
+          // back to checking if we are NOT the sender.
+          final toAddrRaw = (value?['to_address'] ?? '').toString().toLowerCase();
+          final fromAddrRaw = (value?['owner_address'] ?? '').toString().toLowerCase();
           final addrLower = address.toLowerCase();
-          // Check both raw match and hex‑encoded match
-          final isReceived = toAddrHex == addrLower ||
-              toAddrHex.isNotEmpty && addrLower.isNotEmpty &&
-              toAddrHex != fromAddrHex;
+          // Convert base58 T... address to hex 41... for comparison
+          String addrHex = addrLower;
+          if (address.startsWith('T') && address.length >= 34) {
+            try {
+              addrHex = _tronBase58ToHex(address).toLowerCase();
+            } catch (_) {}
+          }
+          final isReceived = toAddrRaw == addrLower ||
+              toAddrRaw == addrHex ||
+              (fromAddrRaw != addrLower && fromAddrRaw != addrHex && toAddrRaw.isNotEmpty);
           return {
             'hash': tx['txID'] ?? '',
             'amount': amount.abs(),
@@ -851,12 +875,13 @@ class BlockchainService {
   }
 
   /// Get BNB/BSC transactions
-  Future<List<Map<String, dynamic>>> _getBnbTransactions(String address) async {
+  Future<List<Map<String, dynamic>>> _getBnbTransactions(String address, {bool fresh = false}) async {
     try {
       // Try backend API first
       try {
+        final freshParam = fresh ? '?fresh=1' : '';
         final response = await _dio.get(
-            '${ApiConfig.baseUrl}/api/blockchain/transactions/BNB/$address');
+            '${ApiConfig.baseUrl}/api/blockchain/transactions/BNB/$address$freshParam');
         final data = response.data;
 
         if (data is Map &&
@@ -916,11 +941,12 @@ class BlockchainService {
 
   /// Get Bitcoin transactions
   Future<List<Map<String, dynamic>>> _getBitcoinTransactions(
-      String address) async {
+      String address, {bool fresh = false}) async {
     try {
       // Use backend API for transaction history
+      final freshParam = fresh ? '?fresh=1' : '';
       final response = await _dio
-          .get('${ApiConfig.baseUrl}/api/blockchain/transactions/BTC/$address');
+          .get('${ApiConfig.baseUrl}/api/blockchain/transactions/BTC/$address$freshParam');
       final data = response.data;
 
       if (data is Map &&
@@ -950,13 +976,14 @@ class BlockchainService {
 
   /// Get Ethereum transactions
   Future<List<Map<String, dynamic>>> _getEthereumTransactions(
-      String address) async {
+      String address, {bool fresh = false}) async {
     try {
       // Try backend API first
       try {
-        print('DEBUG ETH_TX: Trying backend API for $address');
+        final freshParam = fresh ? '?fresh=1' : '';
+        print('DEBUG ETH_TX: Trying backend API for $address (fresh=$fresh)');
         final response = await _dio.get(
-            '${ApiConfig.baseUrl}/api/blockchain/transactions/ETH/$address');
+            '${ApiConfig.baseUrl}/api/blockchain/transactions/ETH/$address$freshParam');
         final data = response.data;
         print('DEBUG ETH_TX: Backend response: $data');
 

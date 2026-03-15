@@ -179,7 +179,7 @@ class IncomingTxMonitor {
           final address = addresses.first;
           
           // Primary: fetch recent tx history and look for new received hashes
-          final txs = await _blockchainService.getTransactionHistory(coin, address)
+          final txs = await _blockchainService.getTransactionHistory(coin, address, fresh: true)
               .timeout(const Duration(seconds: 10), onTimeout: () => <Map<String, dynamic>>[]);
           
           for (final tx in txs) {
@@ -202,13 +202,12 @@ class IncomingTxMonitor {
             // Skip if already notified
             if (_notifiedTxHashes.contains(txHash)) continue;
             
-            // Skip transactions that happened before monitor was installed
-            if (_monitorStartTime != null) {
-              final ts = (tx['timestamp'] as int?) ?? 0;
-              final txTime = ts > 0
-                  ? DateTime.fromMillisecondsSinceEpoch(ts > 9999999999 ? ts : ts * 1000)
-                  : DateTime.now();
-              if (txTime.isBefore(_monitorStartTime!)) continue;
+            // Skip transactions older than 24 hours (avoids re-notifying very old history)
+            final ts = (tx['timestamp'] as int?) ?? 0;
+            if (ts > 0) {
+              final txTime = DateTime.fromMillisecondsSinceEpoch(
+                  ts > 9999999999 ? ts : ts * 1000);
+              if (txTime.isBefore(DateTime.now().subtract(const Duration(hours: 24)))) continue;
             }
             
             final amount = (tx['amount'] as num?)?.toDouble().abs() ?? 0.0;
