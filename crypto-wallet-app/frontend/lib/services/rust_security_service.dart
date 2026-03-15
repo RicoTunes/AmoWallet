@@ -128,9 +128,17 @@ class RustSecurityService {
       throw Exception('Unexpected response format');
     } on DioException catch (e) {
       final errBody = e.response?.data;
-      String msg = 'Secure EVM send failed';
+      String msg;
       if (errBody is Map && errBody['error'] != null) {
         msg = errBody['error'].toString();
+      } else if (e.type == DioExceptionType.receiveTimeout) {
+        msg = 'Server timeout - transaction may still be processing';
+      } else if (e.type == DioExceptionType.connectionTimeout) {
+        msg = 'Connection timeout - check your internet';
+      } else if (e.type == DioExceptionType.connectionError) {
+        msg = 'Cannot reach server - check your internet';
+      } else {
+        msg = 'Send failed: ${e.message ?? "unknown error"}';
       }
       throw Exception(msg);
     }

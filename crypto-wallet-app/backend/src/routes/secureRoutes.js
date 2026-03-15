@@ -106,6 +106,7 @@ async function forwardToRust(path, body) {
 // EVM provider helpers (same as blockchainRoutes)
 // ---------------------------------------------------------------------------
 const ETH_RPC_URLS = [
+  process.env.ETHEREUM_RPC_URL || null,
   process.env.INFURA_PROJECT_ID ? `https://mainnet.infura.io/v3/${process.env.INFURA_PROJECT_ID}` : null,
   process.env.ALCHEMY_API_KEY ? `https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}` : null,
   'https://eth.llamarpc.com',
@@ -114,7 +115,7 @@ const ETH_RPC_URLS = [
   'https://1rpc.io/eth',
   'https://rpc.mevblocker.io',
   'https://ethereum-rpc.publicnode.com',
-].filter(Boolean);
+].filter((v, i, a) => v && a.indexOf(v) === i);
 
 const BSC_RPC_URLS = [
   'https://bsc-dataseed1.binance.org/',
@@ -135,12 +136,12 @@ async function getWorkingEthProvider(testAddress) {
       if (testAddress) {
         await Promise.race([
           p.getTransactionCount(testAddress),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
         ]);
       } else {
         await Promise.race([
           p.getBlockNumber(),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
         ]);
       }
       console.log(`✅ ETH RPC working: ${url}`);
@@ -159,7 +160,7 @@ async function getWorkingBscProvider() {
       const p = new ethers.JsonRpcProvider(url);
       await Promise.race([
         p.getBlockNumber(),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
       ]);
       return p;
     } catch (_) { /* try next */ }
@@ -180,8 +181,8 @@ async function localSignEvm(body) {
 
   const cleanKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
 
-  // Retry with multiple providers if one fails mid-transaction
-  const maxRetries = 3;
+  // Retry with a fresh provider if one fails mid-transaction
+  const maxRetries = 2;
   let lastError;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -217,16 +218,14 @@ async function localSignEvm(body) {
       }
 
       const transaction = await wallet.sendTransaction(tx);
-      const receipt = await transaction.wait();
-
-      console.log(`✅ [fallback] ${chain} tx mined: ${receipt.hash}`);
+      // Return immediately after broadcast — don't wait for mining
+      // The tx hash is valid as soon as the network accepts it
+      console.log(`✅ [fallback] ${chain} tx broadcast: ${transaction.hash}`);
       return {
-        tx_hash: receipt.hash,
-        from: receipt.from,
-        to: receipt.to,
+        tx_hash: transaction.hash,
+        from: transaction.from,
+        to: transaction.to,
         amount,
-        block_number: receipt.blockNumber,
-        gas_used: receipt.gasUsed ? Number(receipt.gasUsed) : null,
       };
     } catch (e) {
       lastError = e;
@@ -234,11 +233,11 @@ async function localSignEvm(body) {
       // Don't retry for non-RPC errors (e.g., wrong key, insufficient funds)
       if (e.message.includes('does not match') ||
           e.message.includes('INSUFFICIENT_FUNDS') ||
-          e.message.includes('insufficient funds')) {
+          e.message.includes('insufficient funds') ||
+          e.message.includes('nonce has already been used')) {
         throw e;
       }
       if (attempt < maxRetries) {
-        // Wait 1s before retry to give RPC endpoints time to recover
         await new Promise(r => setTimeout(r, 1000));
       }
     }
