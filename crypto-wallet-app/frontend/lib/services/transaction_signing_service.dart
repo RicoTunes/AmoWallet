@@ -17,15 +17,37 @@ class TransactionSigningService {
 
   final _logger = Logger();
 
-  // RPC endpoints for different chains
+  // RPC endpoints for different chains (multiple per chain for fallback)
+  static const Map<int, List<String>> _rpcUrlLists = {
+    1: [
+      'https://eth.llamarpc.com',
+      'https://rpc.ankr.com/eth',
+      'https://cloudflare-eth.com',
+      'https://1rpc.io/eth',
+      'https://rpc.mevblocker.io',
+      'https://ethereum-rpc.publicnode.com',
+    ],
+    56: [
+      'https://bsc-dataseed1.binance.org',
+      'https://bsc-dataseed2.binance.org',
+      'https://rpc.ankr.com/bsc',
+    ],
+    137: ['https://polygon-rpc.com', 'https://rpc.ankr.com/polygon'],
+    42161: ['https://arb1.arbitrum.io/rpc', 'https://rpc.ankr.com/arbitrum'],
+    10: ['https://mainnet.optimism.io', 'https://rpc.ankr.com/optimism'],
+    43114: ['https://api.avax.network/ext/bc/C/rpc', 'https://rpc.ankr.com/avalanche'],
+    8453: ['https://mainnet.base.org', 'https://rpc.ankr.com/base'],
+  };
+
+  // Legacy single-URL map (kept for backward compatibility)
   static const Map<int, String> _rpcUrls = {
-    1: 'https://eth.llamarpc.com', // Ethereum Mainnet
-    56: 'https://bsc-dataseed1.binance.org', // BSC
-    137: 'https://polygon-rpc.com', // Polygon
-    42161: 'https://arb1.arbitrum.io/rpc', // Arbitrum
-    10: 'https://mainnet.optimism.io', // Optimism
-    43114: 'https://api.avax.network/ext/bc/C/rpc', // Avalanche
-    8453: 'https://mainnet.base.org', // Base
+    1: 'https://eth.llamarpc.com',
+    56: 'https://bsc-dataseed1.binance.org',
+    137: 'https://polygon-rpc.com',
+    42161: 'https://arb1.arbitrum.io/rpc',
+    10: 'https://mainnet.optimism.io',
+    43114: 'https://api.avax.network/ext/bc/C/rpc',
+    8453: 'https://mainnet.base.org',
   };
 
   // Chain names for logging
@@ -51,8 +73,9 @@ class TransactionSigningService {
   };
 
   /// Get Web3 client for a specific chain
-  Web3Client _getClient(int chainId) {
-    final rpcUrl = _rpcUrls[chainId] ?? _rpcUrls[1]!;
+  Web3Client _getClient(int chainId, {int urlIndex = 0}) {
+    final urls = _rpcUrlLists[chainId] ?? _rpcUrlLists[1]!;
+    final rpcUrl = urls[urlIndex % urls.length];
     return Web3Client(rpcUrl, http.Client());
   }
 
@@ -69,11 +92,15 @@ class TransactionSigningService {
     BigInt? maxFeePerGas,
     BigInt? maxPriorityFeePerGas,
   }) async {
-    final client = _getClient(chainId);
     final chainName = _chainNames[chainId] ?? 'Unknown';
+    final urls = _rpcUrlLists[chainId] ?? _rpcUrlLists[1]!;
+
+    // Retry with different RPC providers
+    for (int attempt = 0; attempt < urls.length; attempt++) {
+      final client = _getClient(chainId, urlIndex: attempt);
 
     try {
-      _logger.i('🔑 Signing transaction on $chainName (chainId: $chainId)');
+      _logger.i('🔑 Signing transaction on $chainName (chainId: $chainId) [RPC ${attempt + 1}/${urls.length}]');
 
       // Create credentials from private key
       final credentials = EthPrivateKey.fromHex(privateKeyHex);
@@ -150,16 +177,38 @@ class TransactionSigningService {
         nonce: nonce,
       );
     } catch (e) {
-      _logger.e('❌ Transaction failed: $e');
-      return TransactionResult(
-        success: false,
-        error: e.toString(),
-        chainId: chainId,
-        chainName: chainName,
-      );
+      _logger.w('⚠️ Attempt ${attempt + 1}/${urls.length} failed: $e');
+      // Don't retry for non-RPC errors
+      if (e.toString().contains('INSUFFICIENT_FUNDS') ||
+          e.toString().contains('insufficient funds') ||
+          e.toString().contains('nonce too low')) {
+        return TransactionResult(
+          success: false,
+          error: e.toString(),
+          chainId: chainId,
+          chainName: chainName,
+        );
+      }
+      if (attempt == urls.length - 1) {
+        _logger.e('❌ Transaction failed after all RPC attempts: $e');
+        return TransactionResult(
+          success: false,
+          error: e.toString(),
+          chainId: chainId,
+          chainName: chainName,
+        );
+      }
     } finally {
       client.dispose();
     }
+    } // end for loop
+
+    return TransactionResult(
+      success: false,
+      error: 'All RPC endpoints failed',
+      chainId: chainId,
+      chainName: chainName,
+    );
   }
 
   /// Sign and broadcast a swap transaction from backend quote

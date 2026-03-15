@@ -93,18 +93,28 @@ const blockchainApis = {
 // ETH RPC endpoints — tried in order until one works
 const ETH_RPC_URLS = [
   process.env.INFURA_PROJECT_ID ? `https://mainnet.infura.io/v3/${process.env.INFURA_PROJECT_ID}` : null,
+  process.env.ALCHEMY_API_KEY ? `https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}` : null,
   'https://eth.llamarpc.com',
   'https://rpc.ankr.com/eth',
   'https://cloudflare-eth.com',
   'https://1rpc.io/eth',
+  'https://rpc.mevblocker.io',
+  'https://ethereum-rpc.publicnode.com',
 ].filter(Boolean);
 
 // Get a working ETH provider (tries each RPC in order)
-async function getWorkingEthProvider() {
+async function getWorkingEthProvider(testAddress) {
   for (const url of ETH_RPC_URLS) {
     try {
-      const p = new ethers.JsonRpcProvider(url);
-      await p.getBlockNumber(); // quick connectivity check
+      const p = new ethers.JsonRpcProvider(url, undefined, {
+        staticNetwork: true,
+        batchMaxCount: 1,
+      });
+      // Test with getTransactionCount if address provided (more reliable than getBlockNumber)
+      await Promise.race([
+        testAddress ? p.getTransactionCount(testAddress) : p.getBlockNumber(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+      ]);
       return p;
     } catch (_) {
       console.warn(`ETH RPC ${url} failed, trying next...`);

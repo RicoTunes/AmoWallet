@@ -107,21 +107,64 @@ async function forwardToRust(path, body) {
 // ---------------------------------------------------------------------------
 const ETH_RPC_URLS = [
   process.env.INFURA_PROJECT_ID ? `https://mainnet.infura.io/v3/${process.env.INFURA_PROJECT_ID}` : null,
+  process.env.ALCHEMY_API_KEY ? `https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}` : null,
   'https://eth.llamarpc.com',
   'https://rpc.ankr.com/eth',
   'https://cloudflare-eth.com',
   'https://1rpc.io/eth',
+  'https://rpc.mevblocker.io',
+  'https://ethereum-rpc.publicnode.com',
 ].filter(Boolean);
 
-async function getWorkingEthProvider() {
+const BSC_RPC_URLS = [
+  'https://bsc-dataseed1.binance.org/',
+  'https://bsc-dataseed2.binance.org/',
+  'https://bsc-dataseed3.binance.org/',
+  'https://rpc.ankr.com/bsc',
+];
+
+async function getWorkingEthProvider(testAddress) {
+  const errors = [];
   for (const url of ETH_RPC_URLS) {
     try {
+      const p = new ethers.JsonRpcProvider(url, undefined, {
+        staticNetwork: true,
+        batchMaxCount: 1,
+      });
+      // Test with getTransactionCount — the actual call that was failing
+      if (testAddress) {
+        await Promise.race([
+          p.getTransactionCount(testAddress),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+        ]);
+      } else {
+        await Promise.race([
+          p.getBlockNumber(),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+        ]);
+      }
+      console.log(`✅ ETH RPC working: ${url}`);
+      return p;
+    } catch (e) {
+      console.warn(`⚠️ ETH RPC ${url} failed: ${e.message}`);
+      errors.push(`${url}: ${e.message}`);
+    }
+  }
+  throw new Error(`All ETH RPC endpoints failed: ${errors.join('; ')}`);
+}
+
+async function getWorkingBscProvider() {
+  for (const url of BSC_RPC_URLS) {
+    try {
       const p = new ethers.JsonRpcProvider(url);
-      await p.getBlockNumber();
+      await Promise.race([
+        p.getBlockNumber(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+      ]);
       return p;
     } catch (_) { /* try next */ }
   }
-  throw new Error('All ETH RPC endpoints failed');
+  throw new Error('All BSC RPC endpoints failed');
 }
 
 // ---------------------------------------------------------------------------
@@ -135,47 +178,73 @@ async function localSignEvm(body) {
 
   console.log(`🔧 [fallback] Local EVM signing for ${chain}...`);
 
-  const provider = chain === 'ETH'
-    ? await getWorkingEthProvider()
-    : new ethers.JsonRpcProvider('https://bsc-dataseed1.binance.org/');
-
   const cleanKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
-  const wallet = new ethers.Wallet(cleanKey, provider);
 
-  if (wallet.address.toLowerCase() !== from.toLowerCase()) {
-    throw new Error('Private key does not match from address');
+  // Retry with multiple providers if one fails mid-transaction
+  const maxRetries = 3;
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`📡 [attempt ${attempt}/${maxRetries}] Getting provider for ${chain}...`);
+
+      const provider = chain === 'ETH'
+        ? await getWorkingEthProvider(from)
+        : await getWorkingBscProvider();
+
+      const wallet = new ethers.Wallet(cleanKey, provider);
+
+      if (wallet.address.toLowerCase() !== from.toLowerCase()) {
+        throw new Error('Private key does not match from address');
+      }
+
+      const feeData = await provider.getFeeData();
+      const amountStr = parseFloat(amount).toFixed(18).replace(/\.?0+$/, '');
+
+      const tx = {
+        to,
+        value: ethers.parseEther(amountStr),
+        gasLimit,
+        chainId: chain === 'ETH' ? 1 : 56,
+      };
+
+      // Use EIP-1559 if available, otherwise legacy
+      if (feeData.maxFeePerGas) {
+        tx.maxFeePerGas = feeData.maxFeePerGas;
+        tx.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas;
+      } else {
+        tx.gasPrice = feeData.gasPrice;
+      }
+
+      const transaction = await wallet.sendTransaction(tx);
+      const receipt = await transaction.wait();
+
+      console.log(`✅ [fallback] ${chain} tx mined: ${receipt.hash}`);
+      return {
+        tx_hash: receipt.hash,
+        from: receipt.from,
+        to: receipt.to,
+        amount,
+        block_number: receipt.blockNumber,
+        gas_used: receipt.gasUsed ? Number(receipt.gasUsed) : null,
+      };
+    } catch (e) {
+      lastError = e;
+      console.warn(`❌ [attempt ${attempt}/${maxRetries}] ${chain} tx failed: ${e.message}`);
+      // Don't retry for non-RPC errors (e.g., wrong key, insufficient funds)
+      if (e.message.includes('does not match') ||
+          e.message.includes('INSUFFICIENT_FUNDS') ||
+          e.message.includes('insufficient funds')) {
+        throw e;
+      }
+      if (attempt < maxRetries) {
+        // Wait 1s before retry to give RPC endpoints time to recover
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
   }
 
-  const feeData = await provider.getFeeData();
-  const amountStr = parseFloat(amount).toFixed(18).replace(/\.?0+$/, '');
-
-  const tx = {
-    to,
-    value: ethers.parseEther(amountStr),
-    gasLimit,
-    chainId: chain === 'ETH' ? 1 : 56,
-  };
-
-  // Use EIP-1559 if available, otherwise legacy
-  if (feeData.maxFeePerGas) {
-    tx.maxFeePerGas = feeData.maxFeePerGas;
-    tx.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas;
-  } else {
-    tx.gasPrice = feeData.gasPrice;
-  }
-
-  const transaction = await wallet.sendTransaction(tx);
-  const receipt = await transaction.wait();
-
-  console.log(`✅ [fallback] ${chain} tx mined: ${receipt.hash}`);
-  return {
-    tx_hash: receipt.hash,
-    from: receipt.from,
-    to: receipt.to,
-    amount,
-    block_number: receipt.blockNumber,
-    gas_used: receipt.gasUsed ? Number(receipt.gasUsed) : null,
-  };
+  throw lastError || new Error(`${chain} transaction failed after ${maxRetries} attempts`);
 }
 
 // ---------------------------------------------------------------------------
