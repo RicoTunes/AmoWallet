@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../core/config/api_config.dart';
 import 'rust_security_service.dart';
+import 'transaction_signing_service.dart';
 
 class BlockchainService {
   final Dio _dio = Dio(BaseOptions(
@@ -1269,23 +1270,66 @@ class BlockchainService {
 
       // ── EVM chains: Full Rust signing ──────────────────────────────────
       if (['ETH', 'BNB'].contains(coin)) {
-        print('🦀 Using Rust secure EVM signing...');
-        final result = await rustSecurity.secureEvmSend(
-          privateKey: privateKey,
-          chain: coin,
-          from: fromAddress,
-          to: toAddress,
-          amount: amount.toString(),
-          gasLimit: 21000,
-          memo: memo,
-        );
+        // Try backend first, then fall back to direct client-side signing
+        try {
+          print('🦀 Using Rust secure EVM signing...');
+          final result = await rustSecurity.secureEvmSend(
+            privateKey: privateKey,
+            chain: coin,
+            from: fromAddress,
+            to: toAddress,
+            amount: amount.toString(),
+            gasLimit: 21000,
+            memo: memo,
+          );
 
-        if (result['success'] == true || result['tx_hash'] != null) {
-          final txHash = (result['tx_hash'] ?? result['txHash'] ?? '').toString();
-          print('✅ Rust-signed EVM transaction: $txHash');
-          return txHash;
-        } else {
-          throw Exception(result['error'] ?? 'Rust EVM signing failed');
+          if (result['success'] == true || result['tx_hash'] != null) {
+            final txHash = (result['tx_hash'] ?? result['txHash'] ?? '').toString();
+            print('✅ Rust-signed EVM transaction: $txHash');
+            return txHash;
+          } else {
+            throw Exception(result['error'] ?? 'Rust EVM signing failed');
+          }
+        } catch (backendError) {
+          // If backend is unreachable or RPC failed, sign directly on device
+          final errStr = backendError.toString();
+          final isNetworkError = errStr.contains('timeout') ||
+              errStr.contains('Connection') ||
+              errStr.contains('Cannot reach') ||
+              errStr.contains('All ETH RPC') ||
+              errStr.contains('All BSC RPC') ||
+              errStr.contains('SocketException');
+
+          if (!isNetworkError) {
+            // Non-network errors (insufficient funds, wrong key) — don't retry
+            rethrow;
+          }
+
+          print('⚠️ Backend unreachable, signing directly on device...');
+          final chainId = coin == 'ETH' ? 1 : 56;
+          final signingService = TransactionSigningService();
+          // Convert amount to wei safely using string manipulation to avoid floating point loss
+          final amountStr = amount.toStringAsFixed(18);
+          final parts = amountStr.split('.');
+          final whole = parts[0];
+          final frac = (parts.length > 1 ? parts[1] : '').padRight(18, '0').substring(0, 18);
+          final amountWei = BigInt.parse('$whole$frac');
+
+          final result = await signingService.signAndBroadcast(
+            privateKeyHex: privateKey.startsWith('0x') ? privateKey.substring(2) : privateKey,
+            chainId: chainId,
+            toAddress: toAddress,
+            data: '0x',
+            value: amountWei,
+            gasLimit: BigInt.from(21000),
+          );
+
+          if (result.success && result.txHash != null) {
+            print('✅ Client-signed $coin transaction: ${result.txHash}');
+            return result.txHash!;
+          } else {
+            throw Exception(result.error ?? '$coin client-side signing failed');
+          }
         }
       }
 
