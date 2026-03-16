@@ -78,12 +78,6 @@ async function startServer() {
       console.log('\n   🔄 Swap:');
       console.log('   - POST /api/swap/quote - Get swap quote');
       console.log('   - POST /api/swap/build - Build swap transaction');
-      console.log('\n   👥 Multi-sig:');
-      console.log('   - GET  /api/multisig/info - Multi-sig contract info');
-      console.log('   - POST /api/multisig/deploy - Deploy multi-sig wallet');
-      console.log('   - POST /api/multisig/submit - Submit transaction');
-      console.log('   - POST /api/multisig/confirm - Confirm transaction');
-      console.log('   - POST /api/multisig/execute - Execute transaction');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     });
 

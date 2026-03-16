@@ -206,15 +206,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                         ),
                         _buildSettingsItem(
                           context,
-                          icon: Icons.security_rounded,
-                          title: 'MultiSig Wallet',
-                          subtitle: 'Multi-signature security',
-                          onTap: () {
-                            context.go('/multisig');
-                          },
-                        ),
-                        _buildSettingsItem(
-                          context,
                           icon: Icons.refresh,
                           title: 'Reset Balances',
                           subtitle: 'Clear swap data & show blockchain balances',
