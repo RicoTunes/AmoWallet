@@ -882,9 +882,8 @@ async function getBscBalance(address) {
     
     try {
       // Fallback to BSCScan API
-      const apiKey = process.env.BSCSCAN_API_KEY || 'YourApiKeyToken';
       const response = await axios.get(
-        `https://api.bscscan.com/api?module=account&action=balance&address=${address}&tag=latest&apikey=${apiKey}`
+        `https://api.bscscan.com/api?module=account&action=balance&address=${address}&tag=latest`
       );
       const data = response.data;
       
@@ -1079,16 +1078,16 @@ async function getBitcoinTransactions(address) {
 
 async function getEthereumTransactions(address) {
   try {
-    const apiKey = process.env.ETHERSCAN_API_KEY || 'YourApiKeyToken';
-    // Use Etherscan V2 API
+    // Etherscan V2 API (V1 is deprecated as of 2025)
+    const apiKey = process.env.ETHERSCAN_API_KEY || 'HX2M1TCIXA2C9M2771SUZATX5AQ52SQNPR';
     const url = `https://api.etherscan.io/v2/api?chainid=1&module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&sort=desc&apikey=${apiKey}`;
-    console.log('🔍 Fetching ETH transactions from V2 API:', url.replace(apiKey, 'API_KEY'));
+    console.log('🔍 Fetching ETH transactions from Etherscan V2');
     
-    const response = await axios.get(url);
+    const response = await axios.get(url, { timeout: 10000 });
     console.log('📦 Etherscan response:', JSON.stringify(response.data).substring(0, 500));
     
     if (response.data.status === '1') {
-      const txs = response.data.result.slice(0, 10).map(tx => ({
+      const txs = response.data.result.slice(0, 20).map(tx => ({
         hash: tx.hash,
         amount: parseInt(tx.value) / 1e18,
         timestamp: parseInt(tx.timeStamp),
@@ -1111,9 +1110,12 @@ async function getEthereumTransactions(address) {
 
 async function getBnbTransactions(address) {
   try {
-    const apiKey = process.env.BSCSCAN_API_KEY || 'YourApiKeyToken';
-    const url = `https://api.bscscan.com/api?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&sort=desc&apikey=${apiKey}`;
-    const response = await axios.get(url);
+    const apiKey = process.env.BSCSCAN_API_KEY || '';
+    const baseUrl = 'https://api.bscscan.com/api?module=account&action=txlist';
+    const url = apiKey
+      ? `${baseUrl}&address=${address}&startblock=0&endblock=99999999&sort=desc&apikey=${apiKey}`
+      : `${baseUrl}&address=${address}&startblock=0&endblock=99999999&page=1&offset=20&sort=desc`;
+    const response = await axios.get(url, { timeout: 10000 });
     if (response.data.status === '1') {
       return response.data.result.slice(0, 15).map(tx => ({
         hash: tx.hash,
@@ -1135,9 +1137,12 @@ async function getBnbTransactions(address) {
 
 async function getPolygonTransactions(address) {
   try {
-    const apiKey = process.env.POLYGONSCAN_API_KEY || 'YourApiKeyToken';
-    const url = `https://api.polygonscan.com/api?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&sort=desc&apikey=${apiKey}`;
-    const response = await axios.get(url);
+    const apiKey = process.env.POLYGONSCAN_API_KEY || '';
+    const baseUrl = 'https://api.polygonscan.com/api?module=account&action=txlist';
+    const url = apiKey
+      ? `${baseUrl}&address=${address}&startblock=0&endblock=99999999&sort=desc&apikey=${apiKey}`
+      : `${baseUrl}&address=${address}&startblock=0&endblock=99999999&page=1&offset=20&sort=desc`;
+    const response = await axios.get(url, { timeout: 10000 });
     if (response.data.status === '1') {
       return response.data.result.slice(0, 15).map(tx => ({
         hash: tx.hash,
@@ -1396,8 +1401,8 @@ async function getEthereumFees() {
     
     try {
       // Fallback to Etherscan gas tracker
-      const apiKey = process.env.ETHERSCAN_API_KEY || 'YourApiKeyToken';
-      const response = await axios.get(`https://api.etherscan.io/api?module=gastracker&action=gasoracle&apikey=${apiKey}`);
+      const apiKey = process.env.ETHERSCAN_API_KEY || 'HX2M1TCIXA2C9M2771SUZATX5AQ52SQNPR';
+      const response = await axios.get(`https://api.etherscan.io/v2/api?chainid=1&module=gastracker&action=gasoracle&apikey=${apiKey}`);
       const data = response.data.result;
       
       return {

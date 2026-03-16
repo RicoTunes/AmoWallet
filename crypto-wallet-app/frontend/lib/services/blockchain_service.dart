@@ -1011,10 +1011,10 @@ class BlockchainService {
         print('DEBUG ETH_TX: Backend API failed: $e');
       }
 
-      // Fallback to Etherscan free tier
-      print('DEBUG ETH_TX: Trying Etherscan fallback');
+      // Fallback to Etherscan V2 API directly from client
+      print('DEBUG ETH_TX: Trying Etherscan V2 fallback');
       final response = await _dio.get(
-          '${_publicApis['ETH']}?module=account&action=txlist&address=$address&startblock=0&endblock=99999999&sort=desc');
+          'https://api.etherscan.io/v2/api?chainid=1&module=account&action=txlist&address=$address&startblock=0&endblock=99999999&sort=desc&apikey=HX2M1TCIXA2C9M2771SUZATX5AQ52SQNPR');
       final data = response.data;
       print('DEBUG ETH_TX: Etherscan response status: ${data['status']}, message: ${data['message']}');
 
