@@ -812,38 +812,22 @@ router.get('/fees/:network', apiLimiter, async (req, res) => {
 
 // Helper functions for real blockchain interactions
 async function getBitcoinBalance(address) {
-  try {
-    // Use QuickNode if available (no rate limits!)
-    if (process.env.QUICKNODE_BTC_URL) {
-      console.log('🚀 Using QuickNode for Bitcoin balance');
-      
-      // QuickNode uses Bitcoin Core RPC - we need to call blockchain info differently
-      // For now, fall back to blockstream but with our cached layer
-      const response = await axios.get(`${blockchainApis['BTC']}/address/${address}`);
-      const data = response.data;
-      
-      if (data.chain_stats) {
-        const funded = data.chain_stats.funded_txo_sum || 0;
-        const spent = data.chain_stats.spent_txo_sum || 0;
-        return (funded - spent) / 100000000; // Convert satoshis to BTC
-      }
+  // Try multiple BTC explorers
+  const btcApis = [
+    { url: `https://blockstream.info/api/address/${address}`, parse: d => { const f = d.chain_stats?.funded_txo_sum || 0; const s = d.chain_stats?.spent_txo_sum || 0; return (f - s) / 1e8; } },
+    { url: `https://mempool.space/api/address/${address}`, parse: d => { const f = d.chain_stats?.funded_txo_sum || 0; const s = d.chain_stats?.spent_txo_sum || 0; return (f - s) / 1e8; } },
+    { url: `https://blockchain.info/balance?active=${address}&cors=true`, parse: d => (d[address]?.final_balance || 0) / 1e8 },
+  ];
+  for (const api of btcApis) {
+    try {
+      const response = await axios.get(api.url, { timeout: 10000 });
+      const bal = api.parse(response.data);
+      if (typeof bal === 'number' && !isNaN(bal)) return bal;
+    } catch (e) {
+      console.warn(`BTC balance ${api.url} failed:`, e.message);
     }
-    
-    // Fallback to blockstream.info (with caching)
-    const response = await axios.get(`${blockchainApis['BTC']}/address/${address}`);
-    const data = response.data;
-    
-    if (data.chain_stats) {
-      const funded = data.chain_stats.funded_txo_sum || 0;
-      const spent = data.chain_stats.spent_txo_sum || 0;
-      return (funded - spent) / 100000000; // Convert satoshis to BTC
-    }
-    
-    return 0.0;
-  } catch (error) {
-    console.error('Bitcoin balance error:', error.message);
-    throw new Error('Failed to fetch Bitcoin balance');
   }
+  throw new Error('Failed to fetch Bitcoin balance');
 }
 
 async function getEthereumBalance(address) {
@@ -914,91 +898,125 @@ async function getBscBalance(address) {
 }
 
 async function getLitecoinBalance(address) {
-  try {
-    const apiKey = process.env.BLOCKCYPHER_API_KEY ? `?token=${process.env.BLOCKCYPHER_API_KEY}` : '';
-    const response = await axios.get(`${blockchainApis['LTC']}/addrs/${address}/balance${apiKey}`);
-    return response.data.balance / 100000000; // Convert satoshis to LTC
-  } catch (error) {
-    console.error('Litecoin balance error:', error.message);
-    throw new Error('Failed to fetch Litecoin balance');
+  const apiKey = process.env.BLOCKCYPHER_API_KEY ? `?token=${process.env.BLOCKCYPHER_API_KEY}` : '';
+  const ltcApis = [
+    { url: `https://api.blockcypher.com/v1/ltc/main/addrs/${address}/balance${apiKey}`, parse: d => d.balance / 1e8 },
+    { url: `https://litecoinspace.org/api/address/${address}`, parse: d => { const f = d.chain_stats?.funded_txo_sum || 0; const s = d.chain_stats?.spent_txo_sum || 0; return (f - s) / 1e8; } },
+    { url: `https://chainz.cryptoid.info/ltc/api.dws?q=getbalance&a=${address}`, parse: d => parseFloat(d) },
+  ];
+  for (const api of ltcApis) {
+    try {
+      const response = await axios.get(api.url, { timeout: 10000 });
+      const bal = api.parse(response.data);
+      if (typeof bal === 'number' && !isNaN(bal)) return bal;
+    } catch (e) {
+      console.warn(`LTC balance ${api.url} failed:`, e.message);
+    }
   }
+  throw new Error('Failed to fetch Litecoin balance');
 }
 
 async function getDogecoinBalance(address) {
-  try {
-    const apiKey = process.env.BLOCKCYPHER_API_KEY ? `?token=${process.env.BLOCKCYPHER_API_KEY}` : '';
-    const response = await axios.get(`${blockchainApis['DOGE']}/addrs/${address}/balance${apiKey}`);
-    return response.data.balance / 100000000; // Convert satoshis to DOGE
-  } catch (error) {
-    console.error('Dogecoin balance error:', error.message);
-    throw new Error('Failed to fetch Dogecoin balance');
+  const apiKey = process.env.BLOCKCYPHER_API_KEY ? `?token=${process.env.BLOCKCYPHER_API_KEY}` : '';
+  const dogeApis = [
+    { url: `https://api.blockcypher.com/v1/doge/main/addrs/${address}/balance${apiKey}`, parse: d => d.balance / 1e8 },
+    { url: `https://dogechain.info/api/v1/address/balance/${address}`, parse: d => parseFloat(d.balance) },
+    { url: `https://chainz.cryptoid.info/doge/api.dws?q=getbalance&a=${address}`, parse: d => parseFloat(d) },
+  ];
+  for (const api of dogeApis) {
+    try {
+      const response = await axios.get(api.url, { timeout: 10000 });
+      const bal = api.parse(response.data);
+      if (typeof bal === 'number' && !isNaN(bal)) return bal;
+    } catch (e) {
+      console.warn(`DOGE balance ${api.url} failed:`, e.message);
+    }
   }
+  throw new Error('Failed to fetch Dogecoin balance');
 }
 
 async function getTronBalance(address) {
-  try {
-    const apiKey = process.env.TRONGRID_API_KEY;
-    const headers = apiKey ? { 'TRON-PRO-API-KEY': apiKey } : {};
-    
-    const response = await axios.get(`${blockchainApis['TRX']}/v1/accounts/${address}`, { headers });
-    
-    if (response.data.data && response.data.data.length > 0) {
-      const balance = response.data.data[0].balance || 0;
-      return balance / 1000000; // Convert SUN to TRX
+  const apiKey = process.env.TRONGRID_API_KEY;
+  const headers = apiKey ? { 'TRON-PRO-API-KEY': apiKey } : {};
+  const tronApis = [
+    'https://api.trongrid.io',
+    'https://api.tronstack.io',
+    'https://api.shasta.trongrid.io' // Shasta is testnet-only; kept as structure placeholder
+  ];
+  // Try TronGrid-compatible endpoints
+  for (const base of tronApis) {
+    try {
+      const response = await axios.get(`${base}/v1/accounts/${address}`, { headers, timeout: 10000 });
+      if (response.data.data && response.data.data.length > 0) {
+        return (response.data.data[0].balance || 0) / 1e6;
+      }
+      return 0; // Account exists but has zero balance
+    } catch (e) {
+      console.warn(`TRX balance ${base} failed:`, e.message);
     }
-    
-    return 0;
-  } catch (error) {
-    console.error('Tron balance error:', error.message);
-    throw new Error('Failed to fetch Tron balance');
   }
+  // Fallback: TronScan API
+  try {
+    const response = await axios.get(`https://apilist.tronscanapi.com/api/accountv2?address=${address}`, { timeout: 10000 });
+    if (response.data && response.data.balance !== undefined) {
+      return response.data.balance / 1e6;
+    }
+  } catch (e) {
+    console.warn('TronScan fallback failed:', e.message);
+  }
+  throw new Error('Failed to fetch Tron balance');
 }
 
 async function getRippleBalance(address) {
-  try {
-    const payload = {
-      method: "account_info",
-      params: [{ account: address, strict: true, ledger_index: "current", queue: true }]
-    };
-    
-    const response = await axios.post(blockchainApis['XRP'], payload, {
-      headers: { 'Content-Type': 'application/json' }
-    });
-    
-    if (response.data.result && response.data.result.account_data) {
-      const balanceDrops = response.data.result.account_data.Balance || 0;
-      return parseInt(balanceDrops) / 1000000; // Convert drops to XRP
+  const xrpNodes = [
+    'https://s1.ripple.com:51234',
+    'https://s2.ripple.com:51234',
+    'https://xrplcluster.com',
+    'https://xrpl.ws',
+  ];
+  const payload = {
+    method: 'account_info',
+    params: [{ account: address, strict: true, ledger_index: 'current', queue: true }]
+  };
+  for (const node of xrpNodes) {
+    try {
+      const response = await axios.post(node, payload, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 10000,
+      });
+      if (response.data.result?.account_data) {
+        return parseInt(response.data.result.account_data.Balance || 0) / 1e6;
+      }
+      return 0;
+    } catch (e) {
+      console.warn(`XRP balance ${node} failed:`, e.message);
     }
-    
-    return 0;
-  } catch (error) {
-    console.error('Ripple balance error:', error.message);
-    throw new Error('Failed to fetch Ripple balance');
   }
+  throw new Error('Failed to fetch Ripple balance');
 }
 
 async function getSolanaBalance(address) {
-  try {
-    const payload = {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "getBalance",
-      params: [address]
-    };
-    
-    const response = await axios.post(blockchainApis['SOL'], payload, {
-      headers: { 'Content-Type': 'application/json' }
-    });
-    
-    if (response.data.result && response.data.result.value !== undefined) {
-      return response.data.result.value / 1000000000; // Convert lamports to SOL
+  const solRpcs = [
+    'https://api.mainnet-beta.solana.com',
+    'https://rpc.ankr.com/solana',
+    'https://solana-mainnet.rpc.extrnode.com',
+    'https://solana.public-rpc.com',
+  ];
+  const payload = { jsonrpc: '2.0', id: 1, method: 'getBalance', params: [address] };
+  for (const rpc of solRpcs) {
+    try {
+      const response = await axios.post(rpc, payload, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 10000,
+      });
+      if (response.data.result?.value !== undefined) {
+        return response.data.result.value / 1e9;
+      }
+    } catch (e) {
+      console.warn(`SOL balance ${rpc} failed:`, e.message);
     }
-    
-    throw new Error('Invalid Solana API response');
-  } catch (error) {
-    console.error('Solana balance error:', error.message);
-    throw new Error('Failed to fetch Solana balance');
   }
+  throw new Error('Failed to fetch Solana balance');
 }
 
 async function getBitcoinTransactions(address) {
