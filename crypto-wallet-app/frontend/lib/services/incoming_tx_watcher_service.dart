@@ -78,8 +78,8 @@ class IncomingTxWatcherService {
         } catch (e) {
           print('🔔 [$coin] getStoredAddresses error: $e');
         }
-        // Small delay between chains to avoid rate limiting
-        await Future.delayed(const Duration(milliseconds: 500));
+        // Delay between chains to avoid rate limiting on free-tier APIs
+        await Future.delayed(const Duration(seconds: 2));
       }
     } finally {
       _isPolling = false;
@@ -206,6 +206,12 @@ class IncomingTxWatcherService {
       }
       await prefs.setStringList(_seenTxsKey, limited);
     } catch (_) {}
+  }
+
+  /// Trigger an immediate poll (e.g. on pull-to-refresh).
+  Future<void> pollNow() async {
+    print('🔔 Manual poll triggered');
+    await _pollAll();
   }
 
   /// Call after a successful manual send to mark the outgoing tx as "seen"

@@ -847,57 +847,70 @@ async function getBitcoinBalance(address) {
 }
 
 async function getEthereumBalance(address) {
-  try {
-    // Use provider — falls back to https://eth.llamarpc.com when Infura not configured
-    const provider = providers.ethereum;
-    const balance = await provider.getBalance(address);
-    return parseFloat(ethers.formatEther(balance));
-  } catch (providerError) {
-    console.error('ETH provider error, trying Etherscan:', providerError.message);
-    // Fallback to Etherscan only if API key is explicitly configured
-    if (process.env.ETHERSCAN_API_KEY) {
-      try {
-        const response = await axios.get(
-          `https://api.etherscan.io/api?module=account&action=balance&address=${address}&tag=latest&apikey=${process.env.ETHERSCAN_API_KEY}`
-        );
-        if (response.data.status === '1') {
-          return Number(BigInt(response.data.result)) / 1e18;
-        }
-      } catch (e) {
-        console.error('Etherscan fallback error:', e.message);
-      }
+  // Try multiple RPCs in order (same list as getWorkingEthProvider)
+  for (const url of ETH_RPC_URLS) {
+    try {
+      const provider = new ethers.JsonRpcProvider(url, undefined, {
+        staticNetwork: true,
+        batchMaxCount: 1,
+      });
+      const balance = await Promise.race([
+        provider.getBalance(address),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+      ]);
+      return parseFloat(ethers.formatEther(balance));
+    } catch (e) {
+      console.warn(`ETH balance RPC ${url} failed:`, e.message);
     }
-    throw new Error('Failed to fetch Ethereum balance');
   }
+  // Final fallback: Etherscan free tier (no key needed for simple balance)
+  try {
+    const apiKey = process.env.ETHERSCAN_API_KEY || '';
+    const keyParam = apiKey ? `&apikey=${apiKey}` : '';
+    const response = await axios.get(
+      `https://api.etherscan.io/api?module=account&action=balance&address=${address}&tag=latest${keyParam}`
+    );
+    if (response.data.status === '1') {
+      return Number(BigInt(response.data.result)) / 1e18;
+    }
+  } catch (e) {
+    console.error('Etherscan balance fallback error:', e.message);
+  }
+  throw new Error('Failed to fetch Ethereum balance');
 }
 
 async function getBscBalance(address) {
-  try {
-    // First try using BSC provider directly
-    const provider = providers.bsc;
-    const balance = await provider.getBalance(address);
-    return parseFloat(ethers.formatEther(balance));
-  } catch (error) {
-    console.error('BSC provider error, trying BSCScan API:', error.message);
-    
+  // Try BSC RPC endpoints
+  const bscRpcs = [
+    'https://bsc-dataseed1.binance.org/',
+    'https://bsc-dataseed2.binance.org/',
+    'https://bsc-dataseed3.binance.org/',
+    'https://bsc-dataseed4.binance.org/',
+    'https://rpc.ankr.com/bsc',
+  ];
+  for (const url of bscRpcs) {
     try {
-      // Fallback to BSCScan API
-      const response = await axios.get(
-        `https://api.bscscan.com/api?module=account&action=balance&address=${address}&tag=latest`
-      );
-      const data = response.data;
-      
-      if (data.status === '1') {
-        const balanceWei = BigInt(data.result);
-        return Number(balanceWei) / 1e18; // Convert wei to BNB
-      }
-      
-      throw new Error('Failed to get balance from BSCScan');
-    } catch (apiError) {
-      console.error('BSC balance error:', apiError.message);
-      throw new Error('Failed to fetch BSC balance');
-    }
+      const provider = new ethers.JsonRpcProvider(url, undefined, {
+        staticNetwork: true,
+        batchMaxCount: 1,
+      });
+      const balance = await Promise.race([
+        provider.getBalance(address),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
+      ]);
+      return parseFloat(ethers.formatEther(balance));
+    } catch (_) {}
   }
+  // Fallback to BSCScan API
+  try {
+    const response = await axios.get(
+      `https://api.bscscan.com/api?module=account&action=balance&address=${address}&tag=latest`
+    );
+    if (response.data.status === '1') {
+      return Number(BigInt(response.data.result)) / 1e18;
+    }
+  } catch (_) {}
+  throw new Error('Failed to fetch BSC balance');
 }
 
 async function getLitecoinBalance(address) {

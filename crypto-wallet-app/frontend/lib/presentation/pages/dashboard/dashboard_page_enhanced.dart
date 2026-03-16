@@ -15,6 +15,7 @@ import '../../../services/transaction_service.dart';
 import '../../../services/preload_service.dart';
 
 import '../../../services/notification_service.dart';
+import '../../../services/incoming_tx_watcher_service.dart';
 import '../../../services/blockchain_service.dart';
 import '../../../models/transaction_model.dart';
 import '../../widgets/portfolio_chart_widget.dart';
@@ -352,6 +353,8 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
   Future<void> _refreshData() async {
     HapticFeedback.mediumImpact();
     await _loadDashboardData();
+    // Also check for new incoming transactions immediately
+    IncomingTxWatcherService().pollNow();
   }
 
   String _formatCurrency(double amount) {
