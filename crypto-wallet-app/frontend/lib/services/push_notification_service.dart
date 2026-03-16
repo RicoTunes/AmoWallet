@@ -439,27 +439,6 @@ class PushNotificationService {
     );
   }
 
-  /// Notify about MultiSig pending approval
-  Future<void> notifyMultiSigPending({
-    required String walletAddress,
-    required int txIndex,
-    required double amount,
-    required String to,
-  }) async {
-    await _notificationService.showNotification(
-      title: '🔐 MultiSig Approval Required',
-      message: 'Transaction #$txIndex needs your approval (${amount.toStringAsFixed(6)} ETH → ${_shortenAddress(to)})',
-      type: NotificationType.warning,
-      data: {
-        'type': 'multisig_pending',
-        'wallet': walletAddress,
-        'txIndex': txIndex,
-        'amount': amount,
-        'to': to,
-      },
-    );
-  }
-
   String _shortenAddress(String address) {
     if (address.length > 16) {
       return '${address.substring(0, 8)}...${address.substring(address.length - 6)}';

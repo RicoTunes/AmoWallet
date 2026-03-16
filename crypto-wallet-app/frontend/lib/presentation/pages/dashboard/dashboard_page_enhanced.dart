@@ -13,7 +13,7 @@ import '../../../services/price_service.dart';
 import '../../../services/wallet_service.dart';
 import '../../../services/transaction_service.dart';
 import '../../../services/preload_service.dart';
-import '../../../services/incoming_tx_monitor.dart';
+
 import '../../../services/notification_service.dart';
 import '../../../services/blockchain_service.dart';
 import '../../../models/transaction_model.dart';
@@ -35,7 +35,6 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
   final WalletService _walletService = WalletService();
   final TransactionService _transactionService = TransactionService();
   final PreloadService _preloadService = PreloadService();
-  final IncomingTxMonitor _incomingTxMonitor = IncomingTxMonitor();
   final NotificationService _notificationService = NotificationService();
 
   // Animation controllers
@@ -134,7 +133,6 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
 
     _loadCachedBalances().then((_) => _loadDashboardData());
     _preloadService.preloadSwapData();
-    _incomingTxMonitor.startMonitoring();
     _loadFavorites();
 
     // Listen for notification changes so badge updates in real time
@@ -354,7 +352,6 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
   Future<void> _refreshData() async {
     HapticFeedback.mediumImpact();
     await _loadDashboardData();
-    await _incomingTxMonitor.resetBalances();
   }
 
   String _formatCurrency(double amount) {

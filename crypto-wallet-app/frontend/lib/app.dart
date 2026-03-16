@@ -114,7 +114,7 @@ class _CryptoWalletProAppState extends ConsumerState<CryptoWalletProApp> with Wi
         }
 
         // Save last route for all main app pages so user is returned here after unlock
-        final allowedRoutes = ['/dashboard', '/portfolio', '/coins', '/settings', '/send', '/swap', '/receive', '/transactions', '/multisig'];
+        final allowedRoutes = ['/dashboard', '/portfolio', '/coins', '/settings', '/send', '/swap', '/receive', '/transactions'];
         if (allowedRoutes.any((r) => currentLocation.startsWith(r))) {
           await prefs.setString('last_route', currentLocation);
           print('💾 Saved current route: $currentLocation');

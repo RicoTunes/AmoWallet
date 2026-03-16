@@ -50,7 +50,6 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 const walletRoutes = require('./routes/walletRoutes');
 const blockchainRoutes = require('./routes/blockchainRoutes');
 const swapRoutes = require('./routes/swapRoutes');
-const multisigRoutes = require('./routes/multisigRoutes');
 const auditRoutes = require('./routes/auditRoutes');
 const authRoutes = require('./routes/authRoutes');
 const healthRoutes = require('./routes/healthRoutes');
@@ -125,8 +124,6 @@ app.use('/api/swap', publicSwapRoutes);
 // Transaction routes require signature validation
 app.use('/api/wallet', checkAppActive, checkReadOnly, requireAuth ? authenticate : (req, res, next) => next(), validateSignature, walletRoutes);
 app.use('/api/swap', checkAppActive, checkReadOnly, requireAuth ? authenticate : (req, res, next) => next(), validateSignature, swapRoutes);
-app.use('/api/multisig', checkAppActive, checkReadOnly, requireAuth ? authenticate : (req, res, next) => next(), validateSignature, multisigRoutes);
-
 // Secure routes — encrypted key forwarding to Rust (no raw keys in Node.js)
 app.use('/api/secure', checkAppActive, checkReadOnly, secureRoutes);
 

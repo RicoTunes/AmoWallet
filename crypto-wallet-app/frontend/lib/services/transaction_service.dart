@@ -159,7 +159,7 @@ class TransactionService {
                 final toAddr   = (tx['toAddress']   ?? '').toString().toLowerCase();
                 final addrLower = address.toLowerCase();
 
-                // Resolve type: prefer explicit, then infer from addresses, fallback sent
+                // Resolve type: prefer explicit, then infer from addresses, fallback to raw type
                 final String resolvedType;
                 if (rawType == 'received') {
                   resolvedType = 'received';
@@ -169,8 +169,11 @@ class TransactionService {
                   resolvedType = 'received';
                 } else if (fromAddr.isNotEmpty && fromAddr == addrLower) {
                   resolvedType = 'sent';
+                } else if (rawType == 'incoming' || rawType == 'in') {
+                  resolvedType = 'received';
                 } else {
-                  resolvedType = 'sent'; // last resort
+                  // Use amount sign or default to sent for safety
+                  resolvedType = 'sent';
                 }
 
                 final transaction = Transaction(

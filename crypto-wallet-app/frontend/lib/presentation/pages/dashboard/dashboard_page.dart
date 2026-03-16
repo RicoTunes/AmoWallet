@@ -504,26 +504,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage> {
                               context.go('/coins');
                             },
                           ),
-                          _buildActionCard(
-                            context,
-                            icon: Icons.security_rounded,
-                            title: 'Multi-Sig',
-                            subtitle: 'Manage wallet',
-                            color: Colors.deepPurple,
-                            onTap: () {
-                              context.push('/multisig-management');
-                            },
-                          ),
-                          _buildActionCard(
-                            context,
-                            icon: Icons.add_moderator_rounded,
-                            title: 'Create Multi-Sig',
-                            subtitle: 'New wallet',
-                            color: Colors.indigo,
-                            onTap: () {
-                              context.push('/create-multisig');
-                            },
-                          ),
+
                         ],
                       );
                         },

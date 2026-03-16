@@ -17,9 +17,6 @@ import '../../presentation/pages/wallet/receive_page_enhanced.dart';
 import '../../presentation/pages/wallet/send_page_enhanced.dart';
 import '../../presentation/pages/transactions/transactions_page_enhanced.dart';
 import '../../presentation/pages/swap/swap_page_real.dart';
-import '../../presentation/pages/multisig/create_multisig_page.dart';
-import '../../presentation/pages/multisig/multisig_management_page.dart';
-import '../../presentation/pages/multisig/multisig_wallet_page.dart';
 import '../../presentation/pages/splash/splash_screen.dart';
 import '../../presentation/pages/security/pin_setup_page.dart';
 import '../../presentation/pages/security/pin_entry_page.dart';
@@ -180,21 +177,6 @@ final routerProvider = Provider<GoRouter>((ref) {
           final extra = state.extra as Map<String, dynamic>?;
           return SwapPageReal(initialFromCoin: extra?['fromCoin']);
         },
-      ),
-      GoRoute(
-        path: '/create-multisig',
-        name: 'create_multisig',
-        builder: (context, state) => const CreateMultiSigPage(),
-      ),
-      GoRoute(
-        path: '/multisig-management',
-        name: 'multisig_management',
-        builder: (context, state) => const MultiSigManagementPage(),
-      ),
-      GoRoute(
-        path: '/multisig',
-        name: 'multisig',
-        builder: (context, state) => const MultiSigWalletPage(),
       ),
       GoRoute(
         path: '/scanner',

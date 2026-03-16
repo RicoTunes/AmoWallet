@@ -6,6 +6,11 @@
 			"type": "shell",
 			"command": "cd c:\\Users\\RICO\\ricoamos\\crypto-wallet-app\\frontend && flutter build apk --release",
 			"isBackground": false
+		},
+		{
+			"label": "Build Flutter APK",
+			"type": "shell",
+			"command": "cd c:\\Users\\RICO\\ricoamos\\crypto-wallet-app\\frontend && c:\\Users\\RICO\\ricoamos\\flutter-sdk\\flutter\\bin\\flutter.bat build apk --release"
 		}
 	]
 }
