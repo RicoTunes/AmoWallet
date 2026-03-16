@@ -289,6 +289,36 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
         });
       }
 
+      // Apply pending deductions: if we recently sent a coin and the blockchain
+      // hasn't confirmed yet, the on-chain balance is still the old (higher)
+      // value. Keep the optimistic (lower) balance until the chain catches up.
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final pendingRaw = prefs.getString('pending_deductions') ?? '[]';
+        final pending = List<Map<String, dynamic>>.from(jsonDecode(pendingRaw));
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final kept = <Map<String, dynamic>>[];
+        for (final d in pending) {
+          final coin = d['coin'] as String;
+          final deduction = (d['amount'] as num).toDouble();
+          final preSend = (d['preSendBalance'] as num).toDouble();
+          final ts = d['timestamp'] as int;
+          // Expire after 5 minutes
+          if (now - ts > 5 * 60 * 1000) continue;
+          final realBal = mergedBalances[coin] ?? 0.0;
+          // If real balance is still >= pre-send (chain hasn't caught up), apply deduction
+          if (realBal >= preSend - 0.000001) {
+            mergedBalances[coin] = (realBal - deduction).clamp(0.0, double.infinity);
+            kept.add(d);
+            debugPrint('⏳ Pending deduction applied: $coin -$deduction (chain still shows $realBal)');
+          }
+          // If real balance is already lower, chain caught up — drop deduction
+        }
+        await prefs.setString('pending_deductions', jsonEncode(kept));
+      } catch (e) {
+        debugPrint('⚠️ Pending deduction check failed: $e');
+      }
+
       double totalValue = 0.0;
       
       // Use real prices if available, otherwise fall back to previously cached _priceData.

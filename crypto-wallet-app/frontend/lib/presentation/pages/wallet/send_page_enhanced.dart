@@ -635,6 +635,7 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
 
       // Update balance optimistically
       final optimisticDeduction = cryptoAmount + _fee;
+      final preSendBalance = _availableBalance;
       setState(() {
         _availableBalance = (_availableBalance - optimisticDeduction);
         _cachedBalances[_selectedCoin] = _availableBalance;
@@ -645,6 +646,16 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString(
             'dashboard_cached_balances', jsonEncode(_cachedBalances));
+        // Store pending deduction so dashboard doesn't overwrite with stale on-chain balance
+        final pendingRaw = prefs.getString('pending_deductions') ?? '[]';
+        final pending = List<Map<String, dynamic>>.from(jsonDecode(pendingRaw));
+        pending.add({
+          'coin': _selectedCoin,
+          'amount': optimisticDeduction,
+          'preSendBalance': preSendBalance,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        });
+        await prefs.setString('pending_deductions', jsonEncode(pending));
       } catch (_) {}
 
       // Record transaction
