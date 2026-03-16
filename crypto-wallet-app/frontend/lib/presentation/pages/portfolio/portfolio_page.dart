@@ -175,19 +175,42 @@ class _PortfolioPageState extends ConsumerState<PortfolioPage>
       final allSym = {...symbols, 'BTC', 'ETH', 'BNB', 'SOL'}.toList();
       final prices = await _priceService.getPrices(allSym);
 
+      // Also read pending deductions from send page so recently-sent coins
+      // reflect the optimistic lower balance, not the stale on-chain value.
+      Map<String, double> pendingDeductions = {};
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final pendingRaw = prefs.getString('pending_deductions') ?? '[]';
+        final pending = List<Map<String, dynamic>>.from(jsonDecode(pendingRaw));
+        final now = DateTime.now().millisecondsSinceEpoch;
+        for (final d in pending) {
+          if (now - (d['timestamp'] as int) > 5 * 60 * 1000) continue;
+          final coin = d['coin'] as String;
+          final amt = (d['amount'] as num).toDouble();
+          final preSend = (d['preSendBalance'] as num).toDouble();
+          final realBal = balances[coin] ?? 0.0;
+          if (realBal >= preSend - 0.000001) {
+            pendingDeductions[coin] = (pendingDeductions[coin] ?? 0.0) + amt;
+          }
+        }
+      } catch (_) {}
+
       double total = 0.0;
       final assets = <_AssetItem>[];
 
       balances.forEach((sym, bal) {
-        if (bal <= 0) return;
+        // Apply pending deduction if any
+        final deduction = pendingDeductions[sym] ?? 0.0;
+        final adjustedBal = (bal - deduction).clamp(0.0, double.infinity);
+        if (adjustedBal <= 0) return;
         final info = prices[sym];
         final price = (info?['price'] as num?)?.toDouble() ?? 0.0;
         final change = (info?['change24h'] as num?)?.toDouble() ?? 0.0;
-        final val = bal * price;
+        final val = adjustedBal * price;
         total += val;
         assets.add(_AssetItem(
           symbol: sym,
-          balance: bal,
+          balance: adjustedBal,
           price: price,
           change24h: change,
           value: val,
@@ -197,6 +220,11 @@ class _PortfolioPageState extends ConsumerState<PortfolioPage>
       assets.sort((a, b) => b.value.compareTo(a.value));
 
       if (mounted) {
+        // Don't overwrite good cached data with an empty result (API failure)
+        if (assets.isEmpty && _assets.isNotEmpty) {
+          setState(() => _isLoading = false);
+          return;
+        }
         setState(() {
           _totalValue = total;
           _assets = assets;
