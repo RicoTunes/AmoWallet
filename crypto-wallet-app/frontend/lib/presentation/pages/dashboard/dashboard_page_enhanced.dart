@@ -52,6 +52,9 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
   bool _isSheetOpen = false; // Prevent multiple bottom sheets
   Set<String> _favorites = {'BTC', 'ETH'}; // Default favorites
   bool _balanceHidden = false; // Toggle to hide/show balance
+  double _totalReceived = 0.0;
+  double _totalSent = 0.0;
+  double _totalSwapped = 0.0;
 
   // Auto-refresh timer & price change tracking
   Timer? _autoRefreshTimer;
@@ -367,6 +370,22 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
           _totalPortfolioValue = totalValue;
           _recentTransactions = allTx.take(5).toList();
           _isLoading = false;
+          // Compute received / sent / swapped totals from transaction history
+          double tRcv = 0, tSnt = 0, tSwp = 0;
+          for (final tx in allTx) {
+            final coinPrice = (effectivePrices[tx.coin]?['price'] as double?) ?? 0.0;
+            final usdVal = tx.amount.abs() * coinPrice;
+            if (tx.isReceived) {
+              tRcv += usdVal;
+            } else if (tx.isSent) {
+              tSnt += usdVal;
+            } else if (tx.isSwap) {
+              tSwp += usdVal;
+            }
+          }
+          _totalReceived = tRcv;
+          _totalSent = tSnt;
+          _totalSwapped = tSwp;
         });
         debugPrint('✅ Dashboard updated: ${_balances.length} balances, total \$${totalValue.toStringAsFixed(2)}');
         // Persist to disk so we restore them instantly next time
@@ -467,17 +486,27 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
   Widget _buildHeader(Color cardColor, Color textColor) {
     return Container(
       color: Colors.transparent,
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          // Right icons - Search, Notification, History
+          // App name / logo
+          Text(
+            'AmoWallet',
+            style: TextStyle(
+              color: textColor,
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const Spacer(),
+          // Right icons
           _buildIconButton(Icons.search_rounded, () {
             _showSearchSheet();
           }, cardColor, textColor),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           _buildNotificationButton(cardColor, textColor),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           _buildIconButton(Icons.history_rounded, () {
             context.go('/transactions');
           }, cardColor, textColor),
@@ -1120,251 +1149,212 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
 
   Widget _buildCentralLogo(
       bool isDark, Color cardColor, Color textColor, Color subtextColor) {
-    final gradientColors = isDark
-        ? [const Color(0xFF1A1F2E), const Color(0xFF252B3B).withOpacity(0.8)]
-        : [Colors.white, const Color(0xFFF1F5F9)];
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
       child: Container(
-        padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: gradientColors,
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+            colors: isDark
+                ? [const Color(0xFF1E1B4B), const Color(0xFF1A1F2E)]
+                : [const Color(0xFFF5F3FF), Colors.white],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
           ),
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(28),
           border: Border.all(
-            color: const Color(0xFF8B5CF6).withOpacity(0.2),
-            width: 1,
+            color: const Color(0xFF8B5CF6).withOpacity(0.15),
           ),
           boxShadow: [
             BoxShadow(
-              color: isDark
-                  ? const Color(0xFF8B5CF6).withOpacity(0.1)
-                  : Colors.black.withOpacity(0.08),
-              blurRadius: 30,
-              spreadRadius: -5,
+              color: const Color(0xFF8B5CF6).withOpacity(isDark ? 0.12 : 0.06),
+              blurRadius: 40,
+              spreadRadius: -8,
+              offset: const Offset(0, 12),
             ),
           ],
         ),
         child: Column(
           children: [
-            // Total Balance Label with Eye Toggle
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF8B5CF6).withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+            // ── Top section with balance ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 28, 24, 0),
+              child: Column(
+                children: [
+                  // Greeting + eye toggle
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF10B981),
-                          shape: BoxShape.circle,
-                        ),
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFF10B981),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Portfolio Value',
+                            style: TextStyle(
+                              color: subtextColor,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Total Balance',
-                        style: TextStyle(
-                          color: subtextColor,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
                       GestureDetector(
                         onTap: () {
                           HapticFeedback.lightImpact();
                           setState(() => _balanceHidden = !_balanceHidden);
                         },
-                        child: Icon(
-                          _balanceHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                          color: subtextColor,
-                          size: 16,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: textColor.withOpacity(0.06),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(
+                            _balanceHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                            color: subtextColor,
+                            size: 18,
+                          ),
                         ),
                       ),
                     ],
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            // Main Balance Amount
-            AnimatedBuilder(
-              animation: _pulseAnimation,
-              builder: (context, child) {
-                if (_isLoading) {
-                  // Shimmer skeleton — never show a wrong/mock balance
-                  return Container(
-                    height: 58,
-                    width: 180,
-                    decoration: BoxDecoration(
-                      color: textColor.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  );
-                }
-                return ShaderMask(
-                  shaderCallback: (bounds) => LinearGradient(
-                    colors: [
-                      textColor,
-                      textColor.withOpacity(0.9),
-                      const Color(0xFF8B5CF6).withOpacity(0.8),
-                    ],
-                  ).createShader(bounds),
-                  child: _balanceHidden
-                      ? Text(
-                          '••••••••',
-                          style: TextStyle(
-                            color: textColor,
-                            fontSize: 48,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 4,
+                  const SizedBox(height: 16),
+                  // Main Balance
+                  _isLoading
+                      ? Container(
+                          height: 52,
+                          width: 200,
+                          decoration: BoxDecoration(
+                            color: textColor.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(14),
                           ),
                         )
-                      : AnimatedCurrencyNumber(
-                          value: _totalPortfolioValue,
-                          formatter: (v) =>
-                              v > 0 ? _formatCurrency(v) : '\$0.00',
-                          style: TextStyle(
-                            color: textColor,
-                            fontSize: 48,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: -2,
+                      : _balanceHidden
+                          ? Text(
+                              '\u2022\u2022\u2022\u2022\u2022\u2022',
+                              style: TextStyle(
+                                color: textColor,
+                                fontSize: 44,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 6,
+                              ),
+                            )
+                          : AnimatedCurrencyNumber(
+                              value: _totalPortfolioValue,
+                              formatter: (v) =>
+                                  v > 0 ? _formatCurrency(v) : '\$0.00',
+                              style: TextStyle(
+                                color: textColor,
+                                fontSize: 44,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -1.5,
+                              ),
+                              duration: const Duration(milliseconds: 900),
+                              textAlign: TextAlign.start,
+                            ),
+                  const SizedBox(height: 10),
+                  // Percentage chip
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.trending_up_rounded,
+                            color: Color(0xFF10B981), size: 14),
+                        const SizedBox(width: 4),
+                        Text(
+                          _totalPortfolioValue > 0 ? '+2.4% today' : 'Start investing',
+                          style: const TextStyle(
+                            color: Color(0xFF10B981),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
-                          duration: const Duration(milliseconds: 900),
-                          textAlign: TextAlign.start,
                         ),
-                );
-              },
-            ),
-            const SizedBox(height: 8),
-            // Percentage Change (mock)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF10B981).withOpacity(0.15),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.trending_up_rounded,
-                    color: Color(0xFF10B981),
-                    size: 16,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    _totalPortfolioValue > 0
-                        ? '+2.4% today'
-                        : 'Start investing',
-                    style: const TextStyle(
-                      color: Color(0xFF10B981),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 24),
-            // Quick Stats Row
-            Row(
-              children: [
-                Expanded(
-                  child: _buildQuickStat(
-                    icon: Icons.arrow_downward_rounded,
-                    label: 'Received',
-                    value: '\$0',
-                    color: const Color(0xFF10B981),
-                    textColor: textColor,
-                    subtextColor: subtextColor,
-                  ),
-                ),
-                Container(
-                  width: 1,
-                  height: 40,
-                  color: textColor.withOpacity(0.1),
-                ),
-                Expanded(
-                  child: _buildQuickStat(
-                    icon: Icons.arrow_upward_rounded,
-                    label: 'Sent',
-                    value: '\$0',
-                    color: const Color(0xFFEF4444),
-                    textColor: textColor,
-                    subtextColor: subtextColor,
-                  ),
-                ),
-                Container(
-                  width: 1,
-                  height: 40,
-                  color: textColor.withOpacity(0.1),
-                ),
-                Expanded(
-                  child: _buildQuickStat(
-                    icon: Icons.swap_horiz_rounded,
-                    label: 'Swapped',
-                    value: '\$0',
-                    color: const Color(0xFF8B5CF6),
-                    textColor: textColor,
-                    subtextColor: subtextColor,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            // View Charts Button
-            GestureDetector(
-              onTap: () {
-                HapticFeedback.lightImpact();
-                _showPortfolioCharts();
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      const Color(0xFF8B5CF6).withOpacity(0.2),
-                      const Color(0xFF06B6D4).withOpacity(0.2),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: const Color(0xFF8B5CF6).withOpacity(0.3),
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.show_chart_rounded,
-                      color: textColor.withOpacity(0.8),
-                      size: 18,
+            // ── Quick Stats Row ──
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.white.withOpacity(0.04)
+                    : Colors.black.withOpacity(0.03),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _buildQuickStat(
+                      icon: Icons.south_west_rounded,
+                      label: 'Received',
+                      value: _balanceHidden ? '\u2022\u2022\u2022' : _formatCompactUsd(_totalReceived),
+                      color: const Color(0xFF10B981),
+                      textColor: textColor,
+                      subtextColor: subtextColor,
                     ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'View Portfolio Analytics',
-                      style: TextStyle(
-                        color: textColor.withOpacity(0.8),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
+                  ),
+                  Container(
+                    width: 1,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Colors.transparent, textColor.withOpacity(0.1), Colors.transparent],
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                  Expanded(
+                    child: _buildQuickStat(
+                      icon: Icons.north_east_rounded,
+                      label: 'Sent',
+                      value: _balanceHidden ? '\u2022\u2022\u2022' : _formatCompactUsd(_totalSent),
+                      color: const Color(0xFFEF4444),
+                      textColor: textColor,
+                      subtextColor: subtextColor,
+                    ),
+                  ),
+                  Container(
+                    width: 1,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Colors.transparent, textColor.withOpacity(0.1), Colors.transparent],
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: _buildQuickStat(
+                      icon: Icons.swap_horiz_rounded,
+                      label: 'Swapped',
+                      value: _balanceHidden ? '\u2022\u2022\u2022' : _formatCompactUsd(_totalSwapped),
+                      color: const Color(0xFF8B5CF6),
+                      textColor: textColor,
+                      subtextColor: subtextColor,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -1383,112 +1373,75 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
   }) {
     return Column(
       children: [
-        Icon(icon, color: color, size: 20),
-        const SizedBox(height: 4),
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: color, size: 16),
+        ),
+        const SizedBox(height: 6),
         Text(
           value,
           style: TextStyle(
             color: textColor,
             fontSize: 14,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w700,
           ),
         ),
+        const SizedBox(height: 2),
         Text(
           label,
           style: TextStyle(
             color: subtextColor,
             fontSize: 11,
+            fontWeight: FontWeight.w500,
           ),
         ),
       ],
     );
   }
 
+  String _formatCompactUsd(double amount) {
+    if (amount >= 1000000) return '\$${(amount / 1000000).toStringAsFixed(1)}M';
+    if (amount >= 1000) return '\$${(amount / 1000).toStringAsFixed(1)}K';
+    if (amount >= 1) return '\$${amount.toStringAsFixed(2)}';
+    if (amount > 0) return '\$${amount.toStringAsFixed(2)}';
+    return '\$0';
+  }
+
   Widget _buildActionButtons(bool isDark, Color cardColor, Color textColor) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 32, 20, 32),
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 24),
       child: Row(
         children: [
           // Receive button
           Expanded(
-            child: GestureDetector(
-              onTap: () {
-                HapticFeedback.lightImpact();
-                context.go('/receive');
-              },
-              child: Container(
-                height: 50,
-                margin: const EdgeInsets.only(right: 8),
-                decoration: BoxDecoration(
-                  color: cardColor,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: const Color(0xFF10B981).withOpacity(0.3),
-                    width: 1,
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.download_rounded,
-                      color: const Color(0xFF10B981),
-                      size: 18,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Receive',
-                      style: TextStyle(
-                        color: textColor,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            child: _buildActionBtn(
+              onTap: () => context.go('/receive'),
+              icon: Icons.south_west_rounded,
+              label: 'Receive',
+              color: const Color(0xFF10B981),
+              isDark: isDark,
+              cardColor: cardColor,
+              textColor: textColor,
             ),
           ),
+          const SizedBox(width: 10),
           // Send button
           Expanded(
-            child: GestureDetector(
-              onTap: () {
-                HapticFeedback.lightImpact();
-                context.go('/send');
-              },
-              child: Container(
-                height: 50,
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                decoration: BoxDecoration(
-                  color: cardColor,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: const Color(0xFFEF4444).withOpacity(0.3),
-                    width: 1,
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.upload_rounded,
-                      color: const Color(0xFFEF4444),
-                      size: 18,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Send',
-                      style: TextStyle(
-                        color: textColor,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+            child: _buildActionBtn(
+              onTap: () => context.go('/send'),
+              icon: Icons.north_east_rounded,
+              label: 'Send',
+              color: const Color(0xFFEF4444),
+              isDark: isDark,
+              cardColor: cardColor,
+              textColor: textColor,
             ),
           ),
+          const SizedBox(width: 10),
           // Swap button
           Expanded(
             child: GestureDetector(
@@ -1497,33 +1450,32 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
                 context.go('/swap');
               },
               child: Container(
-                height: 50,
-                margin: const EdgeInsets.only(left: 8),
+                height: 54,
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
                     colors: [Color(0xFF8B5CF6), Color(0xFF7C3AED)],
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF8B5CF6).withOpacity(0.3),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-                child: Row(
+                child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
-                      Icons.swap_horiz_rounded,
-                      color: Colors.white,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 6),
-                    const Text(
-                      'Swap',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                    Icon(Icons.swap_horiz_rounded, color: Colors.white, size: 18),
+                    SizedBox(width: 6),
+                    Text('Swap',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600)),
                   ],
                 ),
               ),
@@ -1534,14 +1486,99 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
     );
   }
 
+  Widget _buildActionBtn({
+    required VoidCallback onTap,
+    required IconData icon,
+    required String label,
+    required Color color,
+    required bool isDark,
+    required Color cardColor,
+    required Color textColor,
+  }) {
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        onTap();
+      },
+      child: Container(
+        height: 54,
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.25)),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: color, size: 16),
+            ),
+            const SizedBox(width: 8),
+            Text(label,
+                style: TextStyle(
+                    color: textColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600)),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildCoinList(
       bool isDark, Color cardColor, Color textColor, Color subtextColor) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
-        children: _allCoins.map((coin) {
-          return _buildCoinTile(coin, cardColor, textColor, subtextColor);
-        }).toList(),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Section header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'My Assets',
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    _showPortfolioCharts();
+                  },
+                  child: Text(
+                    'Analytics',
+                    style: TextStyle(
+                      color: const Color(0xFF8B5CF6),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ..._allCoins.map((coin) {
+            return _buildCoinTile(coin, cardColor, textColor, subtextColor);
+          }),
+        ],
       ),
     );
   }
