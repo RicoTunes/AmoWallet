@@ -43,6 +43,8 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   late AnimationController _coinSpinController;
+  late AnimationController _pendingPulseController;
+  late Animation<double> _pendingPulseAnimation;
 
   Map<String, Map<String, dynamic>> _priceData = {};
   Map<String, double> _balances = {};
@@ -58,6 +60,7 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
 
   // Auto-refresh timer & price change tracking
   Timer? _autoRefreshTimer;
+  Timer? _pendingRefreshTimer;
   Map<String, double> _previousPrices = {};
   Set<String> _changedCoins = {};
 
@@ -135,6 +138,15 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
       duration: const Duration(milliseconds: 800),
     );
 
+    // Pending transaction pulse animation
+    _pendingPulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+    _pendingPulseAnimation = Tween<double>(begin: 0.4, end: 1.0).animate(
+      CurvedAnimation(parent: _pendingPulseController, curve: Curves.easeInOut),
+    );
+
     _loadCachedBalances().then((_) => _loadDashboardData());
     _preloadService.preloadSwapData();
     _loadFavorites();
@@ -147,6 +159,17 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
       const Duration(minutes: 10),
       (_) => _loadDashboardData(),
     );
+
+    // Fast refresh every 30s to check for pending tx confirmations
+    _pendingRefreshTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) {
+        final hasPending = _recentTransactions.any((tx) => tx.isPending || tx.status == 'pending');
+        if (hasPending) {
+          _loadDashboardData();
+        }
+      },
+    );
   }
 
   @override
@@ -154,7 +177,9 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
     _logoAnimationController.dispose();
     _pulseController.dispose();
     _coinSpinController.dispose();
+    _pendingPulseController.dispose();
     _autoRefreshTimer?.cancel();
+    _pendingRefreshTimer?.cancel();
     _notificationService.removeListener(_onNotificationsChanged);
     super.dispose();
   }
@@ -368,7 +393,7 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
           _priceData = prices.isNotEmpty ? prices : _priceData;
           _balances = mergedBalances;
           _totalPortfolioValue = totalValue;
-          _recentTransactions = allTx.take(5).toList();
+          _recentTransactions = allTx.take(20).toList();
           _isLoading = false;
           // Compute received / sent / swapped totals from transaction history
           double tRcv = 0, tSnt = 0, tSwp = 0;
@@ -465,6 +490,9 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
 
                       // Receive / Buy Buttons
                       _buildActionButtons(isDark, cardColor, textColor),
+
+                      // Pending Transactions (Exodus-style)
+                      _buildPendingTransactions(isDark, cardColor, textColor, subtextColor),
 
                       // Coin List
                       _buildCoinList(
@@ -1534,6 +1562,212 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildPendingTransactions(
+      bool isDark, Color cardColor, Color textColor, Color subtextColor) {
+    final pendingTxs = _recentTransactions
+        .where((tx) => tx.isPending || tx.status == 'pending')
+        .toList();
+
+    if (pendingTxs.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Section header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+            child: Row(
+              children: [
+                AnimatedBuilder(
+                  animation: _pendingPulseAnimation,
+                  builder: (context, child) {
+                    return Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.orange.withOpacity(_pendingPulseAnimation.value),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Pending',
+                  style: TextStyle(
+                    color: Colors.orange,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '${pendingTxs.length} transaction${pendingTxs.length > 1 ? 's' : ''}',
+                  style: TextStyle(
+                    color: subtextColor,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Pending transaction cards
+          ...pendingTxs.map((tx) => _buildPendingTxCard(tx, cardColor, textColor, subtextColor)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPendingTxCard(Transaction tx, Color cardColor, Color textColor, Color subtextColor) {
+    final symbol = tx.coin;
+    final coinColor = _allCoins.firstWhere(
+      (c) => c['symbol'] == symbol,
+      orElse: () => {'color': const Color(0xFF8B5CF6)},
+    )['color'] as Color;
+    final priceInfo = _priceData[symbol];
+    final price = priceInfo?['price'] as double? ?? 0.0;
+    final usdValue = tx.amount * price;
+    final isSent = tx.type == 'sent';
+
+    return AnimatedBuilder(
+      animation: _pendingPulseAnimation,
+      builder: (context, child) {
+        return Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: Colors.orange.withOpacity(0.15 + 0.2 * _pendingPulseAnimation.value),
+              width: 1.5,
+            ),
+          ),
+          child: Row(
+            children: [
+              // Animated icon with pulse ring
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Pulse ring
+                  Container(
+                    width: 44 + 6 * _pendingPulseAnimation.value,
+                    height: 44 + 6 * _pendingPulseAnimation.value,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.orange.withOpacity(0.3 * (1 - _pendingPulseAnimation.value)),
+                        width: 2,
+                      ),
+                    ),
+                  ),
+                  // Icon circle
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [coinColor, coinColor.withOpacity(0.7)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      isSent ? Icons.north_east : Icons.south_west,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 12),
+
+              // Transaction info
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          isSent ? 'Sending $symbol' : 'Receiving $symbol',
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        // Animated "Pending" badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 10,
+                                height: 10,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 1.5,
+                                  color: Colors.orange,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Text(
+                                'Pending',
+                                style: TextStyle(
+                                  color: Colors.orange,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _formatTimeAgo(tx.timestamp),
+                      style: TextStyle(color: subtextColor, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Amount
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '${isSent ? '-' : '+'}${tx.amount.toStringAsFixed(6)}',
+                    style: TextStyle(
+                      color: isSent ? const Color(0xFFEF4444) : const Color(0xFF10B981),
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '\$${usdValue.toStringAsFixed(2)}',
+                    style: TextStyle(color: subtextColor, fontSize: 12),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 

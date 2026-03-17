@@ -690,25 +690,37 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
       // "received" notification for our own outgoing transfer.
       await IncomingTxWatcherService().markSeen(txHash);
 
-      // Show success with confetti!
-      _confettiController.play();
-
+      // Navigate to dashboard immediately — the tx is recorded as pending
+      // and will appear in the pending section on dashboard.
       if (mounted) {
         setState(() {
           _loading = false;
         });
 
-        // Show success dialog
-        await showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => _buildSuccessDialog(txHash, cryptoAmount),
+        // Quick success feedback then go to dashboard
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '${cryptoAmount.toStringAsFixed(6)} $_selectedCoin sent! Waiting for confirmation...',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            margin: const EdgeInsets.all(16),
+          ),
         );
 
-        // Navigate back
-        if (mounted) {
-          context.go('/dashboard');
-        }
+        context.go('/dashboard');
       }
     } catch (e) {
       await _notificationService.showNotification(

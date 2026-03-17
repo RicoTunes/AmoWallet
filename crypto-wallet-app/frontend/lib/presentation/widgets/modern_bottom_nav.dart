@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui';
 import 'dart:math' as math;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/providers/theme_provider.dart';
 
-class ModernBottomNav extends StatefulWidget {
+class ModernBottomNav extends ConsumerStatefulWidget {
   final int currentIndex;
   final Function(int) onTap;
   final VoidCallback? onCenterTap;
@@ -16,10 +18,10 @@ class ModernBottomNav extends StatefulWidget {
   });
 
   @override
-  State<ModernBottomNav> createState() => _ModernBottomNavState();
+  ConsumerState<ModernBottomNav> createState() => _ModernBottomNavState();
 }
 
-class _ModernBottomNavState extends State<ModernBottomNav>
+class _ModernBottomNavState extends ConsumerState<ModernBottomNav>
     with TickerProviderStateMixin {
   late AnimationController _centerButtonController;
   late AnimationController _navItemController;
@@ -82,6 +84,7 @@ class _ModernBottomNavState extends State<ModernBottomNav>
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     // Get bottom padding for safe area
     final bottomPadding = MediaQuery.of(context).padding.bottom;
     
@@ -107,23 +110,29 @@ class _ModernBottomNavState extends State<ModernBottomNav>
                     child: Container(
                       height: 56,
                       decoration: BoxDecoration(
-                        // Clean white glass effect
                         gradient: LinearGradient(
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.white.withOpacity(0.95),
-                            Colors.white.withOpacity(0.90),
-                          ],
+                          colors: isDark
+                              ? [
+                                  const Color(0xFF1A1F2E).withOpacity(0.95),
+                                  const Color(0xFF151C28).withOpacity(0.95),
+                                ]
+                              : [
+                                  Colors.white.withOpacity(0.95),
+                                  Colors.white.withOpacity(0.90),
+                                ],
                         ),
                         borderRadius: BorderRadius.circular(28),
                         border: Border.all(
-                          color: Colors.grey.withOpacity(0.15),
+                          color: isDark
+                              ? Colors.white.withOpacity(0.08)
+                              : Colors.grey.withOpacity(0.15),
                           width: 1,
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.08),
+                            color: Colors.black.withOpacity(isDark ? 0.3 : 0.08),
                             blurRadius: 20,
                             offset: const Offset(0, -3),
                           ),
@@ -166,9 +175,10 @@ class _ModernBottomNavState extends State<ModernBottomNav>
     required int index,
     required IconData icon,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isActive = widget.currentIndex == index;
     final Color activeColor = const Color(0xFF10B981);
-    final Color inactiveColor = Colors.grey.shade500;
+    final Color inactiveColor = isDark ? Colors.grey.shade400 : Colors.grey.shade500;
 
     return Expanded(
       child: GestureDetector(

@@ -762,18 +762,19 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: const Color(0xFF0D1421),
             borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white12),
           ),
           child: TextField(
             controller: controller,
             maxLines: maxLines,
-            style: const TextStyle(color: Color(0xFF1A1F2E), fontSize: 15),
+            style: const TextStyle(color: Colors.white, fontSize: 15),
             decoration: InputDecoration(
               hintText: hint,
-              hintStyle: TextStyle(color: Colors.grey.shade400),
+              hintStyle: TextStyle(color: Colors.white30),
               border: InputBorder.none,
-              icon: Icon(icon, color: Colors.grey.shade500),
+              icon: Icon(icon, color: Colors.white38),
             ),
           ),
         ),

@@ -103,6 +103,34 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
     ).color;
   }
 
+  /// Build a BIP21/EIP-681 style URI for the QR code so external wallets
+  /// can auto-detect the network when scanning.
+  String _buildQrUri(String coin, String address) {
+    switch (coin.toUpperCase()) {
+      case 'BTC':
+        return 'bitcoin:$address';
+      case 'ETH':
+      case 'USDT-ERC20':
+        return 'ethereum:$address';
+      case 'LTC':
+        return 'litecoin:$address';
+      case 'DOGE':
+        return 'dogecoin:$address';
+      case 'SOL':
+        return 'solana:$address';
+      case 'TRX':
+      case 'USDT-TRC20':
+        return 'tron:$address';
+      case 'XRP':
+        return 'ripple:$address';
+      case 'BNB':
+      case 'USDT-BEP20':
+        return 'bnb:$address';
+      default:
+        return address;
+    }
+  }
+
   CoinData _getCoinData(String coin) {
     return _coins.firstWhere(
       (c) => c.symbol == coin,
@@ -742,16 +770,17 @@ class _ReceivePageEnhancedState extends ConsumerState<ReceivePageEnhanced>
                               alignment: Alignment.center,
                               children: [
                                 QrImageView(
-                                  data: _address!,
+                                  data: _buildQrUri(_selectedCoin, _address!),
                                   version: QrVersions.auto,
                                   size: 180,
                                   backgroundColor: Colors.white,
+                                  errorCorrectionLevel: QrErrorCorrectLevel.H,
                                   eyeStyle: QrEyeStyle(
-                                    eyeShape: QrEyeShape.circle,
-                                    color: color,
+                                    eyeShape: QrEyeShape.square,
+                                    color: Colors.black87,
                                   ),
                                   dataModuleStyle: QrDataModuleStyle(
-                                    dataModuleShape: QrDataModuleShape.circle,
+                                    dataModuleShape: QrDataModuleShape.square,
                                     color: Colors.black87,
                                   ),
                                 ),
