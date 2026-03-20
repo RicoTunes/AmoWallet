@@ -199,11 +199,14 @@ class _PortfolioPageState extends ConsumerState<PortfolioPage>
       final assets = <_AssetItem>[];
 
       balances.forEach((sym, bal) {
+        // Skip per-chain USDT keys — the aggregated 'USDT' key covers them
+        if (sym.startsWith('USDT-')) return;
         // Apply pending deduction if any
         final deduction = pendingDeductions[sym] ?? 0.0;
         final adjustedBal = (bal - deduction).clamp(0.0, double.infinity);
         if (adjustedBal <= 0) return;
-        final info = prices[sym];
+        final priceKey = sym.startsWith('USDT') ? 'USDT' : sym;
+        final info = prices[priceKey];
         final price = (info?['price'] as num?)?.toDouble() ?? 0.0;
         final change = (info?['change24h'] as num?)?.toDouble() ?? 0.0;
         final val = adjustedBal * price;

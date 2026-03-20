@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,6 +23,11 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
   String? _returnRoute;
   bool _biometricAttempted = false;
   bool _isAuthenticating = false;
+  
+  // Lockout timer
+  bool _isLockedOut = false;
+  Duration _remainingLockout = Duration.zero;
+  Timer? _lockoutTimer;
   
   // Static flag to prevent biometric from being called multiple times globally
   static bool _globalBiometricInProgress = false;
@@ -49,12 +55,53 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
     
     _loadReturnRoute();
     _checkAuthenticationMethods();
+    _checkLockout();
   }
   
   @override
   void dispose() {
     _shakeController.dispose();
+    _lockoutTimer?.cancel();
     super.dispose();
+  }
+  
+  Future<void> _checkLockout() async {
+    final locked = await _pinAuthService.isLockedOut();
+    if (locked) {
+      final remaining = await _pinAuthService.getRemainingLockoutDuration();
+      setState(() {
+        _isLockedOut = true;
+        _remainingLockout = remaining;
+      });
+      _startLockoutCountdown();
+    }
+  }
+  
+  void _startLockoutCountdown() {
+    _lockoutTimer?.cancel();
+    _lockoutTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_remainingLockout.inSeconds <= 1) {
+        _lockoutTimer?.cancel();
+        setState(() {
+          _isLockedOut = false;
+          _remainingLockout = Duration.zero;
+          _attemptCount = 0;
+        });
+      } else {
+        setState(() {
+          _remainingLockout -= const Duration(seconds: 1);
+        });
+      }
+    });
+  }
+  
+  String _formatDuration(Duration d) {
+    if (d.inHours > 0) {
+      return '${d.inHours}h ${d.inMinutes.remainder(60)}m ${d.inSeconds.remainder(60)}s';
+    } else if (d.inMinutes > 0) {
+      return '${d.inMinutes}m ${d.inSeconds.remainder(60)}s';
+    }
+    return '${d.inSeconds}s';
   }
   
   Future<void> _loadReturnRoute() async {
@@ -166,19 +213,19 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
   }
   
   void _onNumberPressed(String number) {
-    if (_pin.length < 6) {
-      HapticFeedback.lightImpact();
-      HapticFeedback.vibrate();
-      setState(() {
-        _pin += number;
-        if (_pin.length == 6) {
-          _verifyPin();
-        }
-      });
-    }
+    if (_isLockedOut || _pin.length >= 6) return;
+    HapticFeedback.lightImpact();
+    HapticFeedback.vibrate();
+    setState(() {
+      _pin += number;
+      if (_pin.length == 6) {
+        _verifyPin();
+      }
+    });
   }
   
   void _onDeletePressed() {
+    if (_isLockedOut) return;
     if (_pin.isNotEmpty) {
       HapticFeedback.lightImpact();
       HapticFeedback.vibrate();
@@ -189,9 +236,25 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
   }
   
   Future<void> _verifyPin() async {
+    if (_isLockedOut) return;
+    
     setState(() {
       _isLoading = true;
     });
+    
+    // Check lockout before even trying
+    final locked = await _pinAuthService.isLockedOut();
+    if (locked) {
+      final remaining = await _pinAuthService.getRemainingLockoutDuration();
+      setState(() {
+        _isLockedOut = true;
+        _remainingLockout = remaining;
+        _pin = '';
+        _isLoading = false;
+      });
+      _startLockoutCountdown();
+      return;
+    }
     
     final isValid = await _pinAuthService.verifyPin(_pin, ref: ref);
     
@@ -216,8 +279,6 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
       if (fakeWalletState.isActive && fakeWalletState.isDuressMode) {
         debugPrint('🎭 Fake wallet activated - showing decoy dashboard');
         HapticFeedback.mediumImpact();
-        
-        // Navigate to fake dashboard
         try {
           context.go('/fake-dashboard');
         } catch (navError) {
@@ -228,42 +289,42 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
         _attemptCount++;
         HapticFeedback.heavyImpact();
         HapticFeedback.vibrate();
-        for (int i = 0; i < 2; i++) {
-          Future.delayed(Duration(milliseconds: i * 200), () {
-            HapticFeedback.heavyImpact();
-          });
-        }
         _shakeController.forward();
         
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.error_outline, color: Colors.white),
-                  const SizedBox(width: 8),
-                  Text(_attemptCount >= 3 
-                      ? 'Too many failed attempts. Please wait.'
-                      : 'Incorrect PIN. ${5 - _attemptCount} attempts remaining.'),
-                ],
-              ),
-              backgroundColor: Colors.red.shade700,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              margin: const EdgeInsets.all(16),
-            ),
-          );
-        }
-
-        setState(() {
-          _pin = '';
-          _isLoading = false;
-        });
-        
-        if (_attemptCount >= 5) {
-          await Future.delayed(const Duration(seconds: 30));
+        // Check if lockout was triggered by the service
+        final nowLocked = await _pinAuthService.isLockedOut();
+        if (nowLocked) {
+          final remaining = await _pinAuthService.getRemainingLockoutDuration();
           setState(() {
+            _isLockedOut = true;
+            _remainingLockout = remaining;
+            _pin = '';
+            _isLoading = false;
             _attemptCount = 0;
+          });
+          _startLockoutCountdown();
+        } else {
+          final remainingAttempts = await _pinAuthService.getRemainingAttempts();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(Icons.error_outline, color: Colors.white),
+                    const SizedBox(width: 8),
+                    Text('Incorrect PIN. $remainingAttempts attempt${remainingAttempts == 1 ? '' : 's'} remaining.'),
+                  ],
+                ),
+                backgroundColor: Colors.red.shade700,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                margin: const EdgeInsets.all(16),
+              ),
+            );
+          }
+          setState(() {
+            _pin = '';
+            _isLoading = false;
           });
         }
       }
@@ -303,32 +364,25 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
             children: [
               const SizedBox(height: 16),
               
-              // App Logo with gradient background - smaller
+              // App Logo - helmet image
               Container(
-                width: 60,
-                height: 60,
+                width: 70,
+                height: 70,
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      primaryColor,
-                      primaryColor.withOpacity(0.7),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(16),
+                  shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
                       color: primaryColor.withOpacity(0.4),
-                      blurRadius: 12,
+                      blurRadius: 16,
                       offset: const Offset(0, 6),
                     ),
                   ],
                 ),
-                child: const Icon(
-                  Icons.account_balance_wallet_rounded,
-                  size: 30,
-                  color: Colors.white,
+                child: ClipOval(
+                  child: Image.asset(
+                    'assets/icons/applogonnewhelpmet.png',
+                    fit: BoxFit.cover,
+                  ),
                 ),
               ),
               
@@ -348,12 +402,53 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
               const SizedBox(height: 4),
               
               Text(
-                'Enter your PIN to unlock',
+                _isLockedOut ? 'Account Temporarily Locked' : 'Enter your PIN to unlock',
                 style: TextStyle(
                   fontSize: 13,
-                  color: Colors.white,
+                  color: _isLockedOut ? Colors.redAccent : Colors.white,
                 ),
               ),
+              
+              // Lockout countdown banner
+              if (_isLockedOut) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.red.withOpacity(0.4)),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.lock_clock, color: Colors.redAccent, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Try again in ${_formatDuration(_remainingLockout)}',
+                            style: const TextStyle(color: Colors.redAccent, fontSize: 15, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      GestureDetector(
+                        onTap: () => context.go('/forgot-pin'),
+                        child: Text(
+                          'Use recovery phrase to unlock now',
+                          style: TextStyle(
+                            color: primaryColor,
+                            fontSize: 12,
+                            decoration: TextDecoration.underline,
+                            decorationColor: primaryColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               
               const SizedBox(height: 24),
               
@@ -486,50 +581,8 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
               
               // Forgot PIN
               TextButton(
-                onPressed: () {
-                  final isDark = Theme.of(context).brightness == Brightness.dark;
-                  showDialog(
-                    context: context,
-                    builder: (context) => AlertDialog(
-                      backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                      title: Row(
-                        children: [
-                          Icon(Icons.help_outline, color: Theme.of(context).colorScheme.primary),
-                          const SizedBox(width: 10),
-                          const Text('Forgot PIN?'),
-                        ],
-                      ),
-                      content: const Text(
-                        'To reset your PIN, you\'ll need to restore your wallet using your recovery phrase.',
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: Text(
-                            'Cancel',
-                            style: TextStyle(color: subtextColor),
-                          ),
-                        ),
-                        ElevatedButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            context.go('/wallet-import');
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: primaryColor,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                          child: const Text('Restore Wallet'),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-                child: Text(
+                onPressed: () => context.go('/forgot-pin'),
+                child: const Text(
                   'Forgot PIN?',
                   style: TextStyle(
                     color: Colors.white,
@@ -547,10 +600,11 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
   }
   
   Widget _buildNumberButton(String number) {
+    final disabled = _isLoading || _isLockedOut;
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: _isLoading ? null : () => _onNumberPressed(number),
+        onTap: disabled ? null : () => _onNumberPressed(number),
         borderRadius: BorderRadius.circular(50),
         splashColor: Colors.white.withOpacity(0.2),
         highlightColor: Colors.white.withOpacity(0.1),
@@ -590,7 +644,7 @@ class _PinEntryPageState extends ConsumerState<PinEntryPage>
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: _isLoading ? null : _onDeletePressed,
+        onTap: (_isLoading || _isLockedOut) ? null : _onDeletePressed,
         borderRadius: BorderRadius.circular(50),
         splashColor: Colors.white.withOpacity(0.2),
         highlightColor: Colors.white.withOpacity(0.1),

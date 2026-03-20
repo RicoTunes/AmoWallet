@@ -128,15 +128,20 @@ class TransactionService {
 
         // Fetch transactions for each address
         for (final chain in addressesByChain.keys) {
-          // Map chain name to blockchain service chain (e.g., USDT-BEP20 -> BNB for BSC)
+          // For USDT token chains, pass directly to getTransactionHistory
+          // which now handles USDT-BEP20, USDT-ERC20, USDT, etc.
+          // For other chains, map to the native chain for address lookup
           String blockchainChain = chain;
+          String addressLookupChain = chain;
           if (chain.startsWith('USDT-')) {
+            // Keep blockchainChain as USDT-BEP20 etc. for token tx fetch
+            blockchainChain = chain;
             if (chain.contains('TRC20')) {
-              blockchainChain = 'TRX';
+              addressLookupChain = 'TRX';
             } else if (chain.contains('BEP20')) {
-              blockchainChain = 'BNB';
+              addressLookupChain = 'BNB';
             } else if (chain.contains('ERC20')) {
-              blockchainChain = 'ETH';
+              addressLookupChain = 'ETH';
             }
           }
           

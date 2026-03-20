@@ -6,6 +6,7 @@ import '../core/config/api_config.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/transaction_model.dart';
+import '../core/services/api_auth_service.dart';
 import 'transaction_signing_service.dart';
 import 'bitcoin_transaction_service.dart';
 
@@ -150,7 +151,16 @@ class SwapService {
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
   final TransactionSigningService _signingService = TransactionSigningService();
   final BitcoinTransactionService _btcService = BitcoinTransactionService();
+  final ApiAuthService _authService = ApiAuthService();
   final Logger _logger = Logger();
+
+  Future<Map<String, String>> _getHeaders(String method, String path, {String body = ''}) async {
+    final headers = await _authService.getAuthHeaders(method: method, path: path, body: body);
+    if (headers.isEmpty) {
+      return {'Content-Type': 'application/json'};
+    }
+    return headers;
+  }
 
   /// Update swap balance adjustments in SharedPreferences
   Future<void> _updateSwapAdjustments({
@@ -197,17 +207,19 @@ class SwapService {
     String? preferredProvider,
   }) async {
     try {
+      final reqBody = json.encode({
+        'fromCoin': fromCoin,
+        'toCoin': toCoin,
+        'amount': amount,
+        'slippage': slippage,
+        if (userAddress != null) 'userAddress': userAddress,
+        if (preferredProvider != null) 'preferredProvider': preferredProvider,
+      });
+      final headers = await _getHeaders('POST', '/api/swap/quote', body: reqBody);
       final response = await http.post(
         Uri.parse('$_baseUrl/quote'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'fromCoin': fromCoin,
-          'toCoin': toCoin,
-          'amount': amount,
-          'slippage': slippage,
-          if (userAddress != null) 'userAddress': userAddress,
-          if (preferredProvider != null) 'preferredProvider': preferredProvider,
-        }),
+        headers: headers,
+        body: reqBody,
       );
 
       if (response.statusCode == 200) {
@@ -264,7 +276,8 @@ class SwapService {
   /// Get available DEX providers
   Future<List<SwapProvider>> getProviders() async {
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/providers'));
+      final headers = await _getHeaders('GET', '/api/swap/providers');
+      final response = await http.get(Uri.parse('$_baseUrl/providers'), headers: headers);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -293,18 +306,20 @@ class SwapService {
     String? quoteId,
   }) async {
     try {
+      final reqBody = json.encode({
+        'provider': provider,
+        'fromCoin': fromCoin,
+        'toCoin': toCoin,
+        'fromAmount': fromAmount,
+        'userAddress': userAddress,
+        'slippage': slippage,
+        if (quoteId != null) 'quoteId': quoteId,
+      });
+      final headers = await _getHeaders('POST', '/api/swap/build-transaction', body: reqBody);
       final response = await http.post(
         Uri.parse('$_baseUrl/build-transaction'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'provider': provider,
-          'fromCoin': fromCoin,
-          'toCoin': toCoin,
-          'fromAmount': fromAmount,
-          'userAddress': userAddress,
-          'slippage': slippage,
-          if (quoteId != null) 'quoteId': quoteId,
-        }),
+        headers: headers,
+        body: reqBody,
       );
 
       if (response.statusCode == 200) {
@@ -329,18 +344,20 @@ class SwapService {
     required String userAddress,
   }) async {
     try {
+      final reqBody = json.encode({
+        'fromCoin': fromCoin,
+        'toCoin': toCoin,
+        'fromAmount': fromAmount,
+        'toAmount': toAmount,
+        'exchangeRate': exchangeRate,
+        'fee': fee,
+        'userAddress': userAddress,
+      });
+      final headers = await _getHeaders('POST', '/api/swap/execute', body: reqBody);
       final response = await http.post(
         Uri.parse('$_baseUrl/execute'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'fromCoin': fromCoin,
-          'toCoin': toCoin,
-          'fromAmount': fromAmount,
-          'toAmount': toAmount,
-          'exchangeRate': exchangeRate,
-          'fee': fee,
-          'userAddress': userAddress,
-        }),
+        headers: headers,
+        body: reqBody,
       );
 
       if (response.statusCode == 200) {
@@ -429,7 +446,8 @@ class SwapService {
   // Get available coins for swapping from backend
   Future<List<String>> getAvailableCoins() async {
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/coins'));
+      final headers = await _getHeaders('GET', '/api/swap/coins');
+      final response = await http.get(Uri.parse('$_baseUrl/coins'), headers: headers);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -465,7 +483,8 @@ class SwapService {
   // Get current exchange rates from backend
   Future<Map<String, double>> getExchangeRates() async {
     try {
-      final response = await http.get(Uri.parse('$_baseUrl/rates'));
+      final headers = await _getHeaders('GET', '/api/swap/rates');
+      final response = await http.get(Uri.parse('$_baseUrl/rates'), headers: headers);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);

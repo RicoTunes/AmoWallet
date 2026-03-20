@@ -122,6 +122,28 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                     opacity: _fadeAnimation,
                     child: Column(
                       children: [
+                        // Helmet logo
+                        Container(
+                          width: 100,
+                          height: 100,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.blue.withOpacity(0.3),
+                                blurRadius: 30,
+                                spreadRadius: 5,
+                              ),
+                            ],
+                          ),
+                          child: ClipOval(
+                            child: Image.asset(
+                              'assets/icons/applogonnewhelpmet.png',
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
                         // App name with gradient
                         ShaderMask(
                           shaderCallback: (bounds) => LinearGradient(

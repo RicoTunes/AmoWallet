@@ -218,6 +218,39 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
     }
   }
 
+  /// Map TokenInfo to the chain identifier used for balance queries.
+  /// For tokens like USDT, returns e.g. 'USDT-BEP20', 'USDT-TRC20'.
+  /// For native coins, returns the symbol as-is.
+  String _balanceChain(TokenInfo token) {
+    if (token.contractAddress != null) {
+      // It's a token on a specific network
+      switch (token.network) {
+        case 'ethereum': return '${token.symbol}-ERC20';
+        case 'bsc':      return '${token.symbol}-BEP20';
+        case 'tron':     return '${token.symbol}-TRC20';
+        case 'solana':   return '${token.symbol}-SPL';
+        case 'polygon':  return '${token.symbol}-POLYGON';
+        default:         return token.symbol;
+      }
+    }
+    return token.symbol;
+  }
+
+  /// Map TokenInfo to the underlying native chain for address/key lookup.
+  /// USDT on BSC → 'BNB', USDT on Ethereum → 'ETH', USDT on Tron → 'TRX', etc.
+  String _nativeChain(TokenInfo token) {
+    switch (token.network) {
+      case 'ethereum': return 'ETH';
+      case 'bsc':      return 'BNB';
+      case 'tron':     return 'TRX';
+      case 'bitcoin':  return 'BTC';
+      case 'solana':   return 'SOL';
+      case 'ripple':   return 'XRP';
+      case 'polygon':  return 'ETH'; // Polygon uses same addresses as ETH
+      default:         return token.symbol;
+    }
+  }
+
   Future<void> _initServices() async {
     _swapService ??= SwapService();
     _blockchainService ??= BlockchainService();
@@ -233,29 +266,62 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
       _walletService ??= WalletService();
       _blockchainService ??= BlockchainService();
       
-      final coin = token.symbol == 'USDT' || token.symbol == 'USDC' 
-          ? token.symbol 
-          : token.symbol;
+      final balChain = _balanceChain(token); // e.g. 'USDT-BEP20' or 'ETH'
+      final addrChain = _nativeChain(token);  // e.g. 'BNB' or 'ETH'
       
-      // Get address
+      // Get address — look up by native chain AND by token chain
       if (!_addresses.containsKey(token.id)) {
-        final addrs = await _walletService!.getStoredAddresses(coin);
+        // Try the native chain first (BNB for BEP20, ETH for ERC20, etc.)
+        var addrs = await _walletService!.getStoredAddresses(addrChain);
+        if (addrs.isEmpty) {
+          // Fallback: try with the token chain identifier
+          addrs = await _walletService!.getStoredAddresses(balChain);
+        }
+        // For EVM tokens, also try ETH addresses (same format)
+        if (addrs.isEmpty && (token.network == 'bsc' || token.network == 'polygon')) {
+          addrs = await _walletService!.getStoredAddresses('ETH');
+        }
         if (addrs.isNotEmpty) {
           _addresses[token.id] = addrs.first;
         }
       }
       
-      // Get balance
+      // Get balance using the proper chain identifier
       final addr = _addresses[token.id];
       if (addr != null && addr.isNotEmpty) {
-        final bal = await _blockchainService!.getBalance(coin, addr)
-            .timeout(const Duration(seconds: 3), onTimeout: () => 0.0);
+        final bal = await _blockchainService!.getBalance(balChain, addr)
+            .timeout(const Duration(seconds: 8), onTimeout: () => 0.0);
         if (mounted) {
           setState(() => _balances[token.id] = bal);
+          debugPrint('💱 Swap balance for ${token.id}: $bal ($balChain @ $addr)');
         }
+        // If direct call returned 0, fallback to walletService aggregated balances
+        if (bal <= 0 && token.contractAddress != null) {
+          try {
+            final all = await _walletService!.getBalances()
+                .timeout(const Duration(seconds: 10), onTimeout: () => <String, double>{});
+            final fallback = all[balChain] ?? all[token.symbol] ?? 0.0;
+            if (fallback > 0 && mounted) {
+              setState(() => _balances[token.id] = fallback);
+              debugPrint('💱 Swap fallback balance for ${token.id}: $fallback');
+            }
+          } catch (_) {}
+        }
+      } else {
+        // No address found — try walletService as last resort
+        debugPrint('⚠️ No address for ${token.id} ($addrChain), trying walletService');
+        try {
+          final all = await _walletService!.getBalances()
+              .timeout(const Duration(seconds: 10), onTimeout: () => <String, double>{});
+          final fallback = all[balChain] ?? all[token.symbol] ?? 0.0;
+          if (fallback > 0 && mounted) {
+            setState(() => _balances[token.id] = fallback);
+            debugPrint('💱 Swap walletService balance for ${token.id}: $fallback');
+          }
+        } catch (_) {}
       }
     } catch (e) {
-      debugPrint('Error loading balance: $e');
+      debugPrint('Error loading balance for ${token.id}: $e');
     }
   }
 
@@ -374,7 +440,12 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
     // Check destination wallet
     if (!_addresses.containsKey(_toToken.id)) {
       _walletService ??= WalletService();
-      final addrs = await _walletService!.getStoredAddresses(_toToken.symbol);
+      final toAddrChain = _nativeChain(_toToken);
+      var addrs = await _walletService!.getStoredAddresses(toAddrChain);
+      // Fallback for EVM tokens — try ETH addresses
+      if (addrs.isEmpty && (_toToken.network == 'bsc' || _toToken.network == 'polygon')) {
+        addrs = await _walletService!.getStoredAddresses('ETH');
+      }
       if (addrs.isNotEmpty) {
         _addresses[_toToken.id] = addrs.first;
       } else {
@@ -474,7 +545,8 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
           ElevatedButton(
             onPressed: () async {
               try {
-                final res = await _walletService!.generateAddressFor(token.symbol);
+                final chain = _nativeChain(token);
+                final res = await _walletService!.generateAddressFor(chain);
                 if (res.containsKey('address')) {
                   _addresses[token.id] = res['address']!;
                   Navigator.pop(ctx, true);
@@ -499,7 +571,9 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
   }
 
   void _onContinue() {
-    if (_selectedQuote == null) return;
+    if (_selectedQuote == null && _quotes.isEmpty) return;
+    // Use the user's selected quote, or fallback to best (first) if none selected
+    _selectedQuote ??= _quotes.first;
     setState(() {
       _showConfirmation = true;
       _enteredPin = '';
@@ -560,8 +634,14 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
         throw Exception('Minimum swap amount is \$10 USD');
       }
 
-      // Get private key
-      final pk = await _walletService!.getPrivateKey(_fromToken.symbol, fromAddr);
+      // Get private key — must use the native chain key
+      // Keys are stored as e.g. ETH_0x..._private, BNB_0x..._private, TRX_T..._private
+      final fromNative = _nativeChain(_fromToken);
+      var pk = await _walletService!.getPrivateKey(fromNative, fromAddr);
+      // Fallback: try ETH key for EVM tokens (BNB, Polygon reuse ETH keys)
+      if (pk == null && (fromNative == 'BNB' || fromNative == 'MATIC')) {
+        pk = await _walletService!.getPrivateKey('ETH', fromAddr);
+      }
       if (pk == null) throw Exception('Cannot access wallet');
 
       // Execute REAL swap via selected provider
@@ -582,8 +662,11 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
         _balances[_fromToken.id] = ((_balances[_fromToken.id] ?? 0) - _amount).clamp(0.0, double.infinity);
         _balances[_toToken.id] = (_balances[_toToken.id] ?? 0) + (result.toAmount ?? _selectedQuote!.toAmount);
 
-        await _walletService!.updateCachedBalance(_fromToken.symbol, _balances[_fromToken.id]!);
-        await _walletService!.updateCachedBalance(_toToken.symbol, _balances[_toToken.id]!);
+        // Use the proper chain identifiers for cached balance updates
+        final fromBal = _balanceChain(_fromToken);
+        final toBal = _balanceChain(_toToken);
+        await _walletService!.updateCachedBalance(fromBal, _balances[_fromToken.id]!);
+        await _walletService!.updateCachedBalance(toBal, _balances[_toToken.id]!);
 
         _confettiController.play();
         await _showSuccessDialog(result.txHash);
@@ -687,10 +770,11 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Stack(
       children: [
         Scaffold(
-          backgroundColor: Colors.grey[50],
+          backgroundColor: isDark ? const Color(0xFF0D1421) : Colors.grey[50],
           body: _showConfirmation ? _buildConfirmationPage() : _buildMainPage(),
         ),
         Align(
@@ -808,13 +892,19 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
 
   Widget _buildFromSection() {
     final bal = _balances[_fromToken.id] ?? 0.0;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardColor = isDark ? const Color(0xFF1A1F2E) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subtextColor = isDark ? Colors.white60 : Colors.grey[500]!;
+    final fieldBg = isDark ? const Color(0xFF252B3B) : Colors.grey[50]!;
+    final fieldBorder = isDark ? Colors.white.withOpacity(0.1) : Colors.grey[200]!;
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardColor,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.1), blurRadius: 10)],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.3 : 0.1), blurRadius: 10)],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -822,8 +912,8 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('From', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500)),
-              Text('Balance: ${bal.toStringAsFixed(8)}', style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+              Text('From', style: TextStyle(color: subtextColor, fontWeight: FontWeight.w500)),
+              Text('Balance: ${bal.toStringAsFixed(8)}', style: TextStyle(color: subtextColor, fontSize: 12)),
             ],
           ),
           const SizedBox(height: 12),
@@ -852,18 +942,18 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
                   height: 56,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   decoration: BoxDecoration(
-                    color: Colors.grey[50],
+                    color: fieldBg,
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.grey[200]!),
+                    border: Border.all(color: fieldBorder),
                   ),
                   alignment: Alignment.centerLeft,
                   child: TextField(
                     controller: _amountController,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87),
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: textColor),
                     decoration: InputDecoration(
                       hintText: '0.00',
-                      hintStyle: TextStyle(color: Colors.grey[400]),
+                      hintStyle: TextStyle(color: subtextColor.withOpacity(0.5)),
                       border: InputBorder.none,
                       filled: true,
                       fillColor: Colors.transparent,
@@ -884,7 +974,7 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
               padding: const EdgeInsets.only(top: 4),
               child: Text(
                 '≈ \$${_getUsdValue(_fromToken, _amount).toStringAsFixed(2)} USD',
-                style: TextStyle(color: Colors.grey[500], fontSize: 13),
+                style: TextStyle(color: subtextColor, fontSize: 13),
               ),
             ),
         ],
@@ -895,13 +985,19 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
   Widget _buildToSection() {
     final est = _selectedQuote?.toAmount ?? (_amount > 0 ? _amount * _getRate(_fromToken, _toToken) * 0.997 : 0.0);
     final bal = _balances[_toToken.id] ?? 0.0;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardColor = isDark ? const Color(0xFF1A1F2E) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subtextColor = isDark ? Colors.white60 : Colors.grey[500]!;
+    final fieldBg = isDark ? const Color(0xFF252B3B) : Colors.grey[50]!;
+    final fieldBorder = isDark ? Colors.white.withOpacity(0.1) : Colors.grey[200]!;
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: cardColor,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.1), blurRadius: 10)],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.3 : 0.1), blurRadius: 10)],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -909,8 +1005,8 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('To', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w500)),
-              Text('Balance: ${bal.toStringAsFixed(6)}', style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+              Text('To', style: TextStyle(color: subtextColor, fontWeight: FontWeight.w500)),
+              Text('Balance: ${bal.toStringAsFixed(6)}', style: TextStyle(color: subtextColor, fontSize: 12)),
             ],
           ),
           const SizedBox(height: 12),
@@ -939,9 +1035,9 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
                   height: 56,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   decoration: BoxDecoration(
-                    color: Colors.grey[50],
+                    color: fieldBg,
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.grey[200]!),
+                    border: Border.all(color: fieldBorder),
                   ),
                   alignment: Alignment.centerLeft,
                   child: Column(
@@ -953,13 +1049,13 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
                         style: TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
-                          color: est > 0 ? Colors.black87 : Colors.grey[400],
+                          color: est > 0 ? textColor : subtextColor.withOpacity(0.5),
                         ),
                       ),
                       if (est > 0)
                         Text(
                           '≈ \$${_getUsdValue(_toToken, est).toStringAsFixed(2)} USD',
-                          style: TextStyle(color: Colors.grey[500], fontSize: 11),
+                          style: TextStyle(color: subtextColor, fontSize: 11),
                         ),
                     ],
                   ),
@@ -976,17 +1072,18 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
 
   Widget _buildPctBtn(String label, double pct) {
     final sel = _selectedPercent == label;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: () => _setPercentage(label, pct),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: sel ? _fromToken.color : Colors.grey[100],
+          color: sel ? _fromToken.color : (isDark ? const Color(0xFF252B3B) : Colors.grey[100]),
           borderRadius: BorderRadius.circular(20),
-          border: sel ? null : Border.all(color: Colors.grey[300]!),
+          border: sel ? null : Border.all(color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey[300]!),
         ),
         child: Text(label, style: TextStyle(
-          color: sel ? Colors.white : Colors.grey[700],
+          color: sel ? Colors.white : (isDark ? Colors.white70 : Colors.grey[700]),
           fontWeight: FontWeight.w600,
           fontSize: 13,
         )),
@@ -1028,15 +1125,16 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
 
   Widget _buildTokenChip(TokenInfo token) {
     final sel = token.id == _toToken.id;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: () => _selectToToken(token),
       child: Container(
         margin: const EdgeInsets.only(right: 8),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: sel ? token.color : Colors.grey[100],
+          color: sel ? token.color : (isDark ? const Color(0xFF252B3B) : Colors.grey[100]),
           borderRadius: BorderRadius.circular(18),
-          border: sel ? null : Border.all(color: Colors.grey[300]!),
+          border: sel ? null : Border.all(color: isDark ? Colors.white.withOpacity(0.1) : Colors.grey[300]!),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1046,7 +1144,7 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
             Text(
               '${token.symbol} ${token.networkName}',
               style: TextStyle(
-                color: sel ? Colors.white : Colors.grey[700],
+                color: sel ? Colors.white : (isDark ? Colors.white70 : Colors.grey[700]),
                 fontWeight: sel ? FontWeight.bold : FontWeight.w500,
                 fontSize: 11,
               ),
@@ -1193,6 +1291,11 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
 
   Widget _buildQuoteCard(SwapQuoteInfo quote) {
     final selected = _selectedQuote?.provider == quote.provider;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardColor = isDark ? const Color(0xFF1A1F2E) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subtextColor = isDark ? Colors.white60 : Colors.grey[500]!;
+    final detailBg = isDark ? const Color(0xFF252B3B) : Colors.grey[50]!;
     
     return GestureDetector(
       onTap: () => _selectQuote(quote),
@@ -1201,10 +1304,10 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: selected ? quote.providerColor.withOpacity(0.1) : Colors.white,
+          color: selected ? quote.providerColor.withOpacity(0.1) : cardColor,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: selected ? quote.providerColor : Colors.grey[200]!,
+            color: selected ? quote.providerColor : (isDark ? Colors.white.withOpacity(0.08) : Colors.grey[200]!),
             width: selected ? 2 : 1,
           ),
           boxShadow: selected
@@ -1246,7 +1349,7 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
                             quote.providerName,
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              color: selected ? quote.providerColor : Colors.black87,
+                              color: selected ? quote.providerColor : textColor,
                             ),
                           ),
                           if (quote.isBest) ...[
@@ -1264,7 +1367,7 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
                       ),
                       Text(
                         '${quote.estimatedTime} • ${quote.feePercent.toStringAsFixed(2)}% fee',
-                        style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                        style: TextStyle(color: subtextColor, fontSize: 12),
                       ),
                     ],
                   ),
@@ -1275,7 +1378,7 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
                   width: 24, height: 24,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: selected ? quote.providerColor : Colors.grey[300]!, width: 2),
+                    border: Border.all(color: selected ? quote.providerColor : (isDark ? Colors.white24 : Colors.grey[300]!), width: 2),
                     color: selected ? quote.providerColor : Colors.transparent,
                   ),
                   child: selected
@@ -1291,7 +1394,7 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.grey[50],
+                color: detailBg,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
@@ -1300,12 +1403,12 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('You receive', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                      Text('You receive', style: TextStyle(color: subtextColor, fontSize: 11)),
                       Text(
                         '${quote.toAmount.toStringAsFixed(6)} ${_toToken.symbol}',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
-                          color: selected ? quote.providerColor : Colors.black87,
+                          color: selected ? quote.providerColor : textColor,
                           fontSize: 15,
                         ),
                       ),
@@ -1314,10 +1417,10 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      const Text('Rate', style: TextStyle(color: Colors.grey, fontSize: 11)),
+                      Text('Rate', style: TextStyle(color: subtextColor, fontSize: 11)),
                       Text(
                         '1 ${_fromToken.symbol} = ${quote.rate.toStringAsFixed(4)} ${_toToken.symbol}',
-                        style: const TextStyle(fontSize: 12),
+                        style: TextStyle(fontSize: 12, color: textColor),
                       ),
                     ],
                   ),
@@ -1331,25 +1434,28 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
   }
 
   Widget _buildConfirmationPage() {
+    final color = _selectedQuote!.providerColor;
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [_selectedQuote!.providerColor, _selectedQuote!.providerColor.withOpacity(0.8), Colors.white, Colors.white],
-          stops: const [0.0, 0.15, 0.15, 1.0],
+          colors: [color, color.withOpacity(0.8), Colors.white, Colors.white],
+          stops: const [0.0, 0.12, 0.12, 1.0],
         ),
       ),
       child: SafeArea(
         child: Column(
           children: [
-            // Header
+            // Compact header
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
               child: Row(
                 children: [
                   IconButton(
                     icon: const Icon(Icons.arrow_back, color: Colors.white),
+                    constraints: const BoxConstraints(),
+                    padding: const EdgeInsets.all(8),
                     onPressed: () => setState(() {
                       _showConfirmation = false;
                       _pinVerified = false;
@@ -1358,86 +1464,109 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
                     }),
                   ),
                   const Expanded(
-                    child: Text('Confirm Swap', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                    child: Text('Confirm Swap', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
                         textAlign: TextAlign.center),
                   ),
-                  const SizedBox(width: 48),
+                  const SizedBox(width: 40),
                 ],
               ),
             ),
 
-            // Swap summary card
+            // Compact swap summary card - horizontal layout
             Container(
-              margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-              padding: const EdgeInsets.all(20),
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 30)],
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20)],
               ),
               child: Column(
                 children: [
-                  // From → To
+                  // From → To in a single horizontal row
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _buildCoinBadge(_fromToken, _amount),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Icon(Icons.arrow_forward, color: _selectedQuote!.providerColor),
+                      Container(
+                        width: 36, height: 36,
+                        decoration: BoxDecoration(
+                          color: _fromToken.color.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(_fromToken.icon, color: _fromToken.color, size: 18),
                       ),
-                      _buildCoinBadge(_toToken, _selectedQuote!.toAmount),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(_amount.toStringAsFixed(6), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            Text(_fromToken.displayName, style: TextStyle(color: Colors.grey[500], fontSize: 10)),
+                          ],
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Icon(Icons.arrow_forward_rounded, color: color, size: 20),
+                      ),
+                      Container(
+                        width: 36, height: 36,
+                        decoration: BoxDecoration(
+                          color: _toToken.color.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(_toToken.icon, color: _toToken.color, size: 18),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(_selectedQuote!.toAmount.toStringAsFixed(6), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            Text(_toToken.displayName, style: TextStyle(color: Colors.grey[500], fontSize: 10)),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  
-                  // Provider badge
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: _selectedQuote!.providerColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.swap_horiz, color: _selectedQuote!.providerColor, size: 16),
-                        const SizedBox(width: 6),
-                        Text(
-                          'via ${_selectedQuote!.providerName}',
-                          style: TextStyle(color: _selectedQuote!.providerColor, fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 12),
-                  const Divider(),
                   const SizedBox(height: 8),
-                  
-                  // Details
-                  _buildDetailRow('Rate', '1 ${_fromToken.symbol} = ${_selectedQuote!.rate.toStringAsFixed(4)} ${_toToken.symbol}'),
-                  _buildDetailRow('Fee', '${_selectedQuote!.fee.toStringAsFixed(6)} ${_fromToken.symbol} (${_selectedQuote!.feePercent}%)'),
-                  _buildDetailRow('Time', _selectedQuote!.estimatedTime),
-                  
+                  // Provider + fee + time in one compact row
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: color.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          'via ${_selectedQuote!.providerName}',
+                          style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 11),
+                        ),
+                      ),
+                      const Spacer(),
+                      Text('Fee ${_selectedQuote!.feePercent}%', style: TextStyle(color: Colors.grey[600], fontSize: 11)),
+                      const SizedBox(width: 12),
+                      Text(_selectedQuote!.estimatedTime, style: TextStyle(color: Colors.grey[600], fontSize: 11)),
+                    ],
+                  ),
                   // Warning for low amounts
                   if (_getUsdValue(_fromToken, _amount) < 20)
                     Container(
-                      margin: const EdgeInsets.only(top: 12),
-                      padding: const EdgeInsets.all(10),
+                      margin: const EdgeInsets.only(top: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                       decoration: BoxDecoration(
                         color: Colors.orange[50],
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: Colors.orange[200]!),
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.warning_amber_rounded, color: Colors.orange[700], size: 20),
-                          const SizedBox(width: 8),
+                          Icon(Icons.warning_amber_rounded, color: Colors.orange[700], size: 16),
+                          const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              'Small swaps may fail due to high gas fees relative to amount',
-                              style: TextStyle(color: Colors.orange[800], fontSize: 11),
+                              'Small swaps may fail due to high gas fees',
+                              style: TextStyle(color: Colors.orange[800], fontSize: 10),
                             ),
                           ),
                         ],
@@ -1448,49 +1577,15 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
             ),
 
             // PIN or Slide
-            Expanded(
-              child: _pinVerified ? _buildSlideToSwap() : _buildPinEntry(),
-            ),
+            if (!_pinVerified)
+              Expanded(child: _buildPinEntry())
+            else
+              Padding(
+                padding: const EdgeInsets.only(top: 16),
+                child: _buildSlideToSwap(),
+              ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildCoinBadge(TokenInfo token, double amount) {
-    return Column(
-      children: [
-        Container(
-          width: 56, height: 56,
-          decoration: BoxDecoration(
-            color: token.color.withOpacity(0.1),
-            shape: BoxShape.circle,
-            border: Border.all(color: token.color.withOpacity(0.3)),
-          ),
-          child: Icon(token.icon, color: token.color, size: 28),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          amount.toStringAsFixed(6),
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-        ),
-        Text(
-          token.displayName,
-          style: TextStyle(color: Colors.grey[500], fontSize: 11),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: TextStyle(color: Colors.grey[600], fontSize: 13)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
-        ],
       ),
     );
   }
@@ -1498,11 +1593,11 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
   Widget _buildPinEntry() {
     return Column(
       children: [
-        const SizedBox(height: 20),
-        Text('Enter PIN', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[800])),
         const SizedBox(height: 8),
-        Text('Enter your 6-digit PIN to confirm', style: TextStyle(color: Colors.grey[500])),
-        const SizedBox(height: 24),
+        Text('Enter PIN', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[800])),
+        const SizedBox(height: 4),
+        Text('Enter your 6-digit PIN to confirm', style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+        const SizedBox(height: 12),
 
         // PIN dots
         Row(
@@ -1510,9 +1605,9 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
           children: List.generate(6, (i) {
             final filled = i < _enteredPin.length;
             return Container(
-              margin: const EdgeInsets.symmetric(horizontal: 8),
-              width: filled ? 16 : 14,
-              height: filled ? 16 : 14,
+              margin: const EdgeInsets.symmetric(horizontal: 6),
+              width: filled ? 14 : 12,
+              height: filled ? 14 : 12,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: filled ? _selectedQuote!.providerColor : Colors.transparent,
@@ -1522,14 +1617,14 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
           }),
         ),
 
-        const SizedBox(height: 32),
+        const SizedBox(height: 12),
 
         // Number pad
         Expanded(
           child: GridView.count(
             crossAxisCount: 3,
-            childAspectRatio: 1.5,
-            padding: const EdgeInsets.symmetric(horizontal: 40),
+            childAspectRatio: 1.6,
+            padding: const EdgeInsets.symmetric(horizontal: 32),
             physics: const NeverScrollableScrollPhysics(),
             children: [
               ...List.generate(9, (i) => _buildNumBtn('${i + 1}')),
@@ -1577,18 +1672,18 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
     final color = _selectedQuote!.providerColor;
     
     return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
       children: [
         Container(
           width: 72, height: 72,
           decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), shape: BoxShape.circle),
           child: const Icon(Icons.check_circle, color: Colors.green, size: 48),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         const Text('PIN Verified!', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green)),
-        const SizedBox(height: 8),
-        Text('Slide to confirm swap', style: TextStyle(color: Colors.grey[600])),
-        const SizedBox(height: 32),
+        const SizedBox(height: 4),
+        Text('Tap to confirm your swap', style: TextStyle(color: Colors.grey[600])),
+        const SizedBox(height: 16),
 
         if (_isExecuting)
           Column(
@@ -1599,76 +1694,35 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
             ],
           )
         else
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 32),
-            height: 64,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(32),
-              border: Border.all(color: color.withOpacity(0.3), width: 2),
-            ),
-            child: Stack(
-              children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 100),
-                  width: (MediaQuery.of(context).size.width - 64) * _slidePosition,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: [color.withOpacity(0.3), color.withOpacity(0.6)]),
-                    borderRadius: BorderRadius.circular(30),
-                  ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: ElevatedButton(
+                onPressed: () {
+                  HapticFeedback.heavyImpact();
+                  _executeSwap();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: color,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 4,
+                  shadowColor: color.withOpacity(0.4),
                 ),
-                Center(
-                  child: AnimatedOpacity(
-                    opacity: _slidePosition < 0.3 ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 200),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text('Slide to Swap', style: TextStyle(color: color, fontWeight: FontWeight.w600)),
-                        const SizedBox(width: 8),
-                        Icon(Icons.arrow_forward, color: color, size: 20),
-                      ],
-                    ),
-                  ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.swap_horiz, color: Colors.white, size: 22),
+                    const SizedBox(width: 8),
+                    Text('Confirm Swap', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  ],
                 ),
-                LayoutBuilder(
-                  builder: (ctx, constraints) {
-                    final maxSlide = constraints.maxWidth - 64;
-                    return Positioned(
-                      left: _slidePosition * maxSlide,
-                      top: 0,
-                      bottom: 0,
-                      child: GestureDetector(
-                        onHorizontalDragUpdate: (d) {
-                          setState(() => _slidePosition = ((_slidePosition * maxSlide + d.delta.dx) / maxSlide).clamp(0.0, 1.0));
-                        },
-                        onHorizontalDragEnd: (_) {
-                          if (_slidePosition >= 0.85) {
-                            HapticFeedback.heavyImpact();
-                            _executeSwap();
-                          } else {
-                            setState(() => _slidePosition = 0.0);
-                          }
-                        },
-                        child: Container(
-                          width: 64,
-                          height: 64,
-                          decoration: BoxDecoration(
-                            color: color,
-                            shape: BoxShape.circle,
-                            boxShadow: [BoxShadow(color: color.withOpacity(0.4), blurRadius: 12)],
-                          ),
-                          child: Icon(_slidePosition >= 0.85 ? Icons.check : Icons.double_arrow, color: Colors.white),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ],
+              ),
             ),
           ),
 
-        const SizedBox(height: 60),
+        const SizedBox(height: 16),
       ],
     );
   }

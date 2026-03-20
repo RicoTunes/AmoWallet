@@ -49,6 +49,7 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
   Map<String, Map<String, dynamic>> _priceData = {};
   Map<String, double> _balances = {};
   double _totalPortfolioValue = 0.0;
+  double _portfolioChange24h = 0.0;
   List<Transaction> _recentTransactions = [];
   bool _isLoading = true;
   bool _isSheetOpen = false; // Prevent multiple bottom sheets
@@ -150,6 +151,7 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
     _loadCachedBalances().then((_) => _loadDashboardData());
     _preloadService.preloadSwapData();
     _loadFavorites();
+    _checkBackupReminder();
 
     // Listen for notification changes so badge updates in real time
     _notificationService.addListener(_onNotificationsChanged);
@@ -188,6 +190,82 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
     if (mounted) setState(() {});
   }
 
+  Future<void> _checkBackupReminder() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lastReminder = prefs.getInt('last_backup_reminder') ?? 0;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      const fourteenDays = 14 * 24 * 60 * 60 * 1000;
+      
+      if (lastReminder == 0) {
+        // First time — set the timestamp, don't show yet
+        await prefs.setInt('last_backup_reminder', now);
+        return;
+      }
+      
+      if (now - lastReminder >= fourteenDays) {
+        await prefs.setInt('last_backup_reminder', now);
+        // Show reminder after a small delay so dashboard is built
+        await Future.delayed(const Duration(seconds: 2));
+        if (!mounted) return;
+        _showBackupReminderDialog();
+      }
+    } catch (e) {
+      debugPrint('Backup reminder check failed: $e');
+    }
+  }
+
+  void _showBackupReminderDialog() {
+    final primary = Theme.of(context).colorScheme.primary;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Icon(Icons.shield_outlined, color: primary, size: 28),
+            const SizedBox(width: 10),
+            const Expanded(child: Text('Backup Reminder', style: TextStyle(fontSize: 18))),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'It\'s been 14 days since your last backup check.',
+              style: TextStyle(fontSize: 14),
+            ),
+            SizedBox(height: 12),
+            Text(
+              'Make sure your 12-word recovery phrase is safely stored. Without it, you cannot recover your wallet if you lose access to this device.',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Remind Later'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              context.go('/settings');
+            },
+            icon: const Icon(Icons.backup, size: 18),
+            label: const Text('View Backup'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Load last-known balances instantly from SharedPreferences so the UI
   /// never shows blank while the network fetch is in progress.
   Future<void> _loadCachedBalances() async {
@@ -206,8 +284,10 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
           final cachedPrices = _priceService.getCachedPrices();
           double totalValue = 0.0;
           cached.forEach((symbol, balance) {
-            final coinPrice = cachedPrices[symbol] ?? _priceData[symbol];
-            final price = (coinPrice?['price'] as double?) ?? 0.0;
+            if (symbol.startsWith('USDT-')) return; // skip per-chain duplicates
+            final priceKey = symbol.startsWith('USDT') ? 'USDT' : symbol;
+            final coinPrice = cachedPrices[priceKey] ?? _priceData[priceKey];
+            final price = (coinPrice?['price'] as num?)?.toDouble() ?? 0.0;
             if (balance > 0 && price > 0) totalValue += balance * price;
           });
           setState(() {
@@ -349,25 +429,37 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
 
       double totalValue = 0.0;
       
-      // Use real prices if available, otherwise fall back to previously cached _priceData.
-      final effectivePrices = prices.isNotEmpty ? prices : _priceData;
+      // Merge live prices with cached _priceData so coins missing from
+      // the batch API response still have a price entry.
+      final effectivePrices = Map<String, Map<String, dynamic>>.from(_priceData);
+      if (prices.isNotEmpty) effectivePrices.addAll(prices);
+      // Guarantee USDT always has a price (stablecoin ≈ $1)
+      effectivePrices.putIfAbsent('USDT', () => {'price': 1.0, 'change24h': 0.0});
 
+      // Skip per-chain USDT keys (USDT-BEP20 etc.) to avoid double-counting
+      // with the aggregated 'USDT' key.
+      double weightedChangeSum = 0.0;
       mergedBalances.forEach((symbol, balance) {
-        final coinPrice = effectivePrices[symbol];
-        final price = (coinPrice?['price'] as double?) ?? 0.0;
+        if (symbol.startsWith('USDT-')) return; // skip per-chain duplicates
+        final priceKey = symbol.startsWith('USDT') ? 'USDT' : symbol;
+        final coinPrice = effectivePrices[priceKey];
+        final price = (coinPrice?['price'] as num?)?.toDouble() ?? 0.0;
         if (balance > 0 && price > 0) {
           final value = balance * price;
           totalValue += value;
+          final change = (coinPrice?['change24h'] as num?)?.toDouble() ?? 0.0;
+          weightedChangeSum += value * change;
           debugPrint('💵 $symbol: $balance @ \$${price.toStringAsFixed(2)} = \$${value.toStringAsFixed(2)}');
         }
       });
+      final portfolioChange24h = totalValue > 0 ? weightedChangeSum / totalValue : 0.0;
 
       if (mounted) {
         // Detect which coins had price changes for spin animation
         if (prices.isNotEmpty && _previousPrices.isNotEmpty) {
           final newChanged = <String>{};
           for (final symbol in prices.keys) {
-            final newPrice = (prices[symbol]?['price'] as double?) ?? 0.0;
+            final newPrice = (prices[symbol]?['price'] as num?)?.toDouble() ?? 0.0;
             final oldPrice = _previousPrices[symbol] ?? 0.0;
             if (oldPrice > 0 && newPrice > 0 && (newPrice - oldPrice).abs() / oldPrice > 0.0001) {
               newChanged.add(symbol);
@@ -385,7 +477,7 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
         if (prices.isNotEmpty) {
           _previousPrices = {};
           for (final e in prices.entries) {
-            _previousPrices[e.key] = (e.value['price'] as double?) ?? 0.0;
+            _previousPrices[e.key] = (e.value['price'] as num?)?.toDouble() ?? 0.0;
           }
         }
 
@@ -393,12 +485,15 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
           _priceData = prices.isNotEmpty ? prices : _priceData;
           _balances = mergedBalances;
           _totalPortfolioValue = totalValue;
+          _portfolioChange24h = portfolioChange24h;
           _recentTransactions = allTx.take(20).toList();
           _isLoading = false;
           // Compute received / sent / swapped totals from transaction history
           double tRcv = 0, tSnt = 0, tSwp = 0;
           for (final tx in allTx) {
-            final coinPrice = (effectivePrices[tx.coin]?['price'] as double?) ?? 0.0;
+            // Normalize coin key: USDT-BEP20/ERC20/TRC20 → USDT for price lookup
+            final priceKey = tx.coin.startsWith('USDT') ? 'USDT' : tx.coin;
+            final coinPrice = (effectivePrices[priceKey]?['price'] as num?)?.toDouble() ?? 0.0;
             final usdVal = tx.amount.abs() * coinPrice;
             if (tx.isReceived) {
               tRcv += usdVal;
@@ -829,8 +924,8 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
                               final color = coin['color'] as Color;
                               final balance = _balances[symbol] ?? 0.0;
                               final priceInfo = _priceData[symbol];
-                              final price = priceInfo?['price'] as double? ?? 0.0;
-                              final change = priceInfo?['change24h'] as double? ?? 0.0;
+                              final price = (priceInfo?['price'] as num?)?.toDouble() ?? 0.0;
+                              final change = (priceInfo?['change24h'] as num?)?.toDouble() ?? 0.0;
                               final usdValue = balance * price;
                               final isPositive = change >= 0;
                               
@@ -1291,29 +1386,36 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
                             ),
                   const SizedBox(height: 10),
                   // Percentage chip
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF10B981).withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.trending_up_rounded,
-                            color: Color(0xFF10B981), size: 14),
-                        const SizedBox(width: 4),
-                        Text(
-                          _totalPortfolioValue > 0 ? '+2.4% today' : 'Start investing',
-                          style: const TextStyle(
-                            color: Color(0xFF10B981),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                  Builder(builder: (context) {
+                    final isUp = _portfolioChange24h >= 0;
+                    final changeColor = isUp ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+                    final changeIcon = isUp ? Icons.trending_up_rounded : Icons.trending_down_rounded;
+                    final changeText = _totalPortfolioValue > 0
+                        ? '${isUp ? "+" : ""}${_portfolioChange24h.toStringAsFixed(2)}% today'
+                        : 'Start investing';
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: changeColor.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(changeIcon, color: changeColor, size: 14),
+                          const SizedBox(width: 4),
+                          Text(
+                            changeText,
+                            style: TextStyle(
+                              color: changeColor,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
+                        ],
+                      ),
+                    );
+                  }),
                 ],
               ),
             ),
@@ -1630,7 +1732,7 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
       orElse: () => {'color': const Color(0xFF8B5CF6)},
     )['color'] as Color;
     final priceInfo = _priceData[symbol];
-    final price = priceInfo?['price'] as double? ?? 0.0;
+    final price = (priceInfo?['price'] as num?)?.toDouble() ?? 0.0;
     final usdValue = tx.amount * price;
     final isSent = tx.type == 'sent';
 
@@ -1825,8 +1927,8 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
     final isFavorite = _favorites.contains(symbol);
 
     final priceInfo = _priceData[symbol];
-    final price = priceInfo?['price'] as double? ?? 0.0;
-    final change = priceInfo?['change24h'] as double? ?? 0.0;
+    final price = (priceInfo?['price'] as num?)?.toDouble() ?? 0.0;
+    final change = (priceInfo?['change24h'] as num?)?.toDouble() ?? 0.0;
     final balance = _balances[symbol] ?? 0.0;
     final isPositive = change >= 0;
 
@@ -1982,8 +2084,8 @@ class _DashboardPageEnhancedState extends ConsumerState<DashboardPageEnhanced>
     final color = coin['color'] as Color;
 
     final priceInfo = _priceData[symbol];
-    final price = priceInfo?['price'] as double? ?? 0.0;
-    final change = priceInfo?['change24h'] as double? ?? 0.0;
+    final price = (priceInfo?['price'] as num?)?.toDouble() ?? 0.0;
+    final change = (priceInfo?['change24h'] as num?)?.toDouble() ?? 0.0;
     final balance = _balances[symbol] ?? 0.0;
     final usdValue = balance * price;
     final isPositive = change >= 0;
@@ -2908,7 +3010,14 @@ class _CoinDetailSheetContentState extends State<_CoinDetailSheetContent> {
       if (address != null && address.isNotEmpty) {
         print('DEBUG: Fetching real balance for ${widget.symbol} at $address');
         final blockchainService = BlockchainService();
-        final realBalance = await blockchainService.getBalance(widget.symbol, address);
+        double realBalance = await blockchainService.getBalance(widget.symbol, address);
+        
+        // For USDT and tokens: if direct call returned 0, fallback to walletService aggregated balance
+        if (realBalance <= 0 && widget.symbol.startsWith('USDT')) {
+          final allBalances = await widget.walletService.getBalances();
+          realBalance = allBalances['USDT'] ?? allBalances['USDT-BEP20'] ?? allBalances['USDT-ERC20'] ?? allBalances['USDT-TRC20'] ?? 0.0;
+          print('DEBUG: USDT fallback from walletService: $realBalance');
+        }
         
         // Calculate USD value using current price
         final realUsdValue = realBalance * widget.price;

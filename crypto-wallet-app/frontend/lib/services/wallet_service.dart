@@ -204,13 +204,17 @@ class WalletService {
       
       // Map tokens to their underlying chain
       String lookupChain = normalizedChain;
+      // BEP20 tokens can use either BNB or ETH addresses (same EVM address)
+      List<String> extraLookupChains = [];
       if (normalizedChain.startsWith('USDT-') || normalizedChain.startsWith('USDC-')) {
         if (normalizedChain.contains('TRC20')) {
           lookupChain = 'TRX';
         } else if (normalizedChain.contains('BEP20')) {
           lookupChain = 'BNB';
+          extraLookupChains = ['ETH']; // EVM addresses are the same
         } else if (normalizedChain.contains('ERC20')) {
           lookupChain = 'ETH';
+          extraLookupChains = ['BNB']; // EVM addresses are the same
         }
       } else if (normalizedChain == 'USDT' || normalizedChain == 'USDC') {
         // Default to ETH for plain USDT/USDC
@@ -231,6 +235,13 @@ class WalletService {
           // Then try mapped chain if different
           if (lookupChain != normalizedChain && kUpper.startsWith('${lookupChain}_')) {
             _parseAndAddAddress(k, lookupChain, addresses);
+          }
+          
+          // Also try extra chains (e.g. ETH address for BEP20, BNB address for ERC20)
+          for (final extra in extraLookupChains) {
+            if (kUpper.startsWith('${extra}_')) {
+              _parseAndAddAddress(k, extra, addresses);
+            }
           }
         }
       }
@@ -618,6 +629,56 @@ class WalletService {
         final balance = entry.value;
         if (balance > 0) {
           balances[chain] = (balances[chain] ?? 0.0) + balance;
+        }
+      }
+      
+      // ── Fetch USDT token balances on each chain ──
+      // Native chain balance fetches above don't include token balances.
+      // We must explicitly query USDT on ERC20 (ETH), BEP20 (BNB), and TRC20 (TRX).
+      final tokenFutures = <Future<MapEntry<String, double>>>[];
+      
+      final ethAddresses = addressesByChain['ETH'] ?? {};
+      final bnbAddresses = addressesByChain['BNB'] ?? {};
+      final trxAddresses = addressesByChain['TRX'] ?? {};
+      
+      for (final addr in ethAddresses) {
+        tokenFutures.add(
+          _fetchBalanceWithTimeout(blockchainService, 'USDT-ERC20', addr),
+        );
+      }
+      for (final addr in bnbAddresses) {
+        tokenFutures.add(
+          _fetchBalanceWithTimeout(blockchainService, 'USDT-BEP20', addr),
+        );
+      }
+      // BEP20 uses same address format as ETH — also check ETH addresses on BSC
+      for (final addr in ethAddresses) {
+        if (!bnbAddresses.contains(addr)) {
+          tokenFutures.add(
+            _fetchBalanceWithTimeout(blockchainService, 'USDT-BEP20', addr),
+          );
+        }
+      }
+      for (final addr in trxAddresses) {
+        tokenFutures.add(
+          _fetchBalanceWithTimeout(blockchainService, 'USDT-TRC20', addr),
+        );
+      }
+      
+      if (tokenFutures.isNotEmpty) {
+        final tokenResults = await Future.wait(tokenFutures);
+        double totalUsdt = 0.0;
+        for (final entry in tokenResults) {
+          if (entry.value > 0) {
+            totalUsdt += entry.value;
+            // Store per-chain USDT balance (e.g. USDT-BEP20, USDT-ERC20, USDT-TRC20)
+            balances[entry.key] = (balances[entry.key] ?? 0.0) + entry.value;
+            debugPrint('💵 USDT token balance on ${entry.key}: ${entry.value}');
+          }
+        }
+        if (totalUsdt > 0) {
+          balances['USDT'] = (balances['USDT'] ?? 0.0) + totalUsdt;
+          debugPrint('💵 Total USDT from token queries: $totalUsdt');
         }
       }
       

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../services/pin_auth_service.dart';
@@ -129,72 +130,106 @@ class _SecuritySettingsPageState extends ConsumerState<SecuritySettingsPage> {
 
     final result = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Change PIN'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                labelText: 'Current PIN',
-                border: OutlineInputBorder(),
-              ),
-              keyboardType: TextInputType.number,
-              maxLength: 6,
-              obscureText: true,
+      barrierDismissible: false,
+      builder: (context) {
+        bool isLoading = false;
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Change PIN'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: controller,
+                  decoration: const InputDecoration(
+                    labelText: 'Current PIN',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  obscureText: true,
+                  enabled: !isLoading,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: newPinController,
+                  decoration: const InputDecoration(
+                    labelText: 'New PIN',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  obscureText: true,
+                  enabled: !isLoading,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: confirmPinController,
+                  decoration: const InputDecoration(
+                    labelText: 'Confirm New PIN',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  obscureText: true,
+                  enabled: !isLoading,
+                ),
+                if (isLoading) ...[
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Changing PIN...',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
             ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: newPinController,
-              decoration: const InputDecoration(
-                labelText: 'New PIN',
-                border: OutlineInputBorder(),
+            actions: [
+              TextButton(
+                onPressed: isLoading ? null : () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
               ),
-              keyboardType: TextInputType.number,
-              maxLength: 6,
-              obscureText: true,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: confirmPinController,
-              decoration: const InputDecoration(
-                labelText: 'Confirm New PIN',
-                border: OutlineInputBorder(),
+              TextButton(
+                onPressed: isLoading
+                    ? null
+                    : () async {
+                        if (newPinController.text != confirmPinController.text) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('New PINs do not match')),
+                          );
+                          return;
+                        }
+
+                        setDialogState(() => isLoading = true);
+
+                        final success = await _pinAuthService.changePin(
+                          controller.text,
+                          newPinController.text,
+                        );
+
+                        if (context.mounted) {
+                          Navigator.pop(context, success);
+                        }
+                      },
+                child: const Text('Change'),
               ),
-              keyboardType: TextInputType.number,
-              maxLength: 6,
-              obscureText: true,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            ],
           ),
-          TextButton(
-            onPressed: () async {
-              if (newPinController.text != confirmPinController.text) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('New PINs do not match')),
-                );
-                return;
-              }
-              
-              final success = await _pinAuthService.changePin(
-                controller.text,
-                newPinController.text,
-              );
-              
-              if (context.mounted) {
-                Navigator.pop(context, success);
-              }
-            },
-            child: const Text('Change'),
-          ),
-        ],
-      ),
+        );
+      },
     );
 
     if (result == true && mounted) {
@@ -254,123 +289,396 @@ class _SecuritySettingsPageState extends ConsumerState<SecuritySettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Security Settings')),
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bgColor = isDark ? const Color(0xFF0D1421) : const Color(0xFFF5F5F7);
+    final cardColor = isDark ? const Color(0xFF1A2035) : Colors.white;
+    final textColor = isDark ? Colors.white : const Color(0xFF1A1A2E);
+    final subtextColor = isDark ? Colors.white60 : Colors.grey[600]!;
+    final dividerColor = isDark ? Colors.white.withOpacity(0.06) : Colors.grey.withOpacity(0.12);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Security Settings'),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: bgColor,
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // PIN Section
-          Card(
-            child: Column(
-              children: [
-                SwitchListTile(
-                  title: const Text('PIN Authentication'),
-                  subtitle: Text(_isPinSet 
-                      ? 'Require PIN when opening app'
-                      : 'Set up a PIN for security'),
-                  secondary: const Icon(Icons.lock_outline),
-                  value: _pinEnabled,
-                  onChanged: _togglePin,
+      child: Scaffold(
+        backgroundColor: bgColor,
+        body: _isLoading
+            ? Center(
+                child: CircularProgressIndicator(
+                  color: const Color(0xFF8B5CF6),
                 ),
-                if (_isPinSet) ...[
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.edit),
-                    title: const Text('Change PIN'),
-                    onTap: _changePin,
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.delete_outline, color: Colors.red),
-                    title: const Text('Delete PIN', style: TextStyle(color: Colors.red)),
-                    onTap: _deletePin,
-                  ),
-                ],
-              ],
-            ),
-          ),
-          
-          const SizedBox(height: 16),
-          
-          // Biometric Section
-          Card(
-            child: SwitchListTile(
-              title: const Text('Biometric Authentication'),
-              subtitle: Text(_isBiometricAvailable
-                  ? 'Use fingerprint or face to unlock'
-                  : 'Enable biometric unlock (requires device setup)'),
-              secondary: const Icon(Icons.fingerprint),
-              value: _biometricEnabled,
-              onChanged: _toggleBiometric,
-            ),
-          ),
-          
-          const SizedBox(height: 16),
-          
-          // Screenshot Section
-          Card(
-            child: SwitchListTile(
-              title: const Text('Allow Screenshots'),
-              subtitle: Text(_screenshotAllowed
-                  ? 'Screenshots and screen recording are enabled'
-                  : 'Screenshots and screen recording are blocked'),
-              secondary: Icon(
-                _screenshotAllowed ? Icons.screenshot : Icons.no_photography,
-                color: _screenshotAllowed ? Colors.orange : Theme.of(context).colorScheme.primary,
-              ),
-              value: _screenshotAllowed,
-              onChanged: (value) async {
-                await _screenshotService.setScreenshotAllowed(value);
-                setState(() => _screenshotAllowed = value);
-                
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(value 
-                          ? 'Screenshots enabled - Less secure'
-                          : 'Screenshots blocked - More secure'),
-                      backgroundColor: value ? Colors.orange : Colors.green,
-                    ),
-                  );
-                }
-              },
-            ),
-          ),
-          
-          const SizedBox(height: 24),
-          
-          // Info Card
-          Card(
-            color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, color: Theme.of(context).colorScheme.primary),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Security features help protect your wallet when the app is closed or sent to background.',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Theme.of(context).textTheme.bodyMedium?.color,
+              )
+            : CustomScrollView(
+                slivers: [
+                  // Gradient header
+                  SliverToBoxAdapter(
+                    child: Container(
+                      padding: EdgeInsets.only(
+                        top: MediaQuery.of(context).padding.top + 10,
+                        left: 20,
+                        right: 20,
+                        bottom: 28,
+                      ),
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [Color(0xFF6D28D9), Color(0xFF8B5CF6)],
+                        ),
+                        borderRadius: BorderRadius.only(
+                          bottomLeft: Radius.circular(28),
+                          bottomRight: Radius.circular(28),
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          // Top row
+                          Row(
+                            children: [
+                              GestureDetector(
+                                onTap: () => context.pop(),
+                                child: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Icon(Icons.arrow_back_ios_new,
+                                      color: Colors.white, size: 18),
+                                ),
+                              ),
+                              const Spacer(),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          // Shield icon
+                          Container(
+                            width: 64,
+                            height: 64,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.15),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.shield_rounded,
+                                color: Colors.white, size: 32),
+                          ),
+                          const SizedBox(height: 14),
+                          const Text(
+                            'Security Settings',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Protect your wallet and assets',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.7),
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
+
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
+                    sliver: SliverList(
+                      delegate: SliverChildListDelegate([
+                        // ── Authentication Section ──
+                        _sectionHeader('Authentication', Icons.lock_outline, textColor),
+                        const SizedBox(height: 10),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: cardColor,
+                            borderRadius: BorderRadius.circular(18),
+                            boxShadow: isDark
+                                ? []
+                                : [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.04),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                          ),
+                          child: Column(
+                            children: [
+                              // PIN Authentication toggle
+                              _buildSettingRow(
+                                icon: Icons.dialpad_rounded,
+                                iconBgColor: const Color(0xFF8B5CF6),
+                                title: 'PIN Authentication',
+                                subtitle: _isPinSet
+                                    ? 'Require PIN when opening app'
+                                    : 'Set up a PIN for security',
+                                textColor: textColor,
+                                subtextColor: subtextColor,
+                                trailing: Switch.adaptive(
+                                  value: _pinEnabled,
+                                  onChanged: _togglePin,
+                                  activeColor: const Color(0xFF8B5CF6),
+                                ),
+                              ),
+                              if (_isPinSet) ...[
+                                Divider(height: 1, indent: 68, color: dividerColor),
+                                // Change PIN
+                                _buildSettingRow(
+                                  icon: Icons.edit_rounded,
+                                  iconBgColor: const Color(0xFF3B82F6),
+                                  title: 'Change PIN',
+                                  subtitle: 'Update your security PIN',
+                                  textColor: textColor,
+                                  subtextColor: subtextColor,
+                                  trailing: Icon(Icons.chevron_right_rounded,
+                                      color: subtextColor, size: 22),
+                                  onTap: _changePin,
+                                ),
+                                Divider(height: 1, indent: 68, color: dividerColor),
+                                // Delete PIN
+                                _buildSettingRow(
+                                  icon: Icons.delete_outline_rounded,
+                                  iconBgColor: const Color(0xFFEF4444),
+                                  title: 'Delete PIN',
+                                  subtitle: 'Remove PIN protection',
+                                  textColor: const Color(0xFFEF4444),
+                                  subtextColor: const Color(0xFFEF4444).withOpacity(0.6),
+                                  trailing: Icon(Icons.chevron_right_rounded,
+                                      color: const Color(0xFFEF4444).withOpacity(0.5), size: 22),
+                                  onTap: _deletePin,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        // ── Biometric Section ──
+                        Container(
+                          decoration: BoxDecoration(
+                            color: cardColor,
+                            borderRadius: BorderRadius.circular(18),
+                            boxShadow: isDark
+                                ? []
+                                : [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.04),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                          ),
+                          child: _buildSettingRow(
+                            icon: Icons.fingerprint_rounded,
+                            iconBgColor: const Color(0xFF10B981),
+                            title: 'Biometric Unlock',
+                            subtitle: _isBiometricAvailable
+                                ? 'Use fingerprint or face to unlock'
+                                : 'Enable biometric unlock',
+                            textColor: textColor,
+                            subtextColor: subtextColor,
+                            trailing: Switch.adaptive(
+                              value: _biometricEnabled,
+                              onChanged: _toggleBiometric,
+                              activeColor: const Color(0xFF10B981),
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 24),
+
+                        // ── Privacy Section ──
+                        _sectionHeader('Privacy', Icons.visibility_off_rounded, textColor),
+                        const SizedBox(height: 10),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: cardColor,
+                            borderRadius: BorderRadius.circular(18),
+                            boxShadow: isDark
+                                ? []
+                                : [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.04),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                          ),
+                          child: _buildSettingRow(
+                            icon: _screenshotAllowed
+                                ? Icons.screenshot_rounded
+                                : Icons.no_photography_rounded,
+                            iconBgColor: _screenshotAllowed
+                                ? const Color(0xFFF59E0B)
+                                : const Color(0xFF6366F1),
+                            title: 'Allow Screenshots',
+                            subtitle: _screenshotAllowed
+                                ? 'Screenshots and recording enabled'
+                                : 'Screenshots and recording blocked',
+                            textColor: textColor,
+                            subtextColor: subtextColor,
+                            trailing: Switch.adaptive(
+                              value: _screenshotAllowed,
+                              onChanged: (value) async {
+                                await _screenshotService.setScreenshotAllowed(value);
+                                setState(() => _screenshotAllowed = value);
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Row(
+                                        children: [
+                                          Icon(
+                                            value ? Icons.warning_amber_rounded : Icons.check_circle,
+                                            color: Colors.white,
+                                            size: 20,
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Text(value
+                                              ? 'Screenshots enabled — less secure'
+                                              : 'Screenshots blocked — more secure'),
+                                        ],
+                                      ),
+                                      backgroundColor: value ? Colors.orange : Colors.green,
+                                      behavior: SnackBarBehavior.floating,
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(12)),
+                                      margin: const EdgeInsets.all(16),
+                                    ),
+                                  );
+                                }
+                              },
+                              activeColor: const Color(0xFFF59E0B),
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 24),
+
+                        // ── Info Card ──
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF8B5CF6).withOpacity(isDark ? 0.12 : 0.08),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: const Color(0xFF8B5CF6).withOpacity(0.15),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF8B5CF6).withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: const Icon(Icons.info_outline_rounded,
+                                    color: Color(0xFF8B5CF6), size: 22),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Text(
+                                  'Security features protect your wallet when the app is closed or in background.',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: subtextColor,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ]),
+                    ),
+                  ),
                 ],
               ),
+      ),
+    );
+  }
+
+  Widget _sectionHeader(String title, IconData icon, Color textColor) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Row(
+        children: [
+          Icon(icon, color: const Color(0xFF8B5CF6), size: 18),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: TextStyle(
+              color: textColor.withOpacity(0.7),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.5,
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSettingRow({
+    required IconData icon,
+    required Color iconBgColor,
+    required String title,
+    required String subtitle,
+    required Color textColor,
+    required Color subtextColor,
+    required Widget trailing,
+    VoidCallback? onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: iconBgColor.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: iconBgColor, size: 22),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: textColor,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: subtextColor,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            trailing,
+          ],
+        ),
       ),
     );
   }

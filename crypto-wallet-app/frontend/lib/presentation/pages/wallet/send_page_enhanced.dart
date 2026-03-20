@@ -139,7 +139,11 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
         final cached = decoded.map((k, v) => MapEntry(k, (v as num).toDouble()));
         if (cached.isNotEmpty) {
           for (final coin in _coins) {
-            final b = cached[coin.symbol];
+            var b = cached[coin.symbol];
+            // For USDT variants, also try the aggregated 'USDT' key
+            if (b == null && coin.symbol.startsWith('USDT')) {
+              b = cached['USDT'];
+            }
             if (b != null) _cachedBalances[coin.symbol] = b;
           }
           if (mounted) {
@@ -167,7 +171,11 @@ class _SendPageEnhancedState extends ConsumerState<SendPageEnhanced>
       if (allBalances.isNotEmpty) {
         debugPrint('📊 Send page live balances: $allBalances');
         for (final coin in _coins) {
-          final balance = allBalances[coin.symbol];
+          var balance = allBalances[coin.symbol];
+          // For USDT variants, also try the aggregated 'USDT' key
+          if (balance == null && coin.symbol.startsWith('USDT')) {
+            balance = allBalances['USDT'];
+          }
           if (balance != null) _cachedBalances[coin.symbol] = balance;
         }
         // Persist updated balances for next open

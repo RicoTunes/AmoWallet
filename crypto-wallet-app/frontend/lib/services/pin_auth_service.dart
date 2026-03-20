@@ -43,8 +43,11 @@ class PinAuthService {
   // Security: PIN attempt limiting keys
   static const String _failedAttemptsKey = 'pin_failed_attempts';
   static const String _lockoutUntilKey = 'pin_lockout_until';
-  static const int _maxFailedAttempts = 5;
-  static const int _lockoutDurationMinutes = 30;
+  static const String _lockoutTierKey = 'pin_lockout_tier';
+  
+  // Progressive lockout tiers: 3min → 5min → 15min → 60min → 1440min (24h)
+  static const List<int> _lockoutMinutes = [3, 5, 15, 60, 1440];
+  static const int _maxAttemptsPerTier = 3;
 
   // PBKDF2 parameters — 100k iterations makes brute-force ~100,000x harder than SHA-256
   static const int _pbkdf2Iterations = 100000;
@@ -219,13 +222,16 @@ class PinAuthService {
         // Increment failed attempts
         await _incrementFailedAttempts();
         final attempts = await getFailedAttempts();
-        final remaining = _maxFailedAttempts - attempts;
-        debugPrint('❌ Invalid PIN! $remaining attempts remaining');
         
-        // Check if should lock out
-        if (attempts >= _maxFailedAttempts) {
-          await _setLockout();
-          debugPrint('🔒 Account locked for $_lockoutDurationMinutes minutes!');
+        // Check if we should lock out (every _maxAttemptsPerTier failures)
+        if (attempts >= _maxAttemptsPerTier) {
+          await _escalateLockout();
+          final tier = await _getLockoutTier();
+          final mins = _lockoutMinutes[(tier - 1).clamp(0, _lockoutMinutes.length - 1)];
+          debugPrint('🔒 Account locked for $mins minutes (tier $tier)!');
+        } else {
+          final remaining = _maxAttemptsPerTier - attempts;
+          debugPrint('❌ Invalid PIN! $remaining attempts remaining before lockout');
         }
       }
       
@@ -271,10 +277,23 @@ class PinAuthService {
     return int.tryParse(attemptsStr ?? '0') ?? 0;
   }
 
-  /// Get remaining attempts before lockout
+  /// Get remaining attempts before next lockout
   Future<int> getRemainingAttempts() async {
     final attempts = await getFailedAttempts();
-    return (_maxFailedAttempts - attempts).clamp(0, _maxFailedAttempts);
+    return (_maxAttemptsPerTier - attempts).clamp(0, _maxAttemptsPerTier);
+  }
+
+  /// Get current lockout tier (0 = no lockout yet)
+  Future<int> _getLockoutTier() async {
+    final tierStr = await _readSecure(_lockoutTierKey);
+    return int.tryParse(tierStr ?? '0') ?? 0;
+  }
+
+  /// Get the lockout duration for current tier in minutes
+  Future<int> getCurrentLockoutDuration() async {
+    final tier = await _getLockoutTier();
+    if (tier <= 0) return _lockoutMinutes[0];
+    return _lockoutMinutes[(tier - 1).clamp(0, _lockoutMinutes.length - 1)];
   }
 
   /// Increment failed attempts counter
@@ -283,16 +302,42 @@ class PinAuthService {
     await _writeSecure(_failedAttemptsKey, (current + 1).toString());
   }
 
-  /// Set lockout timestamp
-  Future<void> _setLockout() async {
-    final lockoutUntil = DateTime.now().add(Duration(minutes: _lockoutDurationMinutes));
+  /// Escalate lockout — move to next tier and set lockout timestamp
+  Future<void> _escalateLockout() async {
+    final currentTier = await _getLockoutTier();
+    final newTier = (currentTier + 1).clamp(1, _lockoutMinutes.length);
+    final lockoutMins = _lockoutMinutes[newTier - 1];
+    
+    final lockoutUntil = DateTime.now().add(Duration(minutes: lockoutMins));
+    await _writeSecure(_lockoutTierKey, newTier.toString());
     await _writeSecure(_lockoutUntilKey, lockoutUntil.toIso8601String());
+    // Reset attempt counter for next round
+    await _writeSecure(_failedAttemptsKey, '0');
   }
 
-  /// Reset failed attempts and lockout
+  /// Reset failed attempts and lockout (on successful login)
   Future<void> _resetFailedAttempts() async {
     await _deleteSecure(_failedAttemptsKey);
     await _deleteSecure(_lockoutUntilKey);
+    await _deleteSecure(_lockoutTierKey);
+  }
+
+  /// Reset lockout after recovery phrase verification — public method for forgot_pin_page
+  Future<void> resetLockoutAfterRecovery() async {
+    await _resetFailedAttempts();
+    debugPrint('🔓 Lockout reset after recovery phrase verification');
+  }
+
+  /// Get remaining lockout time as Duration
+  Future<Duration> getRemainingLockoutDuration() async {
+    final lockoutUntilStr = await _readSecure(_lockoutUntilKey);
+    if (lockoutUntilStr == null) return Duration.zero;
+    
+    final lockoutUntil = DateTime.tryParse(lockoutUntilStr);
+    if (lockoutUntil == null) return Duration.zero;
+    
+    final remaining = lockoutUntil.difference(DateTime.now());
+    return remaining.isNegative ? Duration.zero : remaining;
   }
 
   // Change PIN

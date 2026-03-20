@@ -75,8 +75,9 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      backgroundColor: const Color(0xFF0D1421),
+      backgroundColor: isDark ? const Color(0xFF0D1421) : const Color(0xFFF5F6FA),
       body: SafeArea(
         child: Column(
           children: [
@@ -109,6 +110,7 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
   }
 
   Widget _buildHeader() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.all(16),
       child: Row(
@@ -122,12 +124,12 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: const Color(0xFF1A1F2E),
+                color: isDark ? const Color(0xFF1A1F2E) : Colors.grey[200],
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.arrow_back_ios_new_rounded,
-                color: Colors.white,
+                color: isDark ? Colors.white : Colors.black87,
                 size: 18,
               ),
             ),
@@ -140,7 +142,7 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
                 const Text(
                   'Address Book',
                   style: TextStyle(
-                    color: Colors.white,
+
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
                   ),
@@ -161,25 +163,27 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
   }
 
   Widget _buildSearchBar() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1F2E),
+        color: isDark ? const Color(0xFF1A1F2E) : Colors.white,
         borderRadius: BorderRadius.circular(12),
+        border: isDark ? null : Border.all(color: Colors.grey[300]!),
       ),
       child: TextField(
         controller: _searchController,
         onChanged: (_) => _filterEntries(),
-        style: const TextStyle(color: Colors.white),
+        style: TextStyle(color: isDark ? Colors.white : Colors.black87),
         decoration: InputDecoration(
           hintText: 'Search by name or address...',
-          hintStyle: TextStyle(color: Colors.white38),
+          hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.grey[400]),
           border: InputBorder.none,
-          icon: Icon(Icons.search, color: Colors.white38),
+          icon: Icon(Icons.search, color: isDark ? Colors.white38 : Colors.grey[400]),
           suffixIcon: _searchController.text.isNotEmpty
               ? IconButton(
-                  icon: Icon(Icons.clear, color: Colors.white38),
+                  icon: Icon(Icons.clear, color: isDark ? Colors.white38 : Colors.grey[400]),
                   onPressed: () {
                     _searchController.clear();
                     _filterEntries();
@@ -192,6 +196,7 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
   }
 
   Widget _buildCoinFilter() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       height: 50,
       margin: const EdgeInsets.symmetric(vertical: 16),
@@ -215,10 +220,10 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
               margin: const EdgeInsets.only(right: 8),
               padding: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
-                color: isSelected ? color.withOpacity(0.2) : const Color(0xFF1A1F2E),
+                color: isSelected ? color.withOpacity(0.2) : (isDark ? const Color(0xFF1A1F2E) : Colors.white),
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(
-                  color: isSelected ? color : Colors.transparent,
+                  color: isSelected ? color : (isDark ? Colors.transparent : Colors.grey[300]!),
                   width: 1.5,
                 ),
               ),
@@ -226,7 +231,7 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
                 child: Text(
                   coin['symbol'] as String,
                   style: TextStyle(
-                    color: isSelected ? color : Colors.white60,
+                    color: isSelected ? color : (isDark ? Colors.white60 : Colors.grey[600]),
                     fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                   ),
                 ),
@@ -239,6 +244,7 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
   }
 
   Widget _buildEmptyState() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -246,13 +252,13 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
           Icon(
             Icons.contacts_outlined,
             size: 80,
-            color: Colors.white24,
+            color: isDark ? Colors.white24 : Colors.grey[300],
           ),
           const SizedBox(height: 16),
           Text(
             'No saved addresses',
             style: TextStyle(
-              color: Colors.white70,
+              color: isDark ? Colors.white70 : Colors.grey[700],
               fontSize: 18,
               fontWeight: FontWeight.w600,
             ),
@@ -261,7 +267,7 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
           Text(
             'Tap + to add your first contact',
             style: TextStyle(
-              color: Colors.white38,
+              color: isDark ? Colors.white38 : Colors.grey[500],
               fontSize: 14,
             ),
           ),
@@ -283,6 +289,7 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
 
   Widget _buildEntryCard(AddressBookEntry entry) {
     final color = _getCoinColor(entry.coin);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     
     return GestureDetector(
       onTap: () {
@@ -297,10 +304,10 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: const Color(0xFF1A1F2E),
+          color: isDark ? const Color(0xFF1A1F2E) : Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: color.withOpacity(0.2),
+            color: isDark ? color.withOpacity(0.2) : Colors.grey[200]!,
             width: 1,
           ),
         ),
@@ -337,8 +344,8 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
                       Expanded(
                         child: Text(
                           entry.name,
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black87,
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
                           ),
@@ -366,7 +373,7 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
                   Text(
                     '${entry.address.substring(0, 10)}...${entry.address.substring(entry.address.length - 8)}',
                     style: TextStyle(
-                      color: Colors.white54,
+                      color: isDark ? Colors.white54 : Colors.grey[600],
                       fontSize: 13,
                       fontFamily: 'monospace',
                     ),
@@ -376,7 +383,7 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
                     Text(
                       entry.notes!,
                       style: TextStyle(
-                        color: Colors.white38,
+                        color: isDark ? Colors.white38 : Colors.grey[500],
                         fontSize: 12,
                       ),
                       maxLines: 1,
@@ -388,7 +395,7 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
             ),
             
             const SizedBox(width: 8),
-            Icon(Icons.chevron_right, color: Colors.white24),
+            Icon(Icons.chevron_right, color: isDark ? Colors.white24 : Colors.grey[400]),
           ],
         ),
       ),
@@ -396,15 +403,16 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
   }
 
   void _showEntryOptionsSheet(AddressBookEntry entry) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     HapticFeedback.lightImpact();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
         padding: const EdgeInsets.all(20),
-        decoration: const BoxDecoration(
-          color: Color(0xFF1A1F2E),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1A1F2E) : Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -413,7 +421,7 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.white24,
+                color: isDark ? Colors.white24 : Colors.grey[300],
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -422,8 +430,8 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
             // Name and address
             Text(
               entry.name,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: isDark ? Colors.white : Colors.black87,
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
               ),
@@ -432,13 +440,13 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFF0D1421),
+                color: isDark ? const Color(0xFF0D1421) : Colors.grey[100],
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
                 entry.address,
                 style: TextStyle(
-                  color: Colors.white70,
+                  color: isDark ? Colors.white70 : Colors.grey[700],
                   fontSize: 12,
                   fontFamily: 'monospace',
                 ),
@@ -569,11 +577,14 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
           padding: EdgeInsets.only(
             bottom: MediaQuery.of(context).viewInsets.bottom,
           ),
-          child: Container(
+          child: Builder(
+            builder: (context) {
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            return Container(
             padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-              color: Color(0xFF1A1F2E),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1A1F2E) : Colors.white,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -584,7 +595,7 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: Colors.white24,
+                      color: isDark ? Colors.white24 : Colors.grey[300],
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -593,8 +604,8 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
                 
                 Text(
                   existingEntry == null ? 'Add Contact' : 'Edit Contact',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black87,
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
                   ),
@@ -613,7 +624,7 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
                 // Coin selector
                 Text(
                   'Network',
-                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                  style: TextStyle(color: isDark ? Colors.white70 : Colors.grey[600], fontSize: 14),
                 ),
                 const SizedBox(height: 8),
                 SizedBox(
@@ -632,17 +643,17 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
                           margin: const EdgeInsets.only(right: 8),
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                           decoration: BoxDecoration(
-                            color: isSelected ? color.withOpacity(0.2) : const Color(0xFF0D1421),
+                            color: isSelected ? color.withOpacity(0.2) : (isDark ? const Color(0xFF0D1421) : Colors.grey[100]),
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
-                              color: isSelected ? color : Colors.transparent,
+                              color: isSelected ? color : (isDark ? Colors.transparent : Colors.grey[300]!),
                             ),
                           ),
                           child: Center(
                             child: Text(
                               coin['symbol'] as String,
                               style: TextStyle(
-                                color: isSelected ? color : Colors.white60,
+                                color: isSelected ? color : (isDark ? Colors.white60 : Colors.grey[600]),
                                 fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                                 fontSize: 12,
                               ),
@@ -738,6 +749,8 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
                 const SizedBox(height: 10),
               ],
             ),
+          );
+            },
           ),
         ),
       ),
@@ -751,30 +764,31 @@ class _AddressBookPageState extends ConsumerState<AddressBookPage> {
     required IconData icon,
     int maxLines = 1,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: TextStyle(color: Colors.white70, fontSize: 14),
+          style: TextStyle(color: isDark ? Colors.white70 : Colors.grey[600], fontSize: 14),
         ),
         const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           decoration: BoxDecoration(
-            color: const Color(0xFF0D1421),
+            color: isDark ? const Color(0xFF0D1421) : Colors.grey[50],
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white12),
+            border: Border.all(color: isDark ? Colors.white12 : Colors.grey[300]!),
           ),
           child: TextField(
             controller: controller,
             maxLines: maxLines,
-            style: const TextStyle(color: Colors.white, fontSize: 15),
+            style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 15),
             decoration: InputDecoration(
               hintText: hint,
-              hintStyle: TextStyle(color: Colors.white30),
+              hintStyle: TextStyle(color: isDark ? Colors.white30 : Colors.grey[400]),
               border: InputBorder.none,
-              icon: Icon(icon, color: Colors.white38),
+              icon: Icon(icon, color: isDark ? Colors.white38 : Colors.grey[500]),
             ),
           ),
         ),

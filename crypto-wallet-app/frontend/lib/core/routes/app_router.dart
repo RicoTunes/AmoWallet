@@ -20,6 +20,7 @@ import '../../presentation/pages/swap/swap_page_real.dart';
 import '../../presentation/pages/splash/splash_screen.dart';
 import '../../presentation/pages/security/pin_setup_page.dart';
 import '../../presentation/pages/security/pin_entry_page.dart';
+import '../../presentation/pages/security/forgot_pin_page.dart';
 import '../../presentation/pages/settings/address_book_page.dart';
 import '../../presentation/pages/settings/notification_settings_page.dart';
 import '../../presentation/widgets/modern_bottom_nav.dart';
@@ -34,9 +35,11 @@ final routerProvider = Provider<GoRouter>((ref) {
     initialLocation: '/splash',
     redirect: (context, state) async {
       final isLoggedIn = await authService.isLoggedIn();
-      final isOnboarding = state.matchedLocation == '/onboarding';
-      final isCreating = state.matchedLocation.startsWith('/wallet/create');
-      final isImporting = state.matchedLocation.startsWith('/wallet/import');
+      final loc = state.matchedLocation;
+      final isOnboarding = loc == '/onboarding';
+      final isCreating = loc.startsWith('/wallet/create');
+      final isImporting = loc.startsWith('/wallet/import');
+      final isAuth = loc == '/pin-entry' || loc == '/pin-setup' || loc == '/forgot-pin' || loc == '/splash';
       
       // If logged in and trying to access onboarding/wallet creation, redirect to dashboard
       if (isLoggedIn && (isOnboarding || isCreating || isImporting)) {
@@ -44,7 +47,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       }
       
       // If not logged in and trying to access protected routes, redirect to onboarding
-      if (!isLoggedIn && !isOnboarding && !isCreating && !isImporting) {
+      // But allow auth-related pages and wallet setup pages
+      if (!isLoggedIn && !isOnboarding && !isCreating && !isImporting && !isAuth) {
         return '/onboarding';
       }
       
@@ -69,6 +73,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/pin-setup',
         name: 'pin_setup',
         builder: (context, state) => const PinSetupPage(),
+      ),
+
+      GoRoute(
+        path: '/forgot-pin',
+        name: 'forgot_pin',
+        builder: (context, state) => const ForgotPinPage(),
       ),
 
       // Root route redirects to splash

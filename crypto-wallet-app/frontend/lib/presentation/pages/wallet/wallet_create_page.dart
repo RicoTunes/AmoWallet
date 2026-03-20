@@ -21,6 +21,25 @@ class _WalletCreatePageState extends ConsumerState<WalletCreatePage> {
   final List<String> _mnemonicWords = [];
   bool _isGenerating = false;
   bool _isBackedUp = false;
+  bool _isCreatingWallet = false;
+
+  // For phrase confirmation step
+  final List<TextEditingController> _confirmControllers =
+      List.generate(12, (_) => TextEditingController());
+  final List<FocusNode> _confirmFocusNodes =
+      List.generate(12, (_) => FocusNode());
+  String _confirmError = '';
+
+  @override
+  void dispose() {
+    for (final c in _confirmControllers) {
+      c.dispose();
+    }
+    for (final f in _confirmFocusNodes) {
+      f.dispose();
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,7 +64,7 @@ class _WalletCreatePageState extends ConsumerState<WalletCreatePage> {
             children: [
               // Progress Indicator
               LinearProgressIndicator(
-                value: (_currentStep + 1) / 3,
+                value: (_currentStep + 1) / 4,
                 backgroundColor: Theme.of(context).colorScheme.outline,
                 color: Theme.of(context).colorScheme.primary,
               ),
@@ -73,6 +92,8 @@ class _WalletCreatePageState extends ConsumerState<WalletCreatePage> {
       case 1:
         return _buildMnemonicStep();
       case 2:
+        return _buildPhraseConfirmStep();
+      case 3:
         return _buildBackupConfirmationStep();
       default:
         return const SizedBox();
@@ -414,6 +435,156 @@ class _WalletCreatePageState extends ConsumerState<WalletCreatePage> {
     );
   }
 
+  Widget _buildPhraseConfirmStep() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Theme.of(context).colorScheme.primary,
+                  Theme.of(context).colorScheme.secondary,
+                ],
+              ),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.verified_user, color: Colors.white, size: 28),
+                ),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Confirm Your Phrase',
+                          style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                      SizedBox(height: 4),
+                      Text('Re-enter your 12 words to verify',
+                          style: TextStyle(color: Colors.white70, fontSize: 13)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // 12 word input fields in 2 columns
+          for (int row = 0; row < 6; row++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  _buildConfirmWordField(row * 2),
+                  const SizedBox(width: 10),
+                  _buildConfirmWordField(row * 2 + 1),
+                ],
+              ),
+            ),
+
+          if (_confirmError.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.red.withOpacity(0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.redAccent, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(_confirmError,
+                        style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConfirmWordField(int index) {
+    return Expanded(
+      child: Container(
+        height: 44,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Theme.of(context).colorScheme.outline.withOpacity(0.3)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 28,
+              alignment: Alignment.center,
+              child: Text(
+                '${index + 1}',
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary, fontSize: 11, fontWeight: FontWeight.bold),
+              ),
+            ),
+            Expanded(
+              child: TextField(
+                controller: _confirmControllers[index],
+                focusNode: _confirmFocusNodes[index],
+                style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13),
+                decoration: InputDecoration(
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                  hintText: 'word ${index + 1}',
+                  hintStyle: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12),
+                ),
+                textInputAction: index < 11 ? TextInputAction.next : TextInputAction.done,
+                onSubmitted: (_) {
+                  if (index < 11) {
+                    _confirmFocusNodes[index + 1].requestFocus();
+                  }
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _validatePhraseConfirmation() {
+    final enteredWords =
+        _confirmControllers.map((c) => c.text.trim().toLowerCase()).toList();
+
+    if (enteredWords.any((w) => w.isEmpty)) {
+      setState(() => _confirmError = 'Please fill in all 12 words');
+      return false;
+    }
+
+    for (int i = 0; i < 12; i++) {
+      if (enteredWords[i] != _mnemonicWords[i].toLowerCase()) {
+        setState(() => _confirmError = 'Word ${i + 1} does not match. Please check and try again.');
+        return false;
+      }
+    }
+
+    setState(() => _confirmError = '');
+    return true;
+  }
+
   Widget _buildBackupConfirmationStep() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -489,97 +660,43 @@ class _WalletCreatePageState extends ConsumerState<WalletCreatePage> {
   Widget _buildNavigationButtons() {
     return Column(
       children: [
-        if (_currentStep < 2)
+        if (_currentStep < 3)
           ElevatedButton(
             onPressed: () {
               if (_currentStep == 1 && _mnemonicWords.isEmpty) return;
+              if (_currentStep == 2) {
+                // Validate phrase confirmation before proceeding
+                if (!_validatePhraseConfirmation()) return;
+              }
               setState(() => _currentStep++);
             },
             style: ElevatedButton.styleFrom(
               minimumSize: const Size(double.infinity, 56),
             ),
             child: Text(
-              _currentStep == 0 ? 'Generate Recovery Phrase' : 'Continue',
+              _currentStep == 0
+                  ? 'Generate Recovery Phrase'
+                  : _currentStep == 1
+                      ? 'I\'ve Written It Down'
+                      : 'Verify & Continue',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
           ),
-        if (_currentStep == 2)
+        if (_currentStep == 3)
           ElevatedButton(
-            onPressed: _isBackedUp
+            onPressed: (_isBackedUp && !_isCreatingWallet)
                   ? () async {
-                      // Show loading dialog
-                      showDialog(
-                        context: context,
-                        barrierDismissible: false,
-                        builder: (context) => WillPopScope(
-                          onWillPop: () async => false,
-                          child: Center(
-                            child: Container(
-                              padding: const EdgeInsets.all(32),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  SizedBox(
-                                    width: 60,
-                                    height: 60,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 4,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        Theme.of(context).colorScheme.primary,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 24),
-                                  Text(
-                                    'Creating Your Wallet',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Theme.of(context).colorScheme.onSurface,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    'Generating keys for all blockchains...',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.grey[600],
-                                    ),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                  const SizedBox(height: 24),
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(4),
-                                    child: LinearProgressIndicator(
-                                      minHeight: 4,
-                                      backgroundColor: Colors.grey[300],
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        Theme.of(context).colorScheme.primary,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
+                      setState(() => _isCreatingWallet = true);
 
-                      // Ensure dialog is visible for at least 500ms
+                      // Ensure spinner is visible for at least 500ms
                       await Future.delayed(const Duration(milliseconds: 500));
 
                       // Generate wallets for all supported chains from the same mnemonic
                       final svc = WalletService();
                       final authService = AuthService();
                       try {
-                        // The mnemonic was already generated locally
                         final mnemonic = _mnemonicWords.join(' ');
                         
-                        // Generate/restore addresses for all chains from this mnemonic
                         final chains = ['BTC', 'ETH', 'BNB', 'SOL', 'TRX', 'LTC', 'DOGE', 'XRP'];
                         String? primaryAddress;
                         
@@ -589,10 +706,8 @@ class _WalletCreatePageState extends ConsumerState<WalletCreatePage> {
                             final address = wallet['address']!;
                             final privateKey = wallet['privateKey'];
                             
-                            // Store in format expected by getBalances()
                             await svc.storeWalletCredentials(chain, address, privateKey, mnemonic);
                             
-                            // Use ETH as primary address for display
                             if (chain == 'ETH') {
                               primaryAddress = address;
                             }
@@ -604,22 +719,18 @@ class _WalletCreatePageState extends ConsumerState<WalletCreatePage> {
                           }
                         }
                         
-                        // Save wallet data and set logged in state
                         await authService.saveWalletData(
                           address: primaryAddress ?? '',
                           mnemonic: mnemonic,
                         );
                         
-                        // After async work, ensure widget is still mounted before navigation
                         if (!mounted) return;
-                        // Dismiss loading dialog
-                        Navigator.pop(context);
-                        // Navigate to dashboard after success
-                        context.go('/dashboard');
+                        context.go('/pin-setup');
                       } catch (e) {
                         // ignore: avoid_print
                         print('Failed to create wallet: $e');
                         if (!mounted) return;
+                        setState(() => _isCreatingWallet = false);
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('Failed to create wallet. Try again.')),
                         );
@@ -629,10 +740,29 @@ class _WalletCreatePageState extends ConsumerState<WalletCreatePage> {
             style: ElevatedButton.styleFrom(
               minimumSize: const Size(double.infinity, 56),
             ),
-            child: const Text(
-              'Complete Setup',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-            ),
+            child: _isCreatingWallet
+                ? Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2.5,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'Creating Wallet...',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  )
+                : const Text(
+                    'Complete Setup',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
           ),
         if (_currentStep > 0)
           const SizedBox(height: 16),

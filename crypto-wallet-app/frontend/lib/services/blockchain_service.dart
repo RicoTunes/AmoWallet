@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -13,6 +14,9 @@ class BlockchainService {
     receiveTimeout: const Duration(seconds: 90),
     sendTimeout: const Duration(seconds: 30),
   ));
+
+  // Etherscan API key (free tier, 5 calls/sec)
+  static const String _etherscanApiKey = 'HX2M1TCIXA2C9M2771SUZATX5AQ52SQNPR';
 
   // For demo purposes, we'll use public APIs that don't require keys
   static const Map<String, String> _publicApis = {
@@ -66,15 +70,14 @@ class BlockchainService {
         case 'SOL':
           return await _getSolanaBalance(address);
         case 'USDT':
-          // USDT is a token - check all networks where it might exist
-          // Try ERC20 first (most common)
+          // USDT is a token - check BSC first (most common for this wallet), then ETH, then Tron
           double usdtBalance = 0.0;
           try {
-            usdtBalance = await _getTokenBalance('USDT', address, 'ethereum');
+            usdtBalance = await _getTokenBalance('USDT', address, 'bsc');
             if (usdtBalance > 0) return usdtBalance;
           } catch (_) {}
           try {
-            usdtBalance = await _getTokenBalance('USDT', address, 'bsc');
+            usdtBalance = await _getTokenBalance('USDT', address, 'ethereum');
             if (usdtBalance > 0) return usdtBalance;
           } catch (_) {}
           try {
@@ -302,30 +305,43 @@ class BlockchainService {
   /// Get ERC20 token balance (USDT, USDC, etc.)
   Future<double> getErc20TokenBalance(
       String address, String contractAddress, int decimals) async {
-    // Try backend proxy first
+    // Method 1: Etherscan tokenbalance API with API key
     try {
       final response = await _dio.get(
-        '${ApiConfig.baseUrl}/api/blockchain/balance/ETH/$address',
-        options: Options(receiveTimeout: const Duration(seconds: 8)),
-      );
-      if (response.data is Map && response.data['success'] == true) {
-        final balance = double.tryParse(response.data['balance']?.toString() ?? '0') ?? 0.0;
-        if (balance > 0) return balance;
-      }
-    } catch (_) {}
-
-    // Fallback: Etherscan free tier (no key needed for low volume)
-    try {
-      final response = await _dio.get(
-          '${_publicApis['ETH']}?module=account&action=tokenbalance&contractaddress=$contractAddress&address=$address&tag=latest');
+          '${_publicApis['ETH']}?module=account&action=tokenbalance&contractaddress=$contractAddress&address=$address&tag=latest&apikey=$_etherscanApiKey',
+          options: Options(receiveTimeout: const Duration(seconds: 10)));
       final data = response.data;
-      if (data is Map && data['status'] == '1') {
+      if (data is Map && data['status'] == '1' && data['result'] != '0') {
         final balanceWei = BigInt.parse(data['result']);
         final balance = balanceWei / BigInt.from(10).pow(decimals);
+        debugPrint('✅ ERC20 token balance: ${balance.toDouble()} (contract: $contractAddress)');
         return balance.toDouble();
       }
     } catch (e) {
-      debugPrint('Error fetching ERC20 token balance: $e');
+      debugPrint('⚠️ Etherscan ERC20 token balance failed: $e');
+    }
+
+    // Method 2: Ethereum RPC eth_call (no API key needed)
+    try {
+      final callData = '0x70a08231000000000000000000000000${address.replaceFirst('0x', '')}';
+      final response = await _dio.post(
+        'https://eth.llamarpc.com',
+        data: {
+          'jsonrpc': '2.0', 'id': 1,
+          'method': 'eth_call',
+          'params': [{'to': contractAddress, 'data': callData}, 'latest'],
+        },
+        options: Options(receiveTimeout: const Duration(seconds: 10)),
+      );
+      final result = response.data?['result'];
+      if (result != null && result != '0x' && result != '0x0') {
+        final balanceWei = BigInt.parse(result.toString().replaceFirst('0x', ''), radix: 16);
+        final balance = balanceWei / BigInt.from(10).pow(decimals);
+        debugPrint('✅ ERC20 token balance via RPC: ${balance.toDouble()}');
+        return balance.toDouble();
+      }
+    } catch (e) {
+      debugPrint('⚠️ Ethereum RPC ERC20 token balance failed: $e');
     }
     return 0.0;
   }
@@ -333,30 +349,66 @@ class BlockchainService {
   /// Get BEP20 token balance (BSC USDT, etc.)
   Future<double> getBep20TokenBalance(
       String address, String contractAddress, int decimals) async {
-    // Try backend proxy first
+    // Method 1: BSC RPC eth_call (most reliable, no API key needed)
     try {
-      final response = await _dio.get(
-        '${ApiConfig.baseUrl}/api/blockchain/balance/BNB/$address',
-        options: Options(receiveTimeout: const Duration(seconds: 8)),
+      final callData = '0x70a08231000000000000000000000000${address.replaceFirst('0x', '')}';
+      final response = await _dio.post(
+        'https://bsc-dataseed1.binance.org',
+        data: {
+          'jsonrpc': '2.0', 'id': 1,
+          'method': 'eth_call',
+          'params': [{'to': contractAddress, 'data': callData}, 'latest'],
+        },
+        options: Options(receiveTimeout: const Duration(seconds: 10)),
       );
-      if (response.data is Map && response.data['success'] == true) {
-        final balance = double.tryParse(response.data['balance']?.toString() ?? '0') ?? 0.0;
-        if (balance > 0) return balance;
-      }
-    } catch (_) {}
-
-    // Fallback: BscScan free tier
-    try {
-      final response = await _dio.get(
-          '${_publicApis['BNB']}?module=account&action=tokenbalance&contractaddress=$contractAddress&address=$address&tag=latest');
-      final data = response.data;
-      if (data is Map && data['status'] == '1') {
-        final balanceWei = BigInt.parse(data['result']);
+      final result = response.data?['result'];
+      if (result != null && result != '0x' && result != '0x0') {
+        final balanceWei = BigInt.parse(result.toString().replaceFirst('0x', ''), radix: 16);
         final balance = balanceWei / BigInt.from(10).pow(decimals);
+        debugPrint('✅ BEP20 token balance via RPC: ${balance.toDouble()} (contract: $contractAddress)');
         return balance.toDouble();
       }
     } catch (e) {
-      debugPrint('Error fetching BEP20 token balance: $e');
+      debugPrint('⚠️ BSC RPC BEP20 token balance failed: $e');
+    }
+
+    // Method 2: BscScan tokenbalance API
+    try {
+      final response = await _dio.get(
+          '${_publicApis['BNB']}?module=account&action=tokenbalance&contractaddress=$contractAddress&address=$address&tag=latest',
+          options: Options(receiveTimeout: const Duration(seconds: 10)));
+      final data = response.data;
+      if (data is Map && data['status'] == '1' && data['result'] != '0') {
+        final balanceWei = BigInt.parse(data['result']);
+        final balance = balanceWei / BigInt.from(10).pow(decimals);
+        debugPrint('✅ BEP20 token balance via BscScan: ${balance.toDouble()}');
+        return balance.toDouble();
+      }
+    } catch (e) {
+      debugPrint('⚠️ BscScan BEP20 token balance failed: $e');
+    }
+
+    // Method 3: Alternate BSC RPC
+    try {
+      final callData = '0x70a08231000000000000000000000000${address.replaceFirst('0x', '')}';
+      final response = await _dio.post(
+        'https://bsc-dataseed2.binance.org',
+        data: {
+          'jsonrpc': '2.0', 'id': 1,
+          'method': 'eth_call',
+          'params': [{'to': contractAddress, 'data': callData}, 'latest'],
+        },
+        options: Options(receiveTimeout: const Duration(seconds: 10)),
+      );
+      final result = response.data?['result'];
+      if (result != null && result != '0x' && result != '0x0') {
+        final balanceWei = BigInt.parse(result.toString().replaceFirst('0x', ''), radix: 16);
+        final balance = balanceWei / BigInt.from(10).pow(decimals);
+        debugPrint('✅ BEP20 token balance via RPC2: ${balance.toDouble()}');
+        return balance.toDouble();
+      }
+    } catch (e) {
+      debugPrint('⚠️ BSC RPC2 BEP20 token balance failed: $e');
     }
     return 0.0;
   }
@@ -364,30 +416,59 @@ class BlockchainService {
   /// Get TRC20 token balance (Tron USDT, etc.)
   Future<double> getTrc20TokenBalance(
       String address, String contractAddress) async {
+    // Method 1: TronScan account tokens API
     try {
-      final cleanAddress =
-          address.startsWith('T') ? address.substring(1) : address;
       final response = await _dio.get(
-          '${_publicApis['TRX']}/token_trc20?contract=$contractAddress&account=$cleanAddress');
+          '${_publicApis['TRX']}/account/tokens?address=$address',
+          options: Options(receiveTimeout: const Duration(seconds: 10)));
       final data = response.data;
 
-      if (data is Map && data.containsKey('trc20_tokens')) {
-        final tokens = data['trc20_tokens'];
-        if (tokens is List && tokens.isNotEmpty) {
+      if (data is Map && data.containsKey('data')) {
+        final tokens = data['data'];
+        if (tokens is List) {
           for (final token in tokens) {
-            if (token['tokenId'] == contractAddress) {
-              final balance = double.parse(token['balance'] ?? '0');
-              return balance / 1000000; // USDT on Tron has 6 decimals
+            if (token['tokenId'] == contractAddress || token['tokenAbbr'] == 'USDT') {
+              final balance = double.tryParse(token['balance']?.toString() ?? '0') ?? 0.0;
+              final decimals = token['tokenDecimal'] ?? 6;
+              final divisor = decimals is int ? pow(10, decimals).toDouble() : 1000000.0;
+              final result = balance / divisor;
+              debugPrint('✅ TRC20 USDT balance from TronScan: $result');
+              return result;
             }
           }
         }
       }
-
-      return 0.0;
     } catch (e) {
-      print('Error fetching TRC20 token balance: $e');
-      return 0.0;
+      debugPrint('⚠️ TronScan account tokens failed: $e');
     }
+
+    // Method 2: TronGrid API
+    try {
+      final response = await _dio.get(
+          'https://api.trongrid.io/v1/accounts/$address',
+          options: Options(receiveTimeout: const Duration(seconds: 10)));
+      final data = response.data;
+
+      if (data is Map && data['data'] is List && (data['data'] as List).isNotEmpty) {
+        final account = (data['data'] as List).first;
+        final trc20 = account['trc20'] as List?;
+        if (trc20 != null) {
+          for (final tokenMap in trc20) {
+            if (tokenMap is Map && tokenMap.containsKey(contractAddress)) {
+              final rawBalance = tokenMap[contractAddress]?.toString() ?? '0';
+              final balance = double.tryParse(rawBalance) ?? 0.0;
+              final result = balance / 1000000; // USDT on Tron = 6 decimals
+              debugPrint('✅ TRC20 USDT balance from TronGrid: $result');
+              return result;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ TronGrid failed: $e');
+    }
+
+    return 0.0;
   }
 
   /// Get BSC balance
@@ -424,44 +505,107 @@ class BlockchainService {
     return 0.0;
   }
 
-  /// Get Litecoin balance
+  /// Get Litecoin balance with multi-API fallback
   Future<double> _getLitecoinBalance(String address) async {
+    // Method 1: BlockCypher
     try {
-      final response =
-          await _dio.get('${_publicApis['LTC']}/addrs/$address/balance');
+      final response = await _dio.get(
+          '${_publicApis['LTC']}/addrs/$address/balance',
+          options: Options(receiveTimeout: const Duration(seconds: 8)));
       final data = response.data;
-
       if (data is Map && data.containsKey('balance')) {
-        final balance = data['balance'] / 100000000; // Convert satoshis to LTC
+        final balance = data['balance'] / 100000000;
+        debugPrint('✅ LTC balance from BlockCypher: $balance');
         return balance.toDouble();
       }
-
-      return 0.0;
     } catch (e) {
-      print('Error fetching Litecoin balance: $e');
-      // Return 0 on error - only show real balances
-      return 0.0;
+      debugPrint('⚠️ BlockCypher LTC failed: $e');
     }
+
+    // Method 2: Backend proxy
+    try {
+      final response = await _dio.get(
+        '${ApiConfig.baseUrl}/api/blockchain/balance/LTC/$address',
+        options: Options(receiveTimeout: const Duration(seconds: 8)),
+      );
+      if (response.data is Map && response.data['success'] == true) {
+        final balance = double.tryParse(response.data['balance']?.toString() ?? '0') ?? 0.0;
+        debugPrint('✅ LTC balance from backend: $balance');
+        return balance;
+      }
+    } catch (e) {
+      debugPrint('⚠️ Backend LTC failed: $e');
+    }
+
+    // Method 3: Blockbook (Trezor) API
+    try {
+      final response = await _dio.get(
+          'https://ltc1.trezor.io/api/v2/address/$address',
+          options: Options(receiveTimeout: const Duration(seconds: 8)));
+      final data = response.data;
+      if (data is Map && data.containsKey('balance')) {
+        final balance = double.tryParse(data['balance']?.toString() ?? '0') ?? 0.0;
+        final result = balance / 100000000;
+        debugPrint('✅ LTC balance from Trezor Blockbook: $result');
+        return result;
+      }
+    } catch (e) {
+      debugPrint('⚠️ Trezor Blockbook LTC failed: $e');
+    }
+
+    debugPrint('❌ All LTC balance APIs failed for $address');
+    return 0.0;
   }
 
-  /// Get Dogecoin balance
+  /// Get Dogecoin balance with multi-API fallback
   Future<double> _getDogecoinBalance(String address) async {
+    // Method 1: BlockCypher
     try {
-      final response =
-          await _dio.get('${_publicApis['DOGE']}/addrs/$address/balance');
+      final response = await _dio.get(
+          '${_publicApis['DOGE']}/addrs/$address/balance',
+          options: Options(receiveTimeout: const Duration(seconds: 8)));
       final data = response.data;
-
       if (data is Map && data.containsKey('balance')) {
-        final balance = data['balance'] / 100000000; // Convert satoshis to DOGE
+        final balance = data['balance'] / 100000000;
+        debugPrint('✅ DOGE balance from BlockCypher: $balance');
         return balance.toDouble();
       }
-
-      return 0.0;
     } catch (e) {
-      print('Error fetching Dogecoin balance: $e');
-      // Return 0 on error - only show real balances
-      return 0.0;
+      debugPrint('⚠️ BlockCypher DOGE failed: $e');
     }
+
+    // Method 2: Backend proxy
+    try {
+      final response = await _dio.get(
+        '${ApiConfig.baseUrl}/api/blockchain/balance/DOGE/$address',
+        options: Options(receiveTimeout: const Duration(seconds: 8)),
+      );
+      if (response.data is Map && response.data['success'] == true) {
+        final balance = double.tryParse(response.data['balance']?.toString() ?? '0') ?? 0.0;
+        debugPrint('✅ DOGE balance from backend: $balance');
+        return balance;
+      }
+    } catch (e) {
+      debugPrint('⚠️ Backend DOGE failed: $e');
+    }
+
+    // Method 3: Dogechain.info API
+    try {
+      final response = await _dio.get(
+          'https://dogechain.info/api/v1/address/balance/$address',
+          options: Options(receiveTimeout: const Duration(seconds: 8)));
+      final data = response.data;
+      if (data is Map && data['success'] == 1) {
+        final balance = double.tryParse(data['balance']?.toString() ?? '0') ?? 0.0;
+        debugPrint('✅ DOGE balance from Dogechain: $balance');
+        return balance;
+      }
+    } catch (e) {
+      debugPrint('⚠️ Dogechain DOGE failed: $e');
+    }
+
+    debugPrint('❌ All DOGE balance APIs failed for $address');
+    return 0.0;
   }
 
   /// Get Tron balance
@@ -501,73 +645,144 @@ class BlockchainService {
     }
   }
 
-  /// Get Ripple balance
+  /// Get Ripple balance with multi-API fallback
   Future<double> _getRippleBalance(String address) async {
+    // Method 1: XRPL Cluster
     try {
       final payload = {
         "method": "account_info",
         "params": [
-          {
-            "account": address,
-            "strict": true,
-            "ledger_index": "current",
-            "queue": true
-          }
+          {"account": address, "strict": true, "ledger_index": "current", "queue": true}
         ]
       };
-
       final response = await _dio.post(_publicApis['XRP']!,
           data: jsonEncode(payload),
-          options: Options(headers: {'Content-Type': 'application/json'}));
-
+          options: Options(
+            headers: {'Content-Type': 'application/json'},
+            receiveTimeout: const Duration(seconds: 8),
+          ));
       final data = response.data;
-
-      if (data is Map &&
-          data.containsKey('result') &&
-          data['result']['status'] == 'success') {
+      if (data is Map && data.containsKey('result') && data['result']['status'] == 'success') {
         final balanceDrops = data['result']['account_data']['Balance'];
-        final balanceXrp =
-            int.parse(balanceDrops) / 1000000; // Convert drops to XRP
+        final balanceXrp = int.parse(balanceDrops) / 1000000;
+        debugPrint('✅ XRP balance from XRPL Cluster: $balanceXrp');
         return balanceXrp.toDouble();
       }
-
-      return 0.0;
     } catch (e) {
-      print('Error fetching Ripple balance: $e');
-      // Return 0 on error - only show real balances
-      return 0.0;
+      debugPrint('⚠️ XRPL Cluster XRP failed: $e');
     }
-  }
 
-  /// Get Solana balance
-  Future<double> _getSolanaBalance(String address) async {
+    // Method 2: Backend proxy
+    try {
+      final response = await _dio.get(
+        '${ApiConfig.baseUrl}/api/blockchain/balance/XRP/$address',
+        options: Options(receiveTimeout: const Duration(seconds: 8)),
+      );
+      if (response.data is Map && response.data['success'] == true) {
+        final balance = double.tryParse(response.data['balance']?.toString() ?? '0') ?? 0.0;
+        debugPrint('✅ XRP balance from backend: $balance');
+        return balance;
+      }
+    } catch (e) {
+      debugPrint('⚠️ Backend XRP failed: $e');
+    }
+
+    // Method 3: XRPL.org public server
     try {
       final payload = {
-        "jsonrpc": "2.0",
-        "id": 1,
+        "method": "account_info",
+        "params": [
+          {"account": address, "strict": true, "ledger_index": "validated"}
+        ]
+      };
+      final response = await _dio.post('https://s1.ripple.com:51234/',
+          data: jsonEncode(payload),
+          options: Options(
+            headers: {'Content-Type': 'application/json'},
+            receiveTimeout: const Duration(seconds: 8),
+          ));
+      final data = response.data;
+      if (data is Map && data.containsKey('result') && data['result']['status'] == 'success') {
+        final balanceDrops = data['result']['account_data']['Balance'];
+        final balanceXrp = int.parse(balanceDrops) / 1000000;
+        debugPrint('✅ XRP balance from s1.ripple.com: $balanceXrp');
+        return balanceXrp.toDouble();
+      }
+    } catch (e) {
+      debugPrint('⚠️ s1.ripple.com XRP failed: $e');
+    }
+
+    debugPrint('❌ All XRP balance APIs failed for $address');
+    return 0.0;
+  }
+
+  /// Get Solana balance with multi-API fallback
+  Future<double> _getSolanaBalance(String address) async {
+    // Method 1: Solana Mainnet Beta RPC
+    try {
+      final payload = {
+        "jsonrpc": "2.0", "id": 1,
         "method": "getBalance",
         "params": [address]
       };
-
       final response = await _dio.post(_publicApis['SOL']!,
           data: jsonEncode(payload),
-          options: Options(headers: {'Content-Type': 'application/json'}));
-
+          options: Options(
+            headers: {'Content-Type': 'application/json'},
+            receiveTimeout: const Duration(seconds: 8),
+          ));
       final data = response.data;
-
-      if (data is Map && data.containsKey('result')) {
-        final balanceLamports = data['result']['value'];
-        final balanceSol =
-            balanceLamports / 1000000000; // Convert lamports to SOL
+      if (data is Map && data.containsKey('result') && data['result'] != null) {
+        final balanceLamports = data['result']['value'] ?? 0;
+        final balanceSol = balanceLamports / 1000000000;
+        debugPrint('✅ SOL balance from mainnet-beta: $balanceSol');
         return balanceSol.toDouble();
       }
-
-      return 0.0;
     } catch (e) {
-      print('Error fetching Solana balance: $e');
-      // Return 0 on error - only show real balances
-      return 0.0;
+      debugPrint('⚠️ Solana mainnet-beta failed: $e');
     }
+
+    // Method 2: Backend proxy
+    try {
+      final response = await _dio.get(
+        '${ApiConfig.baseUrl}/api/blockchain/balance/SOL/$address',
+        options: Options(receiveTimeout: const Duration(seconds: 8)),
+      );
+      if (response.data is Map && response.data['success'] == true) {
+        final balance = double.tryParse(response.data['balance']?.toString() ?? '0') ?? 0.0;
+        debugPrint('✅ SOL balance from backend: $balance');
+        return balance;
+      }
+    } catch (e) {
+      debugPrint('⚠️ Backend SOL failed: $e');
+    }
+
+    // Method 3: Public Solana RPC (Ankr)
+    try {
+      final payload = {
+        "jsonrpc": "2.0", "id": 1,
+        "method": "getBalance",
+        "params": [address]
+      };
+      final response = await _dio.post('https://rpc.ankr.com/solana',
+          data: jsonEncode(payload),
+          options: Options(
+            headers: {'Content-Type': 'application/json'},
+            receiveTimeout: const Duration(seconds: 8),
+          ));
+      final data = response.data;
+      if (data is Map && data.containsKey('result') && data['result'] != null) {
+        final balanceLamports = data['result']['value'] ?? 0;
+        final balanceSol = balanceLamports / 1000000000;
+        debugPrint('✅ SOL balance from Ankr: $balanceSol');
+        return balanceSol.toDouble();
+      }
+    } catch (e) {
+      debugPrint('⚠️ Ankr SOL failed: $e');
+    }
+
+    debugPrint('❌ All SOL balance APIs failed for $address');
+    return 0.0;
   }
 
   /// Get transaction history for an address
@@ -594,6 +809,13 @@ class BlockchainService {
         case 'POLYGON':
         case 'MATIC':
           return await _getPolygonTransactions(address);
+        case 'USDT':
+          // USDT token transactions - check all EVM networks
+          return await _getTokenTransactions(address, 'bsc', '0x55d398326f99059fF775485246999027B3197955', 18);
+        case 'USDT-BEP20':
+          return await _getTokenTransactions(address, 'bsc', '0x55d398326f99059fF775485246999027B3197955', 18);
+        case 'USDT-ERC20':
+          return await _getTokenTransactions(address, 'ethereum', '0xdAC17F958D2ee523a2206206994597C13D831ec7', 6);
         default:
           print('Transaction history not supported for $coin');
           return [];
@@ -602,6 +824,45 @@ class BlockchainService {
       print('Error getting transaction history for $coin: $e');
       return [];
     }
+  }
+
+  /// Get ERC20/BEP20 token transaction history
+  Future<List<Map<String, dynamic>>> _getTokenTransactions(
+      String address, String network, String contractAddress, int decimals) async {
+    try {
+      final String apiBase;
+      final String apiKey;
+      if (network == 'bsc') {
+        apiBase = _publicApis['BNB']!;
+        apiKey = '';
+      } else {
+        apiBase = _publicApis['ETH']!;
+        apiKey = _etherscanApiKey;
+      }
+      final keyParam = apiKey.isNotEmpty ? '&apikey=$apiKey' : '';
+      final url = '$apiBase?module=account&action=tokentx&contractaddress=$contractAddress&address=$address&sort=desc&page=1&offset=20$keyParam';
+      final response = await _dio.get(url,
+          options: Options(receiveTimeout: const Duration(seconds: 10)));
+      final data = response.data;
+      if (data is Map && data['status'] == '1' && data['result'] is List) {
+        return (data['result'] as List).take(20).map<Map<String, dynamic>>((tx) {
+          final rawValue = BigInt.tryParse(tx['value']?.toString() ?? '0') ?? BigInt.zero;
+          final amount = rawValue / BigInt.from(10).pow(decimals);
+          return {
+            'hash': tx['hash'] ?? '',
+            'amount': amount.toDouble(),
+            'timestamp': int.tryParse(tx['timeStamp']?.toString() ?? '0') ?? 0,
+            'confirmations': int.tryParse(tx['confirmations']?.toString() ?? '0') ?? 0,
+            'type': tx['from'].toString().toLowerCase() == address.toLowerCase() ? 'sent' : 'received',
+            'fromAddress': tx['from'] ?? '',
+            'toAddress': tx['to'] ?? '',
+          };
+        }).toList();
+      }
+    } catch (e) {
+      print('Error fetching token transactions for $network: $e');
+    }
+    return [];
   }
   
   /// Get Solana transactions
