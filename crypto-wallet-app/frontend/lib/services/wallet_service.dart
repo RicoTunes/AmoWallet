@@ -682,24 +682,10 @@ class WalletService {
         }
       }
       
-      // Apply swap adjustments from local storage
-      final swapAdjustments = await _getSwapBalanceAdjustments();
-      for (final coin in swapAdjustments.keys) {
-        final adjustment = swapAdjustments[coin] ?? 0.0;
-        final current = balances[coin] ?? 0.0;
-        final adjusted = current + adjustment;
-        
-        // Always add/update the coin if adjustment exists
-        if (adjusted > 0) {
-          balances[coin] = adjusted;
-        } else if (adjusted <= 0) {
-          // Set to 0 if negative, but keep in map so it shows up
-          balances[coin] = 0.0;
-        }
-        debugPrint('💱 Applied swap adjustment for $coin: $current + $adjustment = $adjusted');
-      }
+      // One-time cleanup: purge any phantom swap adjustments from old simulated swaps
+      await _purgeStaleSwapAdjustments();
       
-      debugPrint('💰 Total balances (with swaps): $balances');
+      debugPrint('💰 Total balances (on-chain only): $balances');
       return balances;
     } catch (e) {
       debugPrint('❌ Failed to get balances: $e');
@@ -730,34 +716,28 @@ class WalletService {
     }
   }
   
-  /// Get swap balance adjustments from SharedPreferences (persists on web)
-  Future<Map<String, double>> _getSwapBalanceAdjustments() async {
+  /// Purge stale swap adjustments (one-time migration)
+  /// Old simulated swaps wrote fake balance adjustments that created phantom money
+  Future<void> _purgeStaleSwapAdjustments() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final adjustments = <String, double>{};
+      if (prefs.getBool('swap_adjustments_purged_v2') == true) return;
       
-      // Get all keys and filter swap adjustments
-      final allKeys = prefs.getKeys();
-      debugPrint('🔍 SharedPreferences keys: ${allKeys.length} total');
-      debugPrint('🔍 All keys: $allKeys');
-      
+      final allKeys = prefs.getKeys().toList();
+      int cleared = 0;
       for (final key in allKeys) {
         if (key.startsWith('swap_adjustment_')) {
-          final coin = key.replaceFirst('swap_adjustment_', '');
-          final value = prefs.getDouble(key) ?? 0.0;
-          debugPrint('💱 Found swap adjustment: $key = $value');
-          if (value != 0.0) {
-            adjustments[coin] = value;
-          }
+          await prefs.remove(key);
+          cleared++;
         }
       }
-      
-      debugPrint('📊 Total swap adjustments found: $adjustments');
-      return adjustments;
+      await prefs.remove('swap_history');
+      await prefs.setBool('swap_adjustments_purged_v2', true);
+      if (cleared > 0) {
+        debugPrint('🧹 Purged $cleared phantom swap adjustments');
+      }
     } catch (e) {
-      debugPrint('❌ Failed to get swap adjustments: $e');
-      _logger.e('Failed to get swap adjustments: $e');
-      return {};
+      debugPrint('❌ Failed to purge swap adjustments: $e');
     }
   }
 
@@ -818,17 +798,6 @@ class WalletService {
       final fromBase = fromCoin.contains('-') ? fromCoin.split('-')[0] : fromCoin;
       final toBase = toCoin.contains('-') ? toCoin.split('-')[0] : toCoin;
       
-      // Update swap adjustments (delta values) - use SharedPreferences for persistence
-      // Debit from source coin
-      final currentFromAdj = prefs.getDouble('swap_adjustment_$fromBase') ?? 0.0;
-      final newFromAdj = currentFromAdj - fromAmount - fee;
-      await prefs.setDouble('swap_adjustment_$fromBase', newFromAdj);
-      
-      // Credit to destination coin
-      final currentToAdj = prefs.getDouble('swap_adjustment_$toBase') ?? 0.0;
-      final newToAdj = currentToAdj + toAmount;
-      await prefs.setDouble('swap_adjustment_$toBase', newToAdj);
-      
       // Save the swap transaction for history
       final timestamp = DateTime.now().toIso8601String();
       final swapData = {
@@ -851,8 +820,7 @@ class WalletService {
       
       _logger.i('✅ Recorded swap: -$fromAmount $fromBase, +$toAmount $toBase');
       debugPrint('✅ Swap recorded: $fromAmount $fromCoin → $toAmount $toCoin (fee: $fee)');
-      debugPrint('📊 New adjustments: $fromBase=$newFromAdj, $toBase=$newToAdj');
-      debugPrint('💾 Swap saved to SharedPreferences (persists on restart)');
+      debugPrint('� Swap saved to history (persists on restart)');
     } catch (e) {
       _logger.e('Failed to record swap transaction: $e');
       debugPrint('❌ Failed to record swap: $e');

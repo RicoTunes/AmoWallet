@@ -1652,6 +1652,10 @@ class BlockchainService {
       } else if (e.toString().contains('does not match')) {
         throw Exception(
             'Wallet configuration error. Please re-import your wallet.');
+      } else if (e.toString().contains('status code of 500') || 
+                 e.toString().contains('bad response')) {
+        throw Exception(
+            'Server error processing this transaction. The backend may be offline or this coin\'s network is unavailable.');
       } else {
         throw Exception('Transaction failed: ${e.toString()}');
       }
