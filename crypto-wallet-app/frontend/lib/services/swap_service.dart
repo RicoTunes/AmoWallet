@@ -744,61 +744,18 @@ class SwapService {
           quoteId: quote.quoteId,
         );
       } catch (e) {
-        _logger.w('⚠️ Build transaction failed, falling back to simulated: $e');
-        // Fallback to simulated swap
-        final result = await executeSwap(
-          fromCoin: fromCoin,
-          toCoin: toCoin,
-          fromAmount: fromAmount,
-          toAmount: quote.toAmount,
-          exchangeRate: quote.exchangeRate,
-          fee: quote.totalFees,
-          userAddress: userAddress,
-        );
-
-        return RealSwapResult(
-          success: result['success'] == true,
-          txHash: result['txHash'],
-          fromCoin: fromCoin,
-          toCoin: toCoin,
-          fromAmount: fromAmount,
-          toAmount: quote.toAmount,
-          exchangeRate: quote.exchangeRate,
-          provider: quote.provider,
-          chainId: chainId,
-          explorerUrl: result['explorerUrl'],
-          status: SwapStatus.simulated,
-          isSimulated: true,
+        _logger.w('⚠️ Build transaction failed: $e');
+        throw Exception(
+          'Unable to build swap transaction for ${fromCoin}→${toCoin}. '
+          'The DEX provider may be unavailable. Try a different pair or provider.',
         );
       }
 
       if (txBuildResult['success'] != true) {
-        _logger.w(
-            '⚠️ Build transaction returned error, falling back to simulated');
-        // Fallback to simulated swap
-        final result = await executeSwap(
-          fromCoin: fromCoin,
-          toCoin: toCoin,
-          fromAmount: fromAmount,
-          toAmount: quote.toAmount,
-          exchangeRate: quote.exchangeRate,
-          fee: quote.totalFees,
-          userAddress: userAddress,
-        );
-
-        return RealSwapResult(
-          success: result['success'] == true,
-          txHash: result['txHash'],
-          fromCoin: fromCoin,
-          toCoin: toCoin,
-          fromAmount: fromAmount,
-          toAmount: quote.toAmount,
-          exchangeRate: quote.exchangeRate,
-          provider: quote.provider,
-          chainId: chainId,
-          explorerUrl: result['explorerUrl'],
-          status: SwapStatus.simulated,
-          isSimulated: true,
+        _logger.w('⚠️ Build transaction returned error');
+        throw Exception(
+          'Swap transaction build failed for ${fromCoin}→${toCoin}. '
+          'The DEX provider returned an error. Try a different pair or provider.',
         );
       }
 
@@ -905,33 +862,11 @@ class SwapService {
           status: SwapStatus.pending,
         );
       } else {
-        // SIMULATED SWAP (for BTC or when no DEX available)
-        _logger.w('⚠️ No real transaction data, using simulated swap');
-
-        // Execute simulated swap via backend
-        final result = await executeSwap(
-          fromCoin: fromCoin,
-          toCoin: toCoin,
-          fromAmount: fromAmount,
-          toAmount: quote.toAmount,
-          exchangeRate: quote.exchangeRate,
-          fee: quote.totalFees,
-          userAddress: userAddress,
-        );
-
-        return RealSwapResult(
-          success: result['success'] == true,
-          txHash: result['txHash'],
-          fromCoin: fromCoin,
-          toCoin: toCoin,
-          fromAmount: fromAmount,
-          toAmount: quote.toAmount,
-          exchangeRate: quote.exchangeRate,
-          provider: quote.provider,
-          chainId: chainId,
-          explorerUrl: result['explorerUrl'],
-          status: SwapStatus.simulated,
-          isSimulated: true,
+        // No real transaction data available — reject instead of simulating
+        throw Exception(
+          'No real DEX transaction available for ${fromCoin}→${toCoin}. '
+          'Try swapping between same-chain tokens (e.g. BNB↔USDT on BSC) '
+          'or use BTC swaps via THORChain.',
         );
       }
     } catch (e) {
@@ -1132,8 +1067,17 @@ class SwapService {
           simulationReason: btcResult.simulationReason,
         );
       } else {
-        // SWAPPING TO BTC (e.g., ETH → BTC)
-        // Need to send EVM token to THORChain router
+        // SWAPPING TO BTC (e.g., ETH → BTC, BNB → BTC)
+        // Only native coins (ETH, BNB) can be sent directly to THORChain vault
+        // Tokens (USDT, USDC) require THORChain router depositWithExpiry
+        final nativeCoins = {'ETH', 'BNB', 'AVAX', 'MATIC'};
+        if (!nativeCoins.contains(fromBaseCoin)) {
+          throw Exception(
+            '$fromBaseCoin→BTC is not yet supported directly. '
+            'Try swapping $fromBaseCoin→BNB first, then BNB→BTC.',
+          );
+        }
+
         _logger.i('📤 Sending $fromBaseCoin to THORChain router...');
 
         // Use EVM signing for ETH/tokens to THORChain

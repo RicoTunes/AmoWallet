@@ -9,6 +9,8 @@ import '../../../services/swap_service.dart';
 import '../../../services/blockchain_service.dart';
 import '../../../services/wallet_service.dart';
 import '../../../services/biometric_auth_service.dart';
+import '../../../services/transaction_service.dart';
+import '../../../models/transaction_model.dart' as tx_model;
 
 /// Token with network info for cross-chain swaps
 class TokenInfo {
@@ -657,6 +659,15 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
       );
 
       if (result.success) {
+        // REJECT simulated swaps — they are not real blockchain transactions
+        if (result.isSimulated) {
+          throw Exception(
+            'This swap pair is not yet supported for real on-chain execution. '
+            'Try swapping between same-chain tokens (e.g. BNB↔USDT on BSC) '
+            'or BTC swaps via THORChain.',
+          );
+        }
+
         // Update balances
         final fee = _selectedQuote!.fee;
         final toAmount = result.toAmount ?? _selectedQuote!.toAmount;
@@ -670,14 +681,34 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
         await _walletService!.updateCachedBalance(toBal, _balances[_toToken.id]!);
 
         // Save swap to history and persist balance adjustments
+        final swapTxHash = result.txHash ?? 'swap_${DateTime.now().millisecondsSinceEpoch}';
         await _walletService!.recordSwapTransaction(
           fromCoin: _fromToken.symbol,
           toCoin: _toToken.symbol,
           fromAmount: _amount,
           toAmount: toAmount,
           fee: fee,
-          txHash: result.txHash ?? 'swap_${DateTime.now().millisecondsSinceEpoch}',
+          txHash: swapTxHash,
         );
+
+        // Also store as a Transaction so it appears in Transaction History page
+        final txService = TransactionService();
+        await txService.storeTransaction(tx_model.Transaction(
+          id: swapTxHash,
+          type: 'swap',
+          coin: _toToken.symbol,
+          amount: toAmount,
+          address: toAddr ?? '',
+          txHash: swapTxHash,
+          timestamp: DateTime.now(),
+          status: 'completed',
+          fee: fee,
+          fromCoin: _fromToken.symbol,
+          toCoin: _toToken.symbol,
+          fromAmount: _amount,
+          toAmount: toAmount,
+          exchangeRate: toAmount / _amount,
+        ));
 
         _confettiController.play();
         await _showSuccessDialog(result.txHash);

@@ -262,6 +262,41 @@ class TransactionService {
         _logger.w('Failed to read local stored transactions: $e');
       }
 
+      // 3. Load swap history from SharedPreferences (walletService stores swaps here)
+      try {
+        final p = await _prefs;
+        final swapHistoryJson = p.getString('swap_history') ?? '[]';
+        final swapHistory = List<Map<String, dynamic>>.from(
+          json.decode(swapHistoryJson).map((item) => Map<String, dynamic>.from(item)),
+        );
+        for (final swap in swapHistory) {
+          final txHash = swap['txHash']?.toString() ?? 'swap_${swap['timestamp']}';
+          if (transactionMap.containsKey(txHash)) continue; // Already loaded
+          final ts = swap['timestamp'] != null
+              ? DateTime.tryParse(swap['timestamp'].toString()) ?? DateTime.now()
+              : DateTime.now();
+          transactionMap[txHash] = Transaction(
+            id: txHash,
+            type: 'swap',
+            coin: swap['toCoin']?.toString() ?? '',
+            amount: (swap['toAmount'] as num?)?.toDouble() ?? 0.0,
+            address: '',
+            txHash: txHash,
+            timestamp: ts,
+            status: swap['status']?.toString() ?? 'completed',
+            fee: (swap['fee'] as num?)?.toDouble() ?? 0.0,
+            fromCoin: swap['fromCoin']?.toString(),
+            toCoin: swap['toCoin']?.toString(),
+            fromAmount: (swap['fromAmount'] as num?)?.toDouble(),
+            toAmount: (swap['toAmount'] as num?)?.toDouble(),
+            exchangeRate: ((swap['toAmount'] as num?)?.toDouble() ?? 0) /
+                (((swap['fromAmount'] as num?)?.toDouble() ?? 1) == 0 ? 1 : (swap['fromAmount'] as num?)!.toDouble()),
+          );
+        }
+      } catch (e) {
+        _logger.w('Failed to load swap history: $e');
+      }
+
       // Convert map to list and sort
       final transactions = transactionMap.values.toList();
       transactions.sort((a, b) => b.timestamp.compareTo(a.timestamp));

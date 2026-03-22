@@ -3012,9 +3012,19 @@ class _CoinDetailSheetContentState extends State<_CoinDetailSheetContent> {
         final blockchainService = BlockchainService();
         double realBalance = await blockchainService.getBalance(widget.symbol, address);
         
+        // Apply swap adjustments so swapped coins show updated balance
+        final allBalances = await widget.walletService.getBalances();
+        final adjustedBalance = allBalances[widget.symbol] ?? 0.0;
+        
+        // Use the higher of on-chain or adjusted balance
+        // On-chain may not reflect swap yet, adjusted includes swap deltas
+        if (adjustedBalance > realBalance) {
+          realBalance = adjustedBalance;
+          print('DEBUG: Using swap-adjusted balance for ${widget.symbol}: $realBalance');
+        }
+        
         // For USDT and tokens: if direct call returned 0, fallback to walletService aggregated balance
         if (realBalance <= 0 && widget.symbol.startsWith('USDT')) {
-          final allBalances = await widget.walletService.getBalances();
           realBalance = allBalances['USDT'] ?? allBalances['USDT-BEP20'] ?? allBalances['USDT-ERC20'] ?? allBalances['USDT-TRC20'] ?? 0.0;
           print('DEBUG: USDT fallback from walletService: $realBalance');
         }
