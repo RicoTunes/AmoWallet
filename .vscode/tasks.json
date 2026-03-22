@@ -11,6 +11,18 @@
 			"label": "Build Flutter APK",
 			"type": "shell",
 			"command": "cd c:\\Users\\RICO\\ricoamos\\crypto-wallet-app\\frontend && c:\\Users\\RICO\\ricoamos\\flutter-sdk\\flutter\\bin\\flutter.bat build apk --release"
+		},
+		{
+			"label": "Build APK Release",
+			"type": "shell",
+			"command": "cd c:\\Users\\RICO\\ricoamos\\crypto-wallet-app\\frontend && c:\\Users\\RICO\\ricoamos\\flutter-sdk\\flutter\\bin\\flutter.bat build apk --release",
+			"isBackground": false
+		},
+		{
+			"label": "Build APK v2",
+			"type": "shell",
+			"command": "Set-Location 'c:\\Users\\RICO\\ricoamos\\crypto-wallet-app\\frontend'; c:\\Users\\RICO\\ricoamos\\flutter-sdk\\flutter\\bin\\flutter.bat build apk --release",
+			"isBackground": false
 		}
 	]
 }

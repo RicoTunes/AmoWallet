@@ -721,21 +721,22 @@ class WalletService {
   Future<void> _purgeStaleSwapAdjustments() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool('swap_adjustments_purged_v2') == true) return;
+      if (prefs.getBool('swap_adjustments_purged_v3') == true) return;
       
       final allKeys = prefs.getKeys().toList();
       int cleared = 0;
       for (final key in allKeys) {
-        if (key.startsWith('swap_adjustment_')) {
+        if (key.startsWith('swap_adjustment_') || key.startsWith('balance_cache_')) {
           await prefs.remove(key);
           cleared++;
         }
       }
       await prefs.remove('swap_history');
-      await prefs.setBool('swap_adjustments_purged_v2', true);
-      if (cleared > 0) {
-        debugPrint('🧹 Purged $cleared phantom swap adjustments');
-      }
+      // Clear stale cached balances that had phantom values baked in
+      await prefs.remove('dashboard_cached_balances');
+      await prefs.remove('pending_deductions');
+      await prefs.setBool('swap_adjustments_purged_v3', true);
+      debugPrint('🧹 Purged $cleared phantom swap adjustments + stale cached balances');
     } catch (e) {
       debugPrint('❌ Failed to purge swap adjustments: $e');
     }
