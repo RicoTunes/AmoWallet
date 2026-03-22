@@ -630,8 +630,8 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
 
       // Check minimum amount again
       final usdValue = _getUsdValue(_fromToken, _amount);
-      if (usdValue < 10.0) {
-        throw Exception('Minimum swap amount is \$10 USD');
+      if (usdValue < 5.0) {
+        throw Exception('Minimum swap amount is \$5 USD');
       }
 
       // Get private key — must use the native chain key
@@ -659,14 +659,25 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
       if (result.success) {
         // Update balances
         final fee = _selectedQuote!.fee;
+        final toAmount = result.toAmount ?? _selectedQuote!.toAmount;
         _balances[_fromToken.id] = ((_balances[_fromToken.id] ?? 0) - _amount).clamp(0.0, double.infinity);
-        _balances[_toToken.id] = (_balances[_toToken.id] ?? 0) + (result.toAmount ?? _selectedQuote!.toAmount);
+        _balances[_toToken.id] = (_balances[_toToken.id] ?? 0) + toAmount;
 
         // Use the proper chain identifiers for cached balance updates
         final fromBal = _balanceChain(_fromToken);
         final toBal = _balanceChain(_toToken);
         await _walletService!.updateCachedBalance(fromBal, _balances[_fromToken.id]!);
         await _walletService!.updateCachedBalance(toBal, _balances[_toToken.id]!);
+
+        // Save swap to history and persist balance adjustments
+        await _walletService!.recordSwapTransaction(
+          fromCoin: _fromToken.symbol,
+          toCoin: _toToken.symbol,
+          fromAmount: _amount,
+          toAmount: toAmount,
+          fee: fee,
+          txHash: result.txHash ?? 'swap_${DateTime.now().millisecondsSinceEpoch}',
+        );
 
         _confettiController.play();
         await _showSuccessDialog(result.txHash);
@@ -698,6 +709,178 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 5),
           ),
+        );
+      }
+    }
+  }
+
+  void _showSwapHistory() async {
+    _walletService ??= WalletService();
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final swapHistory = await _walletService!.getSwapHistory();
+      if (mounted) Navigator.pop(context);
+      if (!mounted) return;
+
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) {
+          return DraggableScrollableSheet(
+            initialChildSize: 0.7,
+            minChildSize: 0.4,
+            maxChildSize: 0.9,
+            expand: false,
+            builder: (_, scrollController) {
+              return Container(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40, height: 4,
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: _fromToken.color.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(Icons.history, color: _fromToken.color, size: 24),
+                        ),
+                        const SizedBox(width: 12),
+                        const Text('Swap History', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                        const Spacer(),
+                        Text('${swapHistory.length} swaps', style: TextStyle(color: Colors.grey[600], fontSize: 14)),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(),
+                    Expanded(
+                      child: swapHistory.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.swap_horiz, size: 64, color: Colors.grey[300]),
+                                  const SizedBox(height: 16),
+                                  Text('No swap history yet', style: TextStyle(color: Colors.grey[600], fontSize: 16)),
+                                  const SizedBox(height: 8),
+                                  Text('Complete a swap to see it here', style: TextStyle(color: Colors.grey[400], fontSize: 14)),
+                                ],
+                              ),
+                            )
+                          : ListView.builder(
+                              controller: scrollController,
+                              itemCount: swapHistory.length,
+                              itemBuilder: (ctx, index) {
+                                final swap = swapHistory[index];
+                                final fromCoin = swap['fromCoin'] ?? 'Unknown';
+                                final toCoin = swap['toCoin'] ?? 'Unknown';
+                                final fromAmount = (swap['fromAmount'] ?? 0.0).toDouble();
+                                final toAmount = (swap['toAmount'] ?? 0.0).toDouble();
+                                final fee = (swap['fee'] ?? 0.0).toDouble();
+                                final timestamp = swap['timestamp'] ?? '';
+
+                                String formattedDate = 'Unknown date';
+                                try {
+                                  final dt = DateTime.parse(timestamp);
+                                  formattedDate = '${dt.day}/${dt.month}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+                                } catch (_) {}
+
+                                return Container(
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.withOpacity(0.05),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: Colors.grey.withOpacity(0.1)),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Text(fromCoin, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                          const SizedBox(width: 8),
+                                          const Icon(Icons.arrow_forward, size: 16, color: Colors.grey),
+                                          const SizedBox(width: 8),
+                                          Text(toCoin, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                          const Spacer(),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: Colors.green.withOpacity(0.1),
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: const Text('Completed', style: TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.w600)),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text('Sent', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                                              Text('-${fromAmount.toStringAsFixed(6)} $fromCoin', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w600)),
+                                            ],
+                                          ),
+                                          Column(
+                                            crossAxisAlignment: CrossAxisAlignment.end,
+                                            children: [
+                                              Text('Received', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                                              Text('+${toAmount.toStringAsFixed(6)} $toCoin', style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w600)),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text('Fee: ${fee.toStringAsFixed(6)} $fromCoin', style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+                                          Text(formattedDate, style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      );
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load swap history: $e')),
         );
       }
     }
@@ -813,6 +996,11 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
           ),
           title: const Text('Swap', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           actions: [
+            IconButton(
+              icon: const Icon(Icons.history, color: Colors.white),
+              onPressed: _showSwapHistory,
+              tooltip: 'Swap History',
+            ),
             Container(
               margin: const EdgeInsets.only(right: 12),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),

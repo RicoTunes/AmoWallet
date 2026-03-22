@@ -155,6 +155,12 @@ class SwapService {
   final Logger _logger = Logger();
 
   Future<Map<String, String>> _getHeaders(String method, String path, {String body = ''}) async {
+    // Auto-generate API credentials if not stored
+    final hasKeys = await _authService.hasCredentials();
+    if (!hasKeys) {
+      _logger.i('🔑 No API credentials found, auto-generating...');
+      await _authService.generateNewApiKey(ApiConfig.baseUrl);
+    }
     final headers = await _authService.getAuthHeaders(method: method, path: path, body: body);
     if (headers.isEmpty) {
       return {'Content-Type': 'application/json'};
@@ -675,6 +681,27 @@ class SwapService {
         } else {
           throw Exception('THORChain quote unavailable for BTC swap');
         }
+      }
+
+      // FOR SAME-CHAIN EVM SWAPS: Use DEX directly (no backend needed)
+      final isSameChainBsc = _isBscToken(fromBaseCoin) && _isBscToken(toBaseCoin);
+      final isSameChainEth = _isEthToken(fromBaseCoin) && _isEthToken(toBaseCoin);
+      
+      if (isSameChainBsc || isSameChainEth) {
+        final chainId = isSameChainBsc ? 56 : 1;
+        _logger.i('🔗 Same-chain EVM swap detected (chainId: $chainId)');
+        
+        final destAddress = destinationAddress ?? userAddress;
+        return await _executeEvmDexSwap(
+          fromCoin: fromCoin,
+          toCoin: toCoin,
+          fromAmount: fromAmount,
+          userAddress: userAddress,
+          destinationAddress: destAddress,
+          privateKey: privateKey,
+          chainId: chainId,
+          targetNetwork: targetNetwork,
+        );
       }
 
       // Step 1: Get quote from backend for non-BTC swaps
@@ -1388,6 +1415,79 @@ class SwapService {
             isSimulated: false,
           );
         }
+
+        // USDT→BNB on PancakeSwap (token to native)
+        if (fromBaseCoin == 'USDT') {
+          final deadline =
+              (DateTime.now().millisecondsSinceEpoch ~/ 1000) + 1200;
+          final amountWei = BigInt.from(fromAmount * 1e18);
+
+          // Step 1: Approve PancakeSwap router to spend USDT
+          _logger.i('   Approving PancakeSwap to spend USDT...');
+          final approveData = _encodeApproveData(
+            spender: pancakeRouter,
+            amount: amountWei,
+          );
+
+          final approveResult = await _signingService.executeSwapTransaction(
+            privateKeyHex: privateKey,
+            transactionData: {
+              'to': usdtBep20,
+              'value': '0',
+              'chainId': chainId,
+              'data': approveData,
+              'gasLimit': '60000',
+            },
+          );
+
+          if (!approveResult.success) {
+            throw Exception(approveResult.error ?? 'Token approval failed');
+          }
+          _logger.i('   ✅ Approval tx: ${approveResult.txHash}');
+
+          // Wait briefly for approval to confirm
+          await Future.delayed(const Duration(seconds: 5));
+
+          // Step 2: Swap USDT→BNB via swapExactTokensForETH
+          final swapData = _encodeSwapTokensForETHData(
+            amountIn: amountWei,
+            amountOutMin: BigInt.zero,
+            path: [usdtBep20, wbnbAddress],
+            to: destinationAddress,
+            deadline: deadline,
+          );
+
+          final txResult = await _signingService.executeSwapTransaction(
+            privateKeyHex: privateKey,
+            transactionData: {
+              'to': pancakeRouter,
+              'value': '0',
+              'chainId': chainId,
+              'data': swapData,
+              'gasLimit': '300000',
+            },
+          );
+
+          if (!txResult.success) {
+            throw Exception(txResult.error ?? 'BSC swap transaction failed');
+          }
+
+          _logger.i('✅ BSC USDT→BNB swap sent: ${txResult.txHash}');
+
+          return RealSwapResult(
+            success: true,
+            txHash: txResult.txHash,
+            fromCoin: fromCoin,
+            toCoin: toCoin,
+            fromAmount: fromAmount,
+            toAmount: fromAmount / 580, // Approximate USDT/BNB rate
+            provider: 'pancakeswap',
+            chainId: chainId,
+            explorerUrl: 'https://bscscan.com/tx/${txResult.txHash}',
+            status: SwapStatus.pending,
+            isSimulated: false,
+          );
+        }
       }
 
       throw Exception(
@@ -1434,6 +1534,44 @@ class SwapService {
         .join('');
 
     return '0x$selector$amountOutMinHex$pathOffsetHex$toHex$deadlineHex$pathLengthHex$pathHex';
+  }
+
+  /// Encode ERC20 approve(address spender, uint256 amount)
+  String _encodeApproveData({
+    required String spender,
+    required BigInt amount,
+  }) {
+    // Function selector: approve(address,uint256) = 0x095ea7b3
+    final spenderHex = spender.toLowerCase().replaceAll('0x', '').padLeft(64, '0');
+    final amountHex = amount.toRadixString(16).padLeft(64, '0');
+    return '0x095ea7b3$spenderHex$amountHex';
+  }
+
+  /// Encode PancakeSwap swapExactTokensForETH(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline)
+  String _encodeSwapTokensForETHData({
+    required BigInt amountIn,
+    required BigInt amountOutMin,
+    required List<String> path,
+    required String to,
+    required int deadline,
+  }) {
+    // Function selector: swapExactTokensForETH(uint256,uint256,address[],address,uint256) = 0x18cbafe5
+    final selector = '18cbafe5';
+    final amountInHex = amountIn.toRadixString(16).padLeft(64, '0');
+    final amountOutMinHex = amountOutMin.toRadixString(16).padLeft(64, '0');
+    final deadlineHex = deadline.toRadixString(16).padLeft(64, '0');
+    final toHex = to.toLowerCase().replaceAll('0x', '').padLeft(64, '0');
+
+    // Offset for path array (5 * 32 = 160 = 0xa0)
+    const pathOffsetHex = '00000000000000000000000000000000000000000000000000000000000000a0';
+
+    // Path array
+    final pathLengthHex = path.length.toRadixString(16).padLeft(64, '0');
+    final pathHex = path
+        .map((addr) => addr.toLowerCase().replaceAll('0x', '').padLeft(64, '0'))
+        .join('');
+
+    return '0x$selector$amountInHex$amountOutMinHex$pathOffsetHex$toHex$deadlineHex$pathLengthHex$pathHex';
   }
 
   /// Get THORChain swap details from backend
@@ -1643,6 +1781,16 @@ class SwapService {
       'OP': 10,
     };
     return chainIds[coin] ?? 1;
+  }
+
+  bool _isBscToken(String coin) {
+    const bscTokens = {'BNB', 'USDT', 'BUSD', 'CAKE', 'BTCB'};
+    return bscTokens.contains(coin);
+  }
+
+  bool _isEthToken(String coin) {
+    const ethTokens = {'ETH', 'USDC', 'DAI', 'WETH', 'UNI', 'LINK', 'AAVE'};
+    return ethTokens.contains(coin);
   }
 
   List<int> _encodeThorchainfMemo(String memo) {
