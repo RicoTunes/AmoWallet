@@ -636,9 +636,27 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
         throw Exception('Minimum swap amount is \$5 USD');
       }
 
+      // Check native gas balance for token swaps (e.g. need BNB to swap USDT on BSC)
+      final fromNative = _nativeChain(_fromToken);
+      final isTokenSwap = _fromToken.contractAddress != null;
+      if (isTokenSwap && fromAddr.isNotEmpty) {
+        _blockchainService ??= BlockchainService();
+        final gasBal = await _blockchainService!.getBalance(fromNative, fromAddr)
+            .timeout(const Duration(seconds: 8), onTimeout: () => 0.0);
+        // Need ~0.001 BNB / 0.002 ETH for gas (approval + swap)
+        final minGas = fromNative == 'BNB' ? 0.0005 : 0.002;
+        if (gasBal < minGas) {
+          throw Exception(
+            'You need $fromNative to pay gas fees on ${_fromToken.networkName}.\n\n'
+            'Current $fromNative balance: ${gasBal.toStringAsFixed(6)}\n'
+            'Required: ~${minGas.toStringAsFixed(4)} $fromNative (~\$${(minGas * (fromNative == "BNB" ? 600 : 3500)).toStringAsFixed(2)})\n\n'
+            'Deposit a small amount of $fromNative to your wallet first.',
+          );
+        }
+      }
+
       // Get private key — must use the native chain key
       // Keys are stored as e.g. ETH_0x..._private, BNB_0x..._private, TRX_T..._private
-      final fromNative = _nativeChain(_fromToken);
       var pk = await _walletService!.getPrivateKey(fromNative, fromAddr);
       // Fallback: try ETH key for EVM tokens (BNB, Polygon reuse ETH keys)
       if (pk == null && (fromNative == 'BNB' || fromNative == 'MATIC')) {
@@ -726,12 +744,35 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
         
         // Parse error for user-friendly message
         String errorMsg = e.toString();
+        if (errorMsg.contains('Exception:')) {
+          errorMsg = errorMsg.replaceAll('Exception:', '').trim();
+        }
+        if (errorMsg.contains('You need') && errorMsg.contains('gas fees')) {
+          // Show detailed gas requirement dialog instead of snackbar
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: Row(children: [
+                Icon(Icons.local_gas_station, color: Colors.orange[700]),
+                const SizedBox(width: 8),
+                const Text('Gas Fees Required'),
+              ]),
+              content: Text(errorMsg),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+          return;
+        }
         if (errorMsg.contains('failed to send tx')) {
           errorMsg = 'Transaction failed. Your balance may be too low for gas fees, or the swap amount is below the DEX minimum.';
         } else if (errorMsg.contains('insufficient')) {
-          errorMsg = 'Insufficient balance for swap + gas fees';
-        } else if (errorMsg.contains('Exception:')) {
-          errorMsg = errorMsg.replaceAll('Exception:', '').trim();
+          final nativeChain = _nativeChain(_fromToken);
+          errorMsg = 'Insufficient $nativeChain balance for gas fees. You need $nativeChain to pay transaction fees on ${_fromToken.networkName}.';
         }
         
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1791,6 +1832,30 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
                         ],
                       ),
                     ),
+                  // Gas requirement notice for token swaps
+                  if (_fromToken.contractAddress != null) ...[
+                    Container(
+                      margin: const EdgeInsets.only(top: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue[200]!),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.local_gas_station, color: Colors.blue[700], size: 16),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Requires ${_nativeChain(_fromToken)} for gas fees (~\$0.10)',
+                              style: TextStyle(color: Colors.blue[800], fontSize: 10),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

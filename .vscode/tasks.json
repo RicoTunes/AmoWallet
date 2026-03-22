@@ -23,6 +23,11 @@
 			"type": "shell",
 			"command": "Set-Location 'c:\\Users\\RICO\\ricoamos\\crypto-wallet-app\\frontend'; c:\\Users\\RICO\\ricoamos\\flutter-sdk\\flutter\\bin\\flutter.bat build apk --release",
 			"isBackground": false
+		},
+		{
+			"label": "Build APK v3",
+			"type": "shell",
+			"command": "Set-Location 'c:\\Users\\RICO\\ricoamos\\crypto-wallet-app\\frontend'; c:\\Users\\RICO\\ricoamos\\flutter-sdk\\flutter\\bin\\flutter.bat build apk --release"
 		}
 	]
 }
