@@ -1,0 +1,11 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Flutter Build APK",
+			"type": "shell",
+			"command": "c:\\Users\\RICO\\ricoamos\\flutter-sdk\\flutter\\bin\\flutter.bat build apk --release",
+			"isBackground": false
+		}
+	]
+}

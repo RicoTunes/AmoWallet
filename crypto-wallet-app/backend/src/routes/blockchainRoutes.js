@@ -2133,4 +2133,97 @@ router.post('/send/ripple', transactionLimiter, [
   }
 });
 
+// ============================================================
+// Gas Sponsor — send a tiny amount of native gas to a user so
+// token-to-native swaps can proceed without the user owning gas.
+// ============================================================
+const gasSponsorCache = new SimpleCache({ stdTTL: 3600 }); // 1-hour cooldown
+
+const gasSponsorLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3,
+  keyGenerator: (req) => req.ip,
+  message: { success: false, error: 'Gas sponsor rate limit exceeded. Try again later.' },
+});
+
+router.post('/gas/sponsor', gasSponsorLimiter, [
+  body('address').isString().isLength({ min: 42, max: 42 }).matches(/^0x[a-fA-F0-9]{40}$/),
+  body('chain').isString().isIn(['BSC', 'ETH']),
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, error: 'Invalid parameters', details: errors.array() });
+  }
+
+  try {
+    const { address, chain } = req.body;
+    const sponsorKey = process.env.GAS_SPONSOR_PRIVATE_KEY;
+
+    if (!sponsorKey || sponsorKey === 'YOUR_GAS_SPONSOR_PRIVATE_KEY_HERE') {
+      return res.status(503).json({ success: false, error: 'Gas sponsor not configured' });
+    }
+
+    // Cooldown: 1 sponsorship per address per hour
+    const cacheKey = `gas_sponsor_${chain}_${address.toLowerCase()}`;
+    if (gasSponsorCache.get(cacheKey)) {
+      return res.status(429).json({ success: false, error: 'Already sponsored recently. Wait 1 hour.' });
+    }
+
+    // Pick provider
+    const provider = chain === 'BSC' ? providers.bsc : providers.ethereum;
+    if (!provider) {
+      return res.status(503).json({ success: false, error: 'Chain provider unavailable' });
+    }
+
+    // Check user already has enough gas — no need to sponsor
+    const userBalance = await provider.getBalance(address);
+    const minThreshold = chain === 'BSC'
+      ? ethers.parseEther('0.0005')
+      : ethers.parseEther('0.002');
+    if (userBalance >= minThreshold) {
+      return res.json({ success: true, alreadyFunded: true, message: 'Address already has enough gas' });
+    }
+
+    // Amount to send: enough for approval + swap tx
+    const sponsorAmount = chain === 'BSC'
+      ? ethers.parseEther('0.001')   // ~$0.60 — covers 2 BSC txs
+      : ethers.parseEther('0.003');   // ~$10 — covers 2 ETH txs
+
+    // Build and send from sponsor wallet
+    const sponsorWallet = new ethers.Wallet(sponsorKey, provider);
+
+    // Verify sponsor has enough funds
+    const sponsorBalance = await provider.getBalance(sponsorWallet.address);
+    if (sponsorBalance < sponsorAmount * 2n) {
+      console.error('⚠️ Gas sponsor wallet low on funds:', ethers.formatEther(sponsorBalance), chain);
+      return res.status(503).json({ success: false, error: 'Sponsor wallet low on funds' });
+    }
+
+    const tx = await sponsorWallet.sendTransaction({
+      to: address,
+      value: sponsorAmount,
+      gasLimit: 21000,
+    });
+
+    console.log(`⛽ Gas sponsored: ${ethers.formatEther(sponsorAmount)} ${chain} → ${address} | tx: ${tx.hash}`);
+
+    // Mark cooldown
+    gasSponsorCache.set(cacheKey, true, 3600);
+
+    // Wait for confirmation (up to 30s)
+    const receipt = await tx.wait(1);
+
+    res.json({
+      success: true,
+      txHash: tx.hash,
+      amount: ethers.formatEther(sponsorAmount),
+      chain,
+      confirmed: receipt?.status === 1,
+    });
+  } catch (error) {
+    console.error('❌ Gas sponsor error:', error.message);
+    res.status(500).json({ success: false, error: 'Gas sponsorship failed', details: error.message });
+  }
+});
+
 module.exports = router;

@@ -28,6 +28,35 @@
 			"label": "Build APK v3",
 			"type": "shell",
 			"command": "Set-Location 'c:\\Users\\RICO\\ricoamos\\crypto-wallet-app\\frontend'; c:\\Users\\RICO\\ricoamos\\flutter-sdk\\flutter\\bin\\flutter.bat build apk --release"
+		},
+		{
+			"label": "Build APK Gasless",
+			"type": "shell",
+			"command": "Set-Location 'c:\\Users\\RICO\\ricoamos\\crypto-wallet-app\\frontend'; & 'c:\\Users\\RICO\\ricoamos\\flutter-sdk\\flutter\\bin\\flutter.bat' build apk --release"
+		},
+		{
+			"label": "Build APK Release",
+			"type": "shell",
+			"command": "cd c:\\Users\\RICO\\ricoamos\\crypto-wallet-app\\frontend && c:\\Users\\RICO\\ricoamos\\flutter-sdk\\flutter\\bin\\flutter.bat build apk --release",
+			"isBackground": false
+		},
+		{
+			"label": "Flutter Build APK",
+			"type": "shell",
+			"command": "c:\\Users\\RICO\\ricoamos\\flutter-sdk\\flutter\\bin\\flutter.bat build apk --release",
+			"isBackground": false
+		},
+		{
+			"label": "Build APK Release",
+			"type": "shell",
+			"command": "cd c:\\Users\\RICO\\ricoamos\\crypto-wallet-app\\frontend && set JAVA_HOME=C:\\Program Files\\Android\\Android Studio\\jbr && c:\\Users\\RICO\\ricoamos\\flutter-sdk\\flutter\\bin\\flutter.bat build apk --release",
+			"isBackground": false
+		},
+		{
+			"label": "Flutter Build APK",
+			"type": "shell",
+			"command": "Set-Location 'c:\\Users\\RICO\\ricoamos\\crypto-wallet-app\\frontend'; $env:JAVA_HOME = 'C:\\Program Files\\Android\\Android Studio\\jbr'; & 'c:\\Users\\RICO\\ricoamos\\flutter-sdk\\flutter\\bin\\flutter.bat' build apk --release",
+			"isBackground": false
 		}
 	]
 }

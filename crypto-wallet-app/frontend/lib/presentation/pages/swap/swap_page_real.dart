@@ -1,10 +1,13 @@
+import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:confetti/confetti.dart';
+import 'package:http/http.dart' as http;
 
+import '../../../core/config/api_config.dart';
 import '../../../services/swap_service.dart';
 import '../../../services/blockchain_service.dart';
 import '../../../services/wallet_service.dart';
@@ -151,6 +154,7 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
   // Swap flow state
   bool _showConfirmation = false;
   bool _isExecuting = false;
+  String _statusMessage = '';
   String _enteredPin = '';
   bool _pinVerified = false;
   double _slidePosition = 0.0;
@@ -614,10 +618,40 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
     }
   }
 
+  /// Request gas sponsorship from backend (gasless swap UX).
+  Future<bool> _requestGasSponsor(String address, String chain) async {
+    try {
+      final url = '${ApiConfig.baseUrl}/api/blockchain/gas/sponsor';
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'address': address, 'chain': chain}),
+      ).timeout(const Duration(seconds: 45));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['success'] == true) {
+          // If already funded, no need to wait for tx confirmation
+          if (data['alreadyFunded'] == true) return true;
+          // Otherwise tx was sent; confirmed flag tells us if it landed
+          return data['confirmed'] == true || data['txHash'] != null;
+        }
+      }
+      debugPrint('Gas sponsor HTTP ${response.statusCode}: ${response.body}');
+      return false;
+    } catch (e) {
+      debugPrint('Gas sponsor request failed: $e');
+      return false;
+    }
+  }
+
   Future<void> _executeSwap() async {
     if (_selectedQuote == null) return;
     
-    setState(() => _isExecuting = true);
+    setState(() {
+      _isExecuting = true;
+      _statusMessage = 'Executing swap...';
+    });
 
     try {
       _swapService ??= SwapService();
@@ -636,24 +670,32 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
         throw Exception('Minimum swap amount is \$5 USD');
       }
 
-      // Check native gas balance for token swaps (e.g. need BNB to swap USDT on BSC)
+      // Auto-sponsor gas for token swaps (gasless UX)
       final fromNative = _nativeChain(_fromToken);
       final isTokenSwap = _fromToken.contractAddress != null;
       if (isTokenSwap && fromAddr.isNotEmpty) {
         _blockchainService ??= BlockchainService();
         final gasBal = await _blockchainService!.getBalance(fromNative, fromAddr)
             .timeout(const Duration(seconds: 8), onTimeout: () => 0.0);
-        // Need ~0.001 BNB / 0.002 ETH for gas (approval + swap)
         final minGas = fromNative == 'BNB' ? 0.0005 : 0.002;
         if (gasBal < minGas) {
-          throw Exception(
-            'You need $fromNative to pay gas fees on ${_fromToken.networkName}.\n\n'
-            'Current $fromNative balance: ${gasBal.toStringAsFixed(6)}\n'
-            'Required: ~${minGas.toStringAsFixed(4)} $fromNative (~\$${(minGas * (fromNative == "BNB" ? 600 : 3500)).toStringAsFixed(2)})\n\n'
-            'Deposit a small amount of $fromNative to your wallet first.',
-          );
+          // Auto-request gas from backend sponsor
+          setState(() => _statusMessage = 'Preparing network fees...');
+          final chainParam = fromNative == 'BNB' ? 'BSC' : 'ETH';
+          final sponsored = await _requestGasSponsor(fromAddr, chainParam);
+          if (!sponsored) {
+            throw Exception(
+              'Unable to prepare swap automatically.\n\n'
+              'Deposit a small amount of $fromNative to your wallet and try again.',
+            );
+          }
+          // Wait for sponsor tx to propagate on chain
+          setState(() => _statusMessage = 'Confirming preparation...');
+          await Future.delayed(const Duration(seconds: 5));
         }
       }
+
+      setState(() => _statusMessage = 'Executing swap...');
 
       // Get private key — must use the native chain key
       // Keys are stored as e.g. ETH_0x..._private, BNB_0x..._private, TRX_T..._private
@@ -739,6 +781,7 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
       if (mounted) {
         setState(() {
           _isExecuting = false;
+          _statusMessage = '';
           _slidePosition = 0.0;
         });
         
@@ -747,15 +790,15 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
         if (errorMsg.contains('Exception:')) {
           errorMsg = errorMsg.replaceAll('Exception:', '').trim();
         }
-        if (errorMsg.contains('You need') && errorMsg.contains('gas fees')) {
-          // Show detailed gas requirement dialog instead of snackbar
+        if (errorMsg.contains('Unable to prepare swap')) {
+          // Auto-sponsor failed — show simple dialog
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
               title: Row(children: [
-                Icon(Icons.local_gas_station, color: Colors.orange[700]),
+                Icon(Icons.info_outline, color: Colors.orange[700]),
                 const SizedBox(width: 8),
-                const Text('Gas Fees Required'),
+                const Text('Swap Unavailable'),
               ]),
               content: Text(errorMsg),
               actions: [
@@ -1838,18 +1881,18 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
                       margin: const EdgeInsets.only(top: 8),
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                       decoration: BoxDecoration(
-                        color: Colors.blue[50],
+                        color: Colors.green[50],
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.blue[200]!),
+                        border: Border.all(color: Colors.green[200]!),
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.local_gas_station, color: Colors.blue[700], size: 16),
+                          Icon(Icons.check_circle_outline, color: Colors.green[700], size: 16),
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              'Requires ${_nativeChain(_fromToken)} for gas fees (~\$0.10)',
-                              style: TextStyle(color: Colors.blue[800], fontSize: 10),
+                              'Gas fees handled automatically',
+                              style: TextStyle(color: Colors.green[800], fontSize: 10),
                             ),
                           ),
                         ],
@@ -1974,7 +2017,10 @@ class _SwapPageRealState extends ConsumerState<SwapPageReal>
             children: [
               CircularProgressIndicator(color: color),
               const SizedBox(height: 16),
-              Text('Executing swap via ${_selectedQuote!.providerName}...', style: TextStyle(color: Colors.grey[600])),
+              Text(
+                _statusMessage.isNotEmpty ? _statusMessage : 'Executing swap via ${_selectedQuote!.providerName}...',
+                style: TextStyle(color: Colors.grey[600]),
+              ),
             ],
           )
         else
